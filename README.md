@@ -11,7 +11,7 @@ bun run tauri dev
 
 - Menu bar: live ↑/↓ network speed; click it for a popover with the speed graph and switches.
 - `⌥Space`: search panel. Type to find apps (English or Chinese names) and saved paths; type `热键` or `收藏` to open plugin features.
-- Config: `~/Library/Application Support/com.ahatools.app/config.json` (hotkeys, net speed on/off). Restart after editing.
+- Settings: type `设置` in the panel (or ⌘, / the popover). Hotkeys, screenshot tool and forwarding apply immediately; stored in `~/Library/Application Support/com.ahatools.app/config.json`.
 
 ## Layout
 
