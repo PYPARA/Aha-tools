@@ -32,6 +32,11 @@ const TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 const TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 const FIELD_AUTOREPEAT: u32 = 8;
 const FIELD_KEYCODE: u32 = 9;
+/// kCGEventSourceUserData: free for the poster's own use.
+const FIELD_SOURCE_USER_DATA: u32 = 42;
+/// Marks key events AhaTools posts itself, so the tap lets them through.
+const SYNTHETIC_MARK: i64 = 0x4154_4b59; // "ATKY"
+const SOURCE_STATE_HID_SYSTEM: i32 = 1;
 
 // CGEventFlags
 const FLAG_SHIFT: u64 = 1 << 17;
@@ -53,6 +58,11 @@ unsafe extern "C" {
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     fn CGEventGetFlags(event: CGEventRef) -> u64;
+    fn CGEventSourceCreate(state: i32) -> *mut c_void;
+    fn CGEventCreateKeyboardEvent(source: *mut c_void, keycode: u16, key_down: bool) -> CGEventRef;
+    fn CGEventSetFlags(event: CGEventRef, flags: u64);
+    fn CGEventSetIntegerValueField(event: CGEventRef, field: u32, value: i64);
+    fn CGEventPost(tap: u32, event: CGEventRef);
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -104,6 +114,12 @@ struct State {
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 /// User switch. The tap stays installed when off; it just lets every key through.
 static ENABLED: AtomicBool = AtomicBool::new(true);
+/// While a hotkey is being recorded in settings, every key goes through to the page.
+static RECORDING: AtomicBool = AtomicBool::new(false);
+
+pub fn set_recording(on: bool) {
+    RECORDING.store(on, Ordering::Relaxed);
+}
 
 pub fn is_trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
@@ -185,23 +201,50 @@ pub fn set_bindings(bindings: Vec<TapBinding>) {
 
 /// Converts a parsed accelerator to (virtual key code, CGEventFlags).
 pub fn binding_for(shortcut: &Shortcut, action: Action) -> Option<TapBinding> {
-    let keycode = keycode(shortcut.key)?;
-    let mut flags = 0;
-    for (m, f) in [
+    Some(TapBinding {
+        keycode: keycode(shortcut.key)?,
+        flags: flags_for(shortcut.mods),
+        action,
+    })
+}
+
+fn flags_for(mods: Modifiers) -> u64 {
+    [
         (Modifiers::SHIFT, FLAG_SHIFT),
         (Modifiers::CONTROL, FLAG_CONTROL),
         (Modifiers::ALT, FLAG_ALT),
         (Modifiers::SUPER, FLAG_COMMAND),
-    ] {
-        if shortcut.mods.contains(m) {
-            flags |= f;
+    ]
+    .into_iter()
+    .filter(|(m, _)| mods.contains(*m))
+    .fold(0, |acc, (_, f)| acc | f)
+}
+
+/// Presses and releases `shortcut` as if typed, for other apps' global hotkeys to see.
+/// Needs Accessibility permission.
+pub fn post_shortcut(shortcut: &Shortcut) -> Result<(), String> {
+    if !is_trusted() {
+        return Err("需要先在系统设置里允许 AhaTools 使用「辅助功能」".into());
+    }
+    let keycode = keycode(shortcut.key).ok_or("这个按键不支持代按")?;
+    let flags = flags_for(shortcut.mods);
+    unsafe {
+        let source = CGEventSourceCreate(SOURCE_STATE_HID_SYSTEM);
+        for down in [true, false] {
+            let event = CGEventCreateKeyboardEvent(source, keycode, down);
+            if event.is_null() {
+                continue;
+            }
+            CGEventSetFlags(event, flags);
+            CGEventSetIntegerValueField(event, FIELD_SOURCE_USER_DATA, SYNTHETIC_MARK);
+            CGEventPost(HID_EVENT_TAP, event);
+            CFRelease(event);
+        }
+        if !source.is_null() {
+            CFRelease(source);
         }
     }
-    Some(TapBinding {
-        keycode,
-        flags,
-        action,
-    })
+    Ok(())
 }
 
 unsafe extern "C" fn callback(
@@ -223,8 +266,11 @@ unsafe extern "C" fn callback(
         return event;
     }
 
-    if !ENABLED.load(Ordering::Relaxed) {
+    if !ENABLED.load(Ordering::Relaxed) || RECORDING.load(Ordering::Relaxed) {
         state.held.clear();
+        return event;
+    }
+    if unsafe { CGEventGetIntegerValueField(event, FIELD_SOURCE_USER_DATA) } == SYNTHETIC_MARK {
         return event;
     }
 
@@ -351,6 +397,14 @@ fn keycode(code: Code) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hyper_digit_parses_for_relay_keys() {
+        let s: Shortcut = "Control+Alt+Shift+Super+Digit1".parse().unwrap();
+        let b = binding_for(&s, Action::TogglePanel).unwrap();
+        assert_eq!(b.keycode, 0x12);
+        assert_eq!(b.flags, MOD_MASK);
+    }
 
     #[test]
     fn alt_space_maps_to_keycode_and_flags() {

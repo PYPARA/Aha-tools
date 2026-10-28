@@ -4,6 +4,9 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import launcher from "../plugins/launcher/plugin.json";
 import hotkeys from "../plugins/hotkeys/plugin.json";
+import settings from "../plugins/settings/plugin.json";
+
+const manifests = [launcher, hotkeys, settings];
 
 const apps = [
   { title: "微信", subtitle: "WeChat · /Applications/WeChat.app", kind: "app", path: "/Applications/WeChat.app" },
@@ -21,16 +24,33 @@ let saved = [
 
 let exclusive = true;
 
+let config = {
+  hotkeys: [
+    { accelerator: "Alt+Space", action: { type: "togglePanel" }, enabled: true },
+    { accelerator: "Shift+Super+KeyA", action: { type: "screenshot" }, enabled: true },
+    { accelerator: "Control+Space", action: { type: "forward", app: "utools" }, enabled: false },
+  ],
+  netspeed: true,
+  exclusiveHotkeys: true,
+  screenshot: { target: "wechat", systemMode: "region" },
+  relayApps: [
+    { id: "wechat", name: "微信", bundleId: "com.tencent.xinWeChat", accelerator: "Control+Alt+Shift+Super+Digit1", screenshot: true },
+    { id: "qq", name: "QQ", bundleId: "com.tencent.qq", accelerator: "Control+Alt+Shift+Super+Digit2", screenshot: true },
+    { id: "dingtalk", name: "钉钉", bundleId: "com.alibaba.DingTalkMac", accelerator: "Control+Alt+Shift+Super+Digit3", screenshot: true },
+    { id: "utools", name: "uTools", bundleId: "org.yuanli.utools", accelerator: "Control+Alt+Shift+Super+Digit0", screenshot: false },
+  ],
+};
+
 mockWindows("panel");
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (cmd) {
     case "list_plugins":
-      return [launcher, hotkeys];
+      return manifests;
     case "search": {
       const q = String(a.query ?? "").trim().toLowerCase();
       if (!q) return [];
-      const features = [launcher, hotkeys].flatMap((m) =>
+      const features = manifests.flatMap((m) =>
         m.features
           .filter((f) => f.cmds.some((c) => c.toLowerCase().includes(q)))
           .map((f) => ({
@@ -57,8 +77,24 @@ mockIPC((cmd, args) => {
     }
     case "plugin:autostart|is_enabled":
       return false;
+    case "config_get":
+      return config;
+    case "config_set":
+      config = a.config as typeof config;
+      return [];
+    case "relay_status":
+      return [
+        { id: "wechat", installed: true, running: true },
+        { id: "qq", installed: true, running: false },
+        { id: "dingtalk", installed: true, running: false },
+        { id: "utools", installed: true, running: true },
+      ];
+    case "hotkey_set_recording":
+    case "relay_press_later":
+    case "screenshot_take":
+      return null;
     case "hotkey_bindings":
-      return [{ accelerator: "Alt+Space", action: { type: "togglePanel" }, enabled: true }];
+      return config.hotkeys;
     case "launcher_saved":
       return saved;
     case "launcher_add":

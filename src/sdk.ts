@@ -9,7 +9,7 @@ export * from "./ui";
 
 export type ItemAction =
   | { type: "openPath"; path: string }
-  | { type: "feature"; feature: string };
+  | { type: "feature"; feature: string; input?: string };
 
 export interface SearchItem {
   title: string;
@@ -26,6 +26,7 @@ export interface Feature {
   code: string;
   explain: string;
   cmds: string[];
+  match?: { text?: boolean; minLength?: number; regex?: string; files?: string[] };
 }
 
 export interface Manifest {
@@ -43,6 +44,8 @@ export interface PluginViewProps {
   onBack: () => void;
   /** Text for the right side of the panel footer, e.g. "4 个收藏". */
   setStatus: (text: string) => void;
+  /** Text the feature was opened with ("fy hello" → "hello", or a matched query). */
+  input?: string;
 }
 
 export const hidePanel = () => invoke("hide_panel");

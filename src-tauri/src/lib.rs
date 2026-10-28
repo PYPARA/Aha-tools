@@ -4,6 +4,8 @@ mod netspeed;
 mod panel;
 mod plugins;
 mod popover;
+mod relay;
+mod screenshot;
 
 use std::thread;
 
@@ -17,6 +19,7 @@ use plugins::{Registry, SearchProvider};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -44,6 +47,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            config::config_get,
+            config::config_set,
             panel::hide_panel,
             panel::set_panel_pinned,
             plugins::list_plugins,
@@ -57,6 +62,10 @@ pub fn run() {
             hotkey::hotkey_status,
             hotkey::hotkey_request_access,
             hotkey::hotkey_set_exclusive,
+            hotkey::hotkey_set_recording,
+            relay::relay_status,
+            relay::relay_press_later,
+            screenshot::screenshot_take,
             netspeed::netspeed_snapshot,
             popover::menu_open_panel,
             popover::menu_open_feature,

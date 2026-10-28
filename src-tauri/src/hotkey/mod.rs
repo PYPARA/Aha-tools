@@ -6,7 +6,8 @@
 //! - Carbon via the global-shortcut plugin (shared): every app registered for the combo
 //!   fires. Used until the permission is granted.
 //!
-//! Later: forwarding actions, so a contested combo can be routed to uTools / WeChat.
+//! Actions can also hand a key to another app (`Forward`, `Screenshot`): AhaTools presses
+//! that app's own secret hotkey for it (see relay.rs).
 
 pub mod probe;
 pub mod tap;
@@ -19,7 +20,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::plugin::TauriPlugin;
-use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::config::{Binding, Config};
@@ -32,6 +33,10 @@ pub enum Action {
     TogglePanel,
     /// Show the panel and jump straight into a plugin feature.
     OpenFeature { plugin: String, feature: String },
+    /// Take a screenshot with the tool chosen in settings.
+    Screenshot,
+    /// Press a relay app's own hotkey, e.g. to open uTools.
+    Forward { app: String },
 }
 
 #[derive(Default)]
@@ -59,7 +64,7 @@ pub fn plugin() -> TauriPlugin<Wry> {
         .build()
 }
 
-pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &Action) {
+pub fn dispatch(app: &AppHandle, action: &Action) {
     match action {
         Action::TogglePanel => panel::toggle(app),
         Action::OpenFeature { plugin, feature } => {
@@ -68,6 +73,12 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &Action) {
                 "open-feature",
                 serde_json::json!({ "plugin": plugin, "feature": feature }),
             );
+        }
+        Action::Screenshot => crate::screenshot::take(app, None),
+        Action::Forward { app: id } => {
+            if let Err(e) = crate::relay::forward(app, id) {
+                crate::relay::notify(&e);
+            }
         }
     }
 }
@@ -114,13 +125,20 @@ pub fn set_exclusive(app: &AppHandle, on: bool) -> Result<(), String> {
     let mut cfg = crate::config::load(app);
     cfg.exclusive_hotkeys = on;
     crate::config::save_json(app, "config", &cfg)?;
-    tap::set_enabled(on);
-    if on {
+    reconfigure(app, &cfg);
+    Ok(())
+}
+
+/// Applies the hotkey settings in `cfg` right away. Returns one message per binding
+/// that couldn't be registered.
+pub fn reconfigure(app: &AppHandle, cfg: &Config) -> Vec<String> {
+    tap::set_enabled(cfg.exclusive_hotkeys);
+    if cfg.exclusive_hotkeys {
         ensure_tap(app);
     }
-    apply(app, &cfg.hotkeys);
+    let errors = apply(app, &cfg.hotkeys);
     notify(app);
-    Ok(())
+    errors
 }
 
 /// Tells every window (panel, menu popover) that the hotkey mode changed.
@@ -139,7 +157,11 @@ pub fn apply(app: &AppHandle, bindings: &[Binding]) -> Vec<String> {
     let exclusive = tap::is_active();
     let mut tap_bindings = vec![];
     let mut errors = vec![];
-    for b in bindings.iter().filter(|b| b.enabled) {
+    // Rows still being set up in settings have no accelerator yet.
+    for b in bindings
+        .iter()
+        .filter(|b| b.enabled && !b.accelerator.trim().is_empty())
+    {
         let shortcut: Shortcut = match b.accelerator.parse() {
             Ok(s) => s,
             Err(e) => {
@@ -205,6 +227,17 @@ pub fn hotkey_request_access() {
     let _ = std::process::Command::new("open")
         .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
         .spawn();
+}
+
+/// While recording a hotkey in settings, nothing may react to key presses.
+#[tauri::command]
+pub fn hotkey_set_recording(app: AppHandle, on: bool) {
+    tap::set_recording(on);
+    if on {
+        let _ = app.global_shortcut().unregister_all();
+    } else {
+        apply(&app, &crate::config::load(&app).hotkeys);
+    }
 }
 
 #[tauri::command]

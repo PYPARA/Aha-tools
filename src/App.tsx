@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   BackIcon,
+  formatAccelerator,
   hidePanel,
   invoke,
   NoResultIcon,
@@ -15,18 +16,10 @@ import {
 import { pluginIcons, views } from "./views";
 import "./styles.css";
 
-type Active = { plugin: string; feature: string } | null;
+type Active = { plugin: string; feature: string; input?: string } | null;
 
 const KIND_LABEL: Record<SearchItem["kind"], string> = { app: "应用", saved: "收藏", feature: "功能" };
 
-/** "Alt+Space" → "⌥Space" */
-function prettyAccelerator(acc: string) {
-  const symbols: Record<string, string> = { alt: "⌥", option: "⌥", super: "⌘", cmd: "⌘", command: "⌘", control: "⌃", ctrl: "⌃", shift: "⇧" };
-  return acc
-    .split("+")
-    .map((part) => symbols[part.toLowerCase()] ?? part.replace(/^Key/, ""))
-    .join("");
-}
 
 function ResultIcon({ item }: { item: SearchItem }) {
   if (item.kind === "app") {
@@ -76,14 +69,16 @@ export default function App() {
     invoke<Manifest[]>("list_plugins").then(setManifests);
     invoke<{ accelerator: string; action: { type: string }; enabled: boolean }[]>("hotkey_bindings").then((bs) => {
       const b = bs.find((b) => b.enabled && b.action.type === "togglePanel");
-      if (b) setHotkey(prettyAccelerator(b.accelerator));
+      if (b) setHotkey(formatAccelerator(b.accelerator));
     });
     const unShown = listen("panel-shown", () => {
       setActive(null);
       setError(null);
       requestAnimationFrame(() => inputRef.current?.select());
     });
-    const unOpen = listen<{ plugin: string; feature: string }>("open-feature", (e) => open(e.payload));
+    const unOpen = listen<{ plugin: string; feature: string; input?: string }>("open-feature", (e) =>
+      open(e.payload),
+    );
     return () => {
       unShown.then((f) => f());
       unOpen.then((f) => f());
@@ -122,7 +117,7 @@ export default function App() {
     [manifests],
   );
 
-  function open(target: { plugin: string; feature: string }) {
+  function open(target: { plugin: string; feature: string; input?: string }) {
     setStatus("");
     setError(null);
     setActive(target);
@@ -144,11 +139,16 @@ export default function App() {
         setError(String(e));
       }
     } else {
-      open({ plugin: item.plugin, feature: item.action.feature });
+      open({ plugin: item.plugin, feature: item.action.feature, input: item.action.input });
     }
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.metaKey && e.key === ",") {
+      e.preventDefault();
+      open({ plugin: "settings", feature: "general" });
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       if (active) back();
@@ -177,7 +177,7 @@ export default function App() {
   let right: string;
   if (active) {
     body = View ? (
-      <View onBack={back} setStatus={setStatus} />
+      <View key={`${active.plugin}/${active.feature}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} />
     ) : (
       <div className="state">
         <span className="note">

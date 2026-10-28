@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { invoke } from "@ahatools/sdk";
+import { formatAccelerator, invoke } from "@ahatools/sdk";
 
 interface Snapshot {
   up: number;
@@ -22,6 +22,15 @@ interface HotkeyStatus {
   exclusive: boolean;
   trusted: boolean;
 }
+
+/** The parts of config.json the popover shows. */
+interface ShotConfig {
+  screenshot: { target: string };
+  relayApps: { id: string; name: string; screenshot: boolean }[];
+  [key: string]: unknown;
+}
+
+const openSettings = () => invoke("menu_open_feature", { plugin: "settings", feature: "general" });
 
 const EMPTY: Snapshot = { up: 0, down: 0, history: [], rxTotal: 0, txTotal: 0, iface: null, ifaceLabel: null };
 
@@ -43,14 +52,6 @@ function formatBytes(bytes: number) {
   return `${v < 10 && i > 0 ? v.toFixed(1) : v.toFixed(0)} ${units[i]}`;
 }
 
-/** "Alt+Space" → "⌥Space" */
-function prettyAccelerator(acc: string) {
-  const symbols: Record<string, string> = { alt: "⌥", option: "⌥", super: "⌘", cmd: "⌘", control: "⌃", ctrl: "⌃", shift: "⇧" };
-  return acc
-    .split("+")
-    .map((p) => symbols[p.toLowerCase()] ?? p.replace(/^Key/, ""))
-    .join("");
-}
 
 const W = 276;
 const H = 48;
@@ -99,16 +100,18 @@ export default function MenuPopover() {
   const [hotkey, setHotkey] = useState<HotkeyStatus | null>(null);
   const [accelerator, setAccelerator] = useState("⌥Space");
   const [autostart, setAutostart] = useState(false);
+  const [cfg, setCfg] = useState<ShotConfig | null>(null);
 
   const refresh = () => {
     invoke<Snapshot>("netspeed_snapshot").then(setNet);
     invoke<HotkeyStatus>("hotkey_status").then(setHotkey);
+    invoke<ShotConfig>("config_get").then(setCfg);
     isEnabled()
       .then(setAutostart)
       .catch(() => setAutostart(false));
     invoke<{ accelerator: string; action: { type: string }; enabled: boolean }[]>("hotkey_bindings").then((bs) => {
       const b = bs.find((b) => b.enabled && b.action.type === "togglePanel");
-      if (b) setAccelerator(prettyAccelerator(b.accelerator));
+      if (b) setAccelerator(formatAccelerator(b.accelerator));
     });
   };
 
@@ -118,11 +121,13 @@ export default function MenuPopover() {
       listen<Snapshot>("netspeed", (e) => setNet(e.payload)),
       listen<HotkeyStatus>("hotkey-status", (e) => setHotkey(e.payload)),
       listen("menu-shown", refresh),
+      listen<ShotConfig>("config-changed", (e) => setCfg(e.payload)),
     ];
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") getCurrentWindow().hide();
       // A menu-bar-only app has no app menu, so ⌘Q needs handling here.
       if (e.metaKey && e.key.toLowerCase() === "q") invoke("quit_app");
+      if (e.metaKey && e.key === ",") openSettings();
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -130,6 +135,17 @@ export default function MenuPopover() {
       window.removeEventListener("keydown", onKey);
     };
   }, []);
+
+  const tools = cfg ? [{ id: "system", name: "系统截图" }, ...cfg.relayApps.filter((a) => a.screenshot)] : [];
+  const toolIndex = Math.max(0, tools.findIndex((x) => x.id === cfg?.screenshot.target));
+  /** Clicking the row moves to the next screenshot tool. */
+  const nextTool = () => {
+    if (!cfg || tools.length === 0) return;
+    const next = tools[(toolIndex + 1) % tools.length].id;
+    const updated = { ...cfg, screenshot: { ...cfg.screenshot, target: next } };
+    setCfg(updated);
+    invoke("config_set", { config: updated });
+  };
 
   const [down, downUnit] = splitRate(net.down);
   const [up, upUnit] = splitRate(net.up);
@@ -188,6 +204,15 @@ export default function MenuPopover() {
         >
           热键检测
         </button>
+        <button type="button" className="menu-row" onClick={nextTool} title="点击切换到下一个截图工具">
+          截图工具
+          <span className="row-end muted">
+            {tools[toolIndex]?.name ?? "系统截图"}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </span>
+        </button>
         <label className="menu-row">
           独占热键
           <span className="row-end">
@@ -207,6 +232,10 @@ export default function MenuPopover() {
       <hr />
 
       <div className="menu-group">
+        <button type="button" className="menu-row" onClick={openSettings}>
+          设置…
+          <kbd>⌘,</kbd>
+        </button>
         <label className="menu-row">
           开机自动启动
           <Switch label="开机自动启动" checked={autostart} onChange={setAutostartOn} />

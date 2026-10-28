@@ -1,0 +1,13 @@
+{
+  "id": "settings",
+  "name": "AhaTools",
+  "version": "0.1.0",
+  "description": "热键、截图工具等设置",
+  "features": [
+    {
+      "code": "general",
+      "explain": "设置",
+      "cmds": ["设置", "settings", "偏好设置", "preferences"]
+    }
+  ]
+}

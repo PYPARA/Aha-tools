@@ -92,7 +92,7 @@ impl SearchProvider for Launcher {
     }
 }
 
-fn app_dirs() -> Vec<PathBuf> {
+pub(crate) fn app_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = [
         "/Applications",
         "/Applications/Utilities",
