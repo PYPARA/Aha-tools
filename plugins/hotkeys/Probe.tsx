@@ -9,7 +9,7 @@ import {
   Spinner,
   withPinned,
   type PluginViewProps,
-} from "@aha/sdk";
+} from "@ahatools/sdk";
 
 interface HotkeyStatus {
   /** User setting. */
@@ -167,7 +167,7 @@ export default function Probe({ setStatus }: PluginViewProps) {
       <p className="note">
         检测不到的情况：以非独占方式注册热键的程序（不少 Electron 应用），以及通过事件拦截抢占热键的程序（如
         Karabiner），所以「未发现占用」不等于一定空闲。改 AhaTools 自己的热键：编辑 ~/Library/Application
-        Support/com.aha.tools/config.json 后重启。
+        Support/com.ahatools.app/config.json 后重启。
       </p>
     </div>
   );

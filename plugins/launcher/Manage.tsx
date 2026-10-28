@@ -9,7 +9,7 @@ import {
   withPinned,
   type PathKind,
   type PluginViewProps,
-} from "@aha/sdk";
+} from "@ahatools/sdk";
 
 interface Entry {
   name: string;

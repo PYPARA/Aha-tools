@@ -1,8 +1,8 @@
 //! Exclusive hotkeys via a HID-level CGEventTap.
 //!
-//! Carbon hotkeys are shared: when Aha, uTools and Codex all register ⌥Space, every one of
+//! Carbon hotkeys are shared: when AhaTools, uTools and Codex all register ⌥Space, every one of
 //! them fires. An event tap sees the key before any app does and can swallow it, so only
-//! Aha reacts. This needs the Accessibility permission; without it the router falls back
+//! AhaTools reacts. This needs the Accessibility permission; without it the router falls back
 //! to (shared) Carbon hotkeys.
 
 use std::ffi::c_void;
@@ -109,7 +109,7 @@ pub fn is_trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
-/// Shows the system "allow Accessibility" prompt (adds Aha to the list in System Settings).
+/// Shows the system "allow Accessibility" prompt (adds AhaTools to the list in System Settings).
 pub fn request_trust() -> bool {
     unsafe {
         let keys = [kAXTrustedCheckOptionPrompt];

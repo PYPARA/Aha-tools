@@ -11,7 +11,7 @@ import {
   SearchIcon,
   type Manifest,
   type SearchItem,
-} from "@aha/sdk";
+} from "@ahatools/sdk";
 import { pluginIcons, views } from "./views";
 import "./styles.css";
 

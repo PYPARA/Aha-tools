@@ -11,7 +11,7 @@ use crate::hotkey::Action;
 pub struct Config {
     pub hotkeys: Vec<Binding>,
     pub netspeed: bool,
-    /// Swallow Aha's hotkeys so other apps bound to the same keys don't fire.
+    /// Swallow AhaTools' hotkeys so other apps bound to the same keys don't fire.
     pub exclusive_hotkeys: bool,
 }
 
@@ -38,9 +38,18 @@ impl Default for Config {
     }
 }
 
-/// ~/Library/Application Support/com.aha.tools
+/// Data folder before the bundle id became com.ahatools.app (2026-10-28).
+const LEGACY_DIR: &str = "com.aha.tools";
+
+/// ~/Library/Application Support/com.ahatools.app
 pub fn data_dir(app: &AppHandle) -> PathBuf {
     let dir = app.path().app_config_dir().expect("no app config dir");
+    if !dir.exists() {
+        // One-time move of config and saved paths from the old folder.
+        if let Some(legacy) = dir.parent().map(|p| p.join(LEGACY_DIR)) {
+            let _ = fs::rename(legacy, &dir);
+        }
+    }
     let _ = fs::create_dir_all(&dir);
     dir
 }

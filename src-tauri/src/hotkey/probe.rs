@@ -8,8 +8,8 @@
 //!   tell *who*, so `KNOWN_OWNERS` adds a best-guess hint.
 //!
 //! Blind spots, so "free" means "nobody holds it exclusively", not "unused":
-//! - Non-exclusive Carbon registrations (options = 0). The global-hotkey crate, and so Aha
-//!   itself, registers this way; verified: Aha holding ⌥Space still probes as free.
+//! - Non-exclusive Carbon registrations (options = 0). The global-hotkey crate, and so AhaTools
+//!   itself, registers this way; verified: AhaTools holding ⌥Space still probes as free.
 //! - Apps that grab keys through an event tap (Karabiner, some launchers).
 //! The event-tap router planned in `hotkey/mod.rs` is what removes the guesswork.
 
@@ -261,7 +261,7 @@ fn is_taken(key: u32, mods: u32) -> bool {
             key,
             mods,
             EventHotKeyID {
-                signature: u32::from_be_bytes(*b"AHAp"),
+                signature: u32::from_be_bytes(*b"ATpb"),
                 id: 1,
             },
             GetApplicationEventTarget(),

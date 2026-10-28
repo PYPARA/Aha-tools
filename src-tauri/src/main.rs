@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    aha_tools_lib::run()
+    ahatools_lib::run()
 }

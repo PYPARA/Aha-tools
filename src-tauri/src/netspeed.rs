@@ -456,7 +456,7 @@ mod tests {
 
 #[cfg(test)]
 mod preview {
-    /// `AHA_PREVIEW=out.pgm cargo test preview -- --ignored` writes the icon on a dark menu bar.
+    /// `AHATOOLS_PREVIEW=out.pgm cargo test preview -- --ignored` writes the icon on a dark menu bar.
     #[test]
     #[ignore]
     fn dump() {
@@ -469,6 +469,6 @@ mod preview {
                 .chunks(4)
                 .map(|p| 30 + (p[3] as u32 * 225 / 255) as u8),
         );
-        std::fs::write(std::env::var("AHA_PREVIEW").unwrap(), out).unwrap();
+        std::fs::write(std::env::var("AHATOOLS_PREVIEW").unwrap(), out).unwrap();
     }
 }

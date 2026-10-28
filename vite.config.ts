@@ -8,7 +8,7 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react()],
   resolve: {
-    alias: { "@aha/sdk": "/src/sdk.ts" },
+    alias: { "@ahatools/sdk": "/src/sdk.ts" },
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

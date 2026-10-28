@@ -1,4 +1,4 @@
-// Host API for plugin views. Plugins import from "@aha/sdk", never from "src/*" directly,
+// Host API for plugin views. Plugins import from "@ahatools/sdk", never from "src/*" directly,
 // so this file is the contract external plugins will be written against later.
 
 import { invoke } from "@tauri-apps/api/core";

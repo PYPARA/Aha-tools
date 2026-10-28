@@ -1,4 +1,4 @@
-// Shared UI pieces for the panel and plugin views. Plugins get these via "@aha/sdk".
+// Shared UI pieces for the panel and plugin views. Plugins get these via "@ahatools/sdk".
 // Icons are 24-unit stroke paths drawn in currentColor.
 
 import type { ReactNode } from "react";

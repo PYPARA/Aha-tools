@@ -2,7 +2,7 @@
 // and each plugin's icon for result rows and shortcuts.
 
 import type { ComponentType } from "react";
-import { BookmarkIcon, KeyboardIcon, type PluginViewProps } from "@aha/sdk";
+import { BookmarkIcon, KeyboardIcon, type PluginViewProps } from "@ahatools/sdk";
 
 import LauncherManage from "../plugins/launcher/Manage";
 import HotkeysProbe from "../plugins/hotkeys/Probe";
