@@ -1,0 +1,14 @@
+{
+  "id": "launcher",
+  "name": "快捷启动",
+  "version": "0.1.0",
+  "description": "搜索并打开应用，以及收藏的文件、文件夹",
+  "searchProvider": true,
+  "features": [
+    {
+      "code": "manage",
+      "explain": "管理收藏的路径",
+      "cmds": ["收藏", "快捷启动", "launcher", "bookmark"]
+    }
+  ]
+}
