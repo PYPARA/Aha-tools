@@ -2,7 +2,11 @@
 // so this file is the contract external plugins will be written against later.
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { Image } from "@tauri-apps/api/image";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { readImage, writeImage, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { save, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 
 export { invoke };
 export * from "./ui";
@@ -40,6 +44,15 @@ export interface Manifest {
   features: Feature[];
 }
 
+export type FeatureTarget = { plugin: string; feature: string; input?: string };
+
+/** Pixels are RGBA, in row-major order. Native image handles never leave the SDK. */
+export interface RgbaImage {
+  width: number;
+  height: number;
+  rgba: Uint8ClampedArray<ArrayBuffer>;
+}
+
 /** Props every plugin view receives. */
 export interface PluginViewProps {
   /** Leave the plugin and return to search. */
@@ -48,11 +61,50 @@ export interface PluginViewProps {
   setStatus: (text: string) => void;
   /** Text the feature was opened with ("fy hello" → "hello", or a matched query). */
   input?: string;
+  /** Open another feature, including its title and optional input. */
+  openFeature: (target: FeatureTarget) => void;
 }
 
 export const hidePanel = () => invoke("hide_panel");
 
 export const openPath = (path: string) => invoke("open_path", { path });
+
+export const writeClipboardText = (text: string) => writeText(text);
+
+export async function readClipboardImage(): Promise<RgbaImage | null> {
+  let image: Image;
+  try {
+    image = await readImage();
+  } catch (error) {
+    // arboard reports an empty clipboard and a missing image format with the same error.
+    if (/clipboard.*(?:empty|not available)|requested format|ContentNotAvailable|剪贴板里没有图片/i.test(String(error))) return null;
+    throw error;
+  }
+  try {
+    const [{ width, height }, rgba] = await Promise.all([image.size(), image.rgba()]);
+    return { width, height, rgba: new Uint8ClampedArray(rgba) };
+  } finally {
+    await image.close();
+  }
+}
+
+export async function writeClipboardImage({ width, height, rgba }: RgbaImage): Promise<void> {
+  const image = await Image.new(new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength), width, height);
+  try {
+    await writeImage(image);
+  } finally {
+    await image.close();
+  }
+}
+
+export const saveFileDialog = (options: SaveDialogOptions) => save(options);
+
+export const onPanelShown = (handler: () => void) => listen("panel-shown", handler);
+
+export const onFileDrop = (handler: (paths: string[]) => void) =>
+  getCurrentWindow().onDragDropEvent(({ payload }) => {
+    if (payload.type === "drop") handler(payload.paths);
+  });
 
 /**
  * Keeps the panel open while `fn` runs. Use around anything that steals focus,

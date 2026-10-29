@@ -1,0 +1,19 @@
+{
+  "id": "qrcode",
+  "name": "二维码",
+  "version": "0.1.0",
+  "description": "把文字生成二维码，或识别剪贴板和图片里的二维码",
+  "features": [
+    {
+      "code": "generate",
+      "explain": "生成二维码",
+      "cmds": ["二维码", "qr", "qrcode"],
+      "match": { "text": true, "minLength": 1 }
+    },
+    {
+      "code": "scan",
+      "explain": "识别二维码",
+      "cmds": ["识别二维码", "扫码", "scan"]
+    }
+  ]
+}

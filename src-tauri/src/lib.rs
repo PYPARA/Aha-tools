@@ -62,6 +62,8 @@ pub fn run() {
             plugins::list_plugins,
             plugins::search,
             plugins::open_path,
+            plugins::qrcode::qr_read_image,
+            plugins::qrcode::qr_save_png,
             launcher::launcher_saved,
             launcher::launcher_add,
             launcher::launcher_remove,

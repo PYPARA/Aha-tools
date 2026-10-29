@@ -117,6 +117,20 @@ export const ScreenshotIcon = ({ size = 16 }: P) => (
     <path d="M7 3v14h14M3 7h14v14" />
   </Icon>
 );
+export const QrCodeIcon = ({ size = 18 }: P) => (
+  <Icon size={size}>
+    <rect x="4" y="4" width="6" height="6" rx="1" />
+    <rect x="14" y="4" width="6" height="6" rx="1" />
+    <rect x="4" y="14" width="6" height="6" rx="1" />
+    <path d="M14 14h2v2M20 14v6h-6M17 17h.01" />
+  </Icon>
+);
+export const CopyIcon = ({ size = 15 }: P) => (
+  <Icon size={size}>
+    <rect x="8" y="8" width="12" height="12" rx="2" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </Icon>
+);
 export const ChevronIcon = ({ size = 12 }: P) => (
   <Icon size={size} width={2}>
     <path d="M9 6l6 6-6 6" />

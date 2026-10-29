@@ -8,6 +8,7 @@
 //! will use the same manifest format.
 
 pub mod launcher;
+pub mod qrcode;
 pub mod webapps;
 
 use std::collections::HashMap;
@@ -26,6 +27,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/hotkeys/plugin.json"),
     include_str!("../../../plugins/screenshot/plugin.json"),
     include_str!("../../../plugins/webapps/plugin.json"),
+    include_str!("../../../plugins/qrcode/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
 ];
 
@@ -221,13 +223,17 @@ impl Registry {
     }
 
     pub fn search(&self, query: &str) -> Vec<SearchItem> {
+        let disabled = OPTIONS.read().unwrap().disabled_matches.clone();
+        self.search_with_disabled(query, &disabled)
+    }
+
+    fn search_with_disabled(&self, query: &str, disabled: &[String]) -> Vec<SearchItem> {
         let query = query.trim();
         if query.is_empty() {
             return vec![];
         }
         let matcher = SkimMatcherV2::default().ignore_case();
         let mut items = vec![];
-        let disabled = OPTIONS.read().unwrap().disabled_matches.clone();
 
         // "fy hello" → the feature whose cmd is "fy", with input "hello".
         let cmd_input = query
@@ -238,7 +244,11 @@ impl Registry {
         for m in &self.manifests {
             for f in &m.features {
                 let feature_item = |score: i64, input: Option<&str>| SearchItem {
-                    title: f.explain.clone(),
+                    title: if m.id == "qrcode" && f.code == "generate" && score == CONTENT_MATCH_SCORE {
+                        format!("为「{}」生成二维码", preview(input.unwrap_or("")))
+                    } else {
+                        f.explain.clone()
+                    },
                     subtitle: match input {
                         Some(text) => format!("{} · 「{}」", m.name, preview(text)),
                         None => format!("{} · 插件功能", m.name),
@@ -393,5 +403,44 @@ mod tests {
         );
         assert_eq!(r.search("12345").len(), 1);
         assert!(r.search("12a").is_empty());
+    }
+
+    #[test]
+    fn builtin_qrcode_registers_both_features_and_passes_command_input() {
+        let r = Registry::new();
+        for (code, keywords) in [
+            ("generate", vec!["二维码", "qr", "qrcode"]),
+            ("scan", vec!["识别二维码", "扫码", "scan"]),
+        ] {
+            for keyword in keywords {
+                assert!(r.search_with_disabled(keyword, &[]).iter().any(|item| {
+                    item.plugin == "qrcode"
+                        && matches!(&item.action, ItemAction::Feature { feature, input: None } if feature == code)
+                }));
+            }
+        }
+        let items = r.search_with_disabled("qr hello", &[]);
+        assert_eq!(items[0].plugin, "qrcode");
+        assert_eq!(items[0].title, "生成二维码");
+        assert_eq!(input_of(&items[0]), Some("hello"));
+        assert_eq!(items[0].score, CMD_WITH_INPUT_SCORE);
+    }
+
+    #[test]
+    fn qrcode_content_match_ranks_last_and_can_be_disabled_without_losing_commands() {
+        let r = Registry::new();
+        let query = "https://example.com/你好\n第二行";
+        let items = r.search_with_disabled(query, &[]);
+        let qr = items.iter().find(|it| it.plugin == "qrcode").unwrap();
+        assert_eq!(qr.score, CONTENT_MATCH_SCORE);
+        assert_eq!(input_of(qr), Some(query));
+        assert_eq!(qr.title, "为「https://example.com/你好…」生成二维码");
+        assert_eq!(items.last().unwrap().plugin, "qrcode");
+
+        let disabled = ["qrcode/generate".into()];
+        assert!(!r.search_with_disabled(query, &disabled).iter().any(|it| it.plugin == "qrcode"));
+        let named = r.search_with_disabled("qr hello", &disabled);
+        assert_eq!(input_of(&named[0]), Some("hello"));
+        assert!(r.search_with_disabled("", &[]).is_empty());
     }
 }

@@ -474,6 +474,204 @@ p {
   padding: 20px 28px;
 }
 
+/* ---- QR plugin: shared tokens, white QR images in both appearances ---- */
+
+.qr-view {
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+  min-height: 100%;
+  padding: 20px 28px;
+}
+.qr-view .qr-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.qr-view .qr-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.qr-view .qr-editor,
+.qr-view .qr-result-column {
+  flex: 1;
+}
+.qr-view .qr-textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.65;
+  resize: none;
+}
+.qr-view .qr-textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: var(--ring);
+}
+.qr-view .qr-textarea::placeholder {
+  color: var(--text-2);
+}
+.qr-view .qr-editor > .qr-textarea {
+  flex: 1;
+  min-height: 240px;
+}
+.qr-view .qr-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.qr-view .qr-correction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.qr-view .qr-correction .seg button {
+  height: 24px;
+  padding: 0 12px;
+}
+.qr-view .qr-correction .seg button[aria-pressed="true"] {
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+  color: var(--text);
+  font-weight: 500;
+}
+.qr-view .qr-preview-column {
+  width: 300px;
+  flex-shrink: 0;
+}
+.qr-view .qr-code-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 300px;
+  height: 300px;
+  flex-shrink: 0;
+  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+.qr-view .qr-generated-svg,
+.qr-view .qr-generated-svg svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.qr-view .qr-preview-note {
+  color: #6b6860;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.qr-view .qr-export-actions,
+.qr-view .qr-result-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.qr-view .qr-export-actions > .primary {
+  flex: 1;
+}
+.qr-view .qr-source-column {
+  width: 330px;
+  flex-shrink: 0;
+}
+.qr-view .qr-source-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 330px;
+  height: 330px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.qr-view .qr-source-preview > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.qr-view .qr-source-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-2);
+  text-align: center;
+}
+.qr-view .qr-location {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.qr-view .qr-result-message {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.qr-view .qr-result-text {
+  min-height: 96px;
+  max-height: 260px;
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.qr-view .qr-regenerate {
+  margin-left: auto;
+}
+.qr-view.qr-dragging .qr-source-preview {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+.qr-view .bad-text {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 719px) {
+  .qr-view {
+    flex-direction: column;
+    min-height: 100%;
+  }
+  .qr-view .qr-editor > .qr-textarea {
+    min-height: 180px;
+  }
+  .qr-view .qr-editor,
+  .qr-view .qr-result-column {
+    flex: none;
+  }
+  .qr-view .qr-preview-column,
+  .qr-view .qr-source-column {
+    width: 100%;
+  }
+  .qr-view .qr-code-preview {
+    align-self: center;
+  }
+  .qr-view .qr-source-preview {
+    width: 100%;
+  }
+}
+
 /* ---- Controls ---- */
 
 .btn {

@@ -2,13 +2,44 @@
 // `tauri dev` runs). Only loaded in dev when the page isn't inside Tauri.
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { emit } from "@tauri-apps/api/event";
+import type { Manifest, RgbaImage, SearchItem } from "./sdk";
+import { generatePixels } from "../plugins/qrcode/qr";
+import { imagePng } from "../plugins/qrcode/image";
 import launcher from "../plugins/launcher/plugin.json";
 import hotkeys from "../plugins/hotkeys/plugin.json";
 import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
 import webapps from "../plugins/webapps/plugin.json";
+import qrcode from "../plugins/qrcode/plugin.json";
 
-const manifests = [launcher, hotkeys, screenshot, webapps, settings];
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, settings].map((m) => ({ searchProvider: false, ...m }));
+
+type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
+const params = new URLSearchParams(location.search);
+let scenario = (params.get("qrMock") ?? "url") as QrScenario;
+let clipboardPixels: RgbaImage | undefined;
+let clipboardText = "";
+let nextImage = 1;
+const images = new Map<number, RgbaImage>();
+const savedImages: { path: string; bytes: number[] }[] = [];
+const listeners = new Map<number, string>();
+const cloneImage = (image: RgbaImage): RgbaImage => ({ ...image, rgba: image.rgba.slice() });
+const fixtureImage = () => scenario === "no-code"
+  ? { width: 200, height: 200, rgba: new Uint8ClampedArray(200 * 200 * 4).fill(255) }
+  : generatePixels(scenario === "text" ? "你好，AhaTools！\n二维码测试" : "https://github.com/PYPARA/Aha-tools", "M");
+
+// Preview-only controls for repeatable browser checks; not included in production.
+Object.assign(window, {
+  __AHATOOLS_QR_MOCK__: {
+    setClipboard(value: QrScenario) { scenario = value; clipboardPixels = undefined; },
+    get text() { return clipboardText; },
+    get activeImages() { return images.size; },
+    get saved() { return savedImages; },
+    drop(paths: string[]) { return emit("tauri://drag-drop", { paths, position: { x: 100, y: 100 } }); },
+    showPanel() { return emit("panel-shown"); },
+  },
+});
 
 const apps = [
   { title: "微信", subtitle: "WeChat · /Applications/WeChat.app", kind: "app", path: "/Applications/WeChat.app" },
@@ -26,10 +57,10 @@ let saved = [
 
 let exclusive = true;
 
-const feature = (plugin: string, code: string, title: string, subtitle: string) => ({
+const feature = (plugin: string, code: string, title: string, subtitle: string): SearchItem => ({
   title, subtitle, score: 0, plugin, kind: "feature", action: { type: "feature", feature: code },
 });
-const app = (title: string, path: string) => ({
+const app = (title: string, path: string): SearchItem => ({
   title, subtitle: path, score: 0, plugin: "launcher", kind: "app", action: { type: "openPath", path },
 });
 const usage = {
@@ -45,6 +76,20 @@ const usage = {
   ],
   pinned: [app("Ghostty", "/Applications/Ghostty.app"), app("微信", "/Applications/WeChat.app"), feature("screenshot", "take", "截图", "截图")],
 };
+
+function homeItem(item: SearchItem): SearchItem {
+  if (item.action.type !== "feature") return { ...item, score: 0 };
+  const action = item.action;
+  const manifest = manifests.find((m) => m.id === item.plugin);
+  return {
+    ...item, score: 0,
+    title: manifest?.features.find((f) => f.code === action.feature)?.explain ?? item.title,
+    subtitle: manifest?.name ?? item.subtitle.split(" · ")[0],
+    action: { type: "feature", feature: action.feature },
+  };
+}
+
+const sameItem = (a: SearchItem, b: SearchItem) => a.plugin === b.plugin && JSON.stringify(a.action) === JSON.stringify(b.action);
 
 let config = {
   hotkeys: [
@@ -71,23 +116,44 @@ mockWindows("panel");
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (cmd) {
+    // The installed event API unlistens with eventId; mockIPC's built-in event
+    // helper still expects id. Keep listener cleanup accurate in StrictMode.
+    case "plugin:event|listen":
+      listeners.set(Number(a.handler), String(a.event));
+      return Number(a.handler);
+    case "plugin:event|unlisten":
+      listeners.delete(Number(a.eventId));
+      return null;
+    case "plugin:event|emit": {
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { runCallback: (id: number, value: unknown) => void } }).__TAURI_INTERNALS__;
+      for (const [id, event] of listeners) {
+        if (event === a.event) internals.runCallback(id, { event, id, payload: a.payload });
+      }
+      return null;
+    }
     case "list_plugins":
       return manifests;
     case "search": {
-      const q = String(a.query ?? "").trim().toLowerCase();
+      const original = String(a.query ?? "").trim();
+      const q = original.toLowerCase();
       if (!q) return [];
-      const features = manifests.flatMap((m) =>
-        m.features
-          .filter((f) => f.cmds.some((c) => c.toLowerCase().includes(q)))
-          .map((f) => ({
-            title: f.explain,
-            subtitle: `${m.name} · 插件功能`,
-            score: 100,
-            plugin: m.id,
-            kind: "feature",
-            action: { type: "feature", feature: f.code },
-          })),
-      );
+      const prefix = original.match(/^(\S+)\s+([\s\S]+)$/);
+      const features = manifests.flatMap((m) => m.features.flatMap((f) => {
+        const prefixed = prefix && f.cmds.some((c) => c.toLowerCase() === prefix[1].toLowerCase());
+        const named = f.cmds.some((c) => c.toLowerCase().includes(q));
+        const auto = !named && f.match?.text && Array.from(original).length >= Math.max(1, f.match.minLength ?? 1) &&
+          !config.disabledMatches.includes(`${m.id}/${f.code}`);
+        if (!prefixed && !named && !auto) return [];
+        const input = prefixed ? prefix[2].trim() : auto ? original : undefined;
+        const line = input?.split("\n")[0] ?? "";
+        const summary = Array.from(line).slice(0, 24).join("") + (Array.from(line).length > 24 || input?.includes("\n") ? "…" : "");
+        return [{
+          title: !prefixed && auto && m.id === "qrcode" ? `为「${summary}」生成二维码` : f.explain,
+          subtitle: input ? `${m.name} · 「${summary}」` : `${m.name} · 插件功能`,
+          score: prefixed ? 10_000 : named ? 100 : -1,
+          plugin: m.id, kind: "feature", action: { type: "feature", feature: f.code, ...(input === undefined ? {} : { input }) },
+        }];
+      }));
       const webHits = config.webApps
         .filter((w) => w.keywords.includes(q) || (w.name + w.url).toLowerCase().includes(q))
         .map((w) => ({
@@ -102,7 +168,7 @@ mockIPC((cmd, args) => {
       const hits = apps
         .filter((x) => (x.title + x.subtitle).toLowerCase().includes(q))
         .map((x) => ({ ...x, score: 50, plugin: "launcher", action: { type: "openPath", path: x.path } }));
-      return [...webHits, ...features, ...hits];
+      return [...webHits, ...features, ...hits].sort((x, y) => y.score - x.score);
     }
     case "netspeed_snapshot": {
       const history = Array.from({ length: 60 }, (_, i) => [
@@ -118,7 +184,55 @@ mockIPC((cmd, args) => {
       return config;
     case "config_set":
       config = a.config as typeof config;
+      queueMicrotask(() => void emit("config-changed", config));
       return [];
+    case "plugin:clipboard-manager|read_image": {
+      if (!clipboardPixels && scenario === "empty") throw new Error("剪贴板里没有图片");
+      if (!clipboardPixels && scenario === "error") throw new Error("暂时无法读取剪贴板（预览错误）");
+      const rid = nextImage++;
+      images.set(rid, cloneImage(clipboardPixels ?? fixtureImage()));
+      return rid;
+    }
+    case "plugin:image|new": {
+      const rid = nextImage++;
+      images.set(rid, { width: Number(a.width), height: Number(a.height), rgba: new Uint8ClampedArray(a.rgba as ArrayLike<number>) });
+      return rid;
+    }
+    case "plugin:image|size": {
+      const image = images.get(Number(a.rid));
+      if (!image) throw new Error("图片资源已释放");
+      return { width: image.width, height: image.height };
+    }
+    case "plugin:image|rgba": {
+      const image = images.get(Number(a.rid));
+      if (!image) throw new Error("图片资源已释放");
+      return image.rgba.buffer.slice(0);
+    }
+    case "plugin:resources|close":
+      images.delete(Number(a.rid));
+      return null;
+    case "plugin:clipboard-manager|write_image": {
+      const image = images.get(Number(a.image));
+      if (!image) throw new Error("图片资源不存在");
+      clipboardPixels = cloneImage(image);
+      return null;
+    }
+    case "plugin:clipboard-manager|write_text":
+      clipboardText = String(a.text);
+      clipboardPixels = undefined;
+      scenario = "empty";
+      return null;
+    case "plugin:clipboard-manager|read_text":
+      return clipboardText;
+    case "plugin:dialog|save":
+      return params.get("qrSave") === "cancel" ? null : "/预览/二维码.png";
+    case "qr_save_png":
+      if (params.get("qrSave") === "error") throw new Error("无法保存 PNG 图片：没有写入权限");
+      savedImages.push({ path: String(a.path), bytes: a.bytes as number[] });
+      return null;
+    case "qr_read_image":
+      if (String(a.path).includes("missing")) throw new Error("无法读取图片：文件不存在");
+      return imagePng(fixtureImage()).then((b) => b.arrayBuffer());
     case "relay_status":
       return [
         { id: "wechat", installed: true, running: true },
@@ -129,11 +243,15 @@ mockIPC((cmd, args) => {
     case "usage_home":
       return usage;
     case "usage_toggle_pin": {
-      const item = a.item as (typeof usage.pinned)[number];
-      const same = (x: typeof item) => x.plugin === item.plugin && JSON.stringify(x.action) === JSON.stringify(item.action);
-      const had = usage.pinned.some(same);
-      usage.pinned = had ? usage.pinned.filter((x) => !same(x)) : [...usage.pinned, item];
+      const item = homeItem(a.item as SearchItem);
+      const had = usage.pinned.some((x) => sameItem(x, item));
+      usage.pinned = had ? usage.pinned.filter((x) => !sameItem(x, item)) : [...usage.pinned, item];
       return !had;
+    }
+    case "usage_record": {
+      const item = homeItem(a.item as SearchItem);
+      usage.recent = [item, ...usage.recent.filter((x) => !sameItem(x, item))].slice(0, 21);
+      return null;
     }
     case "app_icon":
       return null;
@@ -148,7 +266,6 @@ mockIPC((cmd, args) => {
     case "plugin:app|version":
       return "0.1.0";
     case "webapp_open":
-    case "usage_record":
     case "set_panel_large":
     case "hotkey_set_recording":
     case "relay_press_later":

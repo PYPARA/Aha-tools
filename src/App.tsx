@@ -84,6 +84,7 @@ function moveInGrid(sections: number[], index: number, key: string) {
 export default function App() {
   useAppearance();
   const [query, setQuery] = useState("");
+  const [searchRevision, setSearchRevision] = useState(0);
   const [items, setItems] = useState<SearchItem[]>([]);
   const [selected, setSelected] = useState(0);
   const [active, setActive] = useState<Target | null>(null);
@@ -132,6 +133,7 @@ export default function App() {
       listen<Config>("config-changed", (e) => {
         loadHotkey();
         loadWebUrls(e.payload);
+        setSearchRevision((v) => v + 1);
       }),
     ];
     return () => subs.forEach((s) => s.then((f) => f()));
@@ -148,7 +150,7 @@ export default function App() {
     return () => {
       stale = true;
     };
-  }, [query]);
+  }, [query, searchRevision]);
 
   // Search is compact; plugin and settings pages get the larger window.
   useEffect(() => {
@@ -310,7 +312,7 @@ export default function App() {
     const key = `${active.plugin}/${active.feature}`;
     const View = views[key];
     const viewEl = View ? (
-      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} />
+      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} openFeature={open} />
     ) : (
       <div className="state">
         <span className="note">插件页面不存在：{key}</span>

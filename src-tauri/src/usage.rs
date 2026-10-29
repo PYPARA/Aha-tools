@@ -26,8 +26,12 @@ static LOCK: Mutex<()> = Mutex::new(());
 /// What gets stored: a feature opens without the text it was searched with.
 fn normalize(mut item: SearchItem) -> SearchItem {
     item.score = 0;
-    if let ItemAction::Feature { input, .. } = &mut item.action {
+    if let ItemAction::Feature { input, feature } = &mut item.action {
         *input = None;
+        // QR content-match titles include input; home entries keep only the command.
+        if item.plugin == "qrcode" && feature == "generate" {
+            item.title = "生成二维码".into();
+        }
         // "翻译 · 「hello」" or "翻译 · 插件功能" → the plugin name only.
         item.subtitle = item.subtitle.split(" · ").next().unwrap_or("").to_string();
     }
@@ -137,5 +141,25 @@ mod tests {
         assert!(toggle_pin(&mut u, feature(Some("x"))));
         assert!(!toggle_pin(&mut u, feature(None)));
         assert!(u.pinned.is_empty());
+    }
+
+    #[test]
+    fn qrcode_recent_and_pins_keep_the_command_without_its_content() {
+        let text = "二维码中的原文";
+        let item = SearchItem {
+            title: format!("为「{text}」生成二维码"),
+            subtitle: format!("二维码 · 「{text}」"),
+            plugin: "qrcode".into(),
+            action: ItemAction::Feature { feature: "generate".into(), input: Some(text.into()) },
+            ..feature(None)
+        };
+        let mut usage = Usage::default();
+        record(&mut usage, item.clone());
+        toggle_pin(&mut usage, item);
+        for saved in [&usage.recent[0], &usage.pinned[0]] {
+            assert_eq!(saved.title, "生成二维码");
+            assert_eq!(saved.subtitle, "二维码");
+        }
+        assert!(!serde_json::to_string(&usage).unwrap().contains(text));
     }
 }
