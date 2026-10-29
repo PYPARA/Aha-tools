@@ -122,6 +122,12 @@ export const ChevronIcon = ({ size = 12 }: P) => (
     <path d="M9 6l6 6-6 6" />
   </Icon>
 );
+export const GlobeIcon = ({ size = 16 }: P) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z" />
+  </Icon>
+);
 export const InfoIcon = ({ size = 22 }: P) => (
   <Icon size={size}>
     <circle cx="12" cy="12" r="9" />
@@ -178,6 +184,45 @@ export function AppIcon({ path, name, large }: { path: string; name: string; lar
   return (
     <span className={large ? "tile lg letter" : "tile letter"} aria-hidden="true">
       {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+interface WebIconData {
+  src: string;
+  fill: boolean;
+}
+const webIconCache = new Map<string, Promise<WebIconData | null>>();
+
+/** A web app's site icon (fetched and cached by the backend), or a letter tile. */
+export function WebIcon({ url, name, large }: { url: string; name: string; large?: boolean }) {
+  const [icon, setIcon] = useState<WebIconData | null>(null);
+  const [version, setVersion] = useState(0);
+  // Sites that block plain downloads get their icon once their window has loaded.
+  useEffect(() => {
+    const un = listen<string>("webapp-icon", (e) => {
+      if (e.payload !== url) return;
+      webIconCache.delete(url);
+      setVersion((v) => v + 1);
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [url]);
+  useEffect(() => {
+    let live = true;
+    if (!webIconCache.has(url))
+      webIconCache.set(url, invoke<WebIconData | null>("webapp_icon", { url }).catch(() => null));
+    webIconCache.get(url)!.then((i) => live && setIcon(i));
+    return () => {
+      live = false;
+    };
+  }, [url, version]);
+  const tile = large ? "tile lg" : "tile";
+  if (icon?.fill) return <img className={large ? "web-img lg" : "web-img"} src={icon.src} alt="" aria-hidden="true" />;
+  return (
+    <span className={icon ? tile : `${tile} letter`} aria-hidden="true">
+      {icon ? <img className="web-img small" src={icon.src} alt="" /> : name.charAt(0).toUpperCase()}
     </span>
   );
 }

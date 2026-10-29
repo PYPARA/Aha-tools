@@ -4,7 +4,8 @@ export type Action =
   | { type: "togglePanel" }
   | { type: "openFeature"; plugin: string; feature: string }
   | { type: "screenshot" }
-  | { type: "forward"; app: string };
+  | { type: "forward"; app: string }
+  | { type: "openWeb"; id: string };
 
 export interface Binding {
   accelerator: string;
@@ -32,7 +33,17 @@ export interface Config {
   appearance: "system" | "light" | "dark";
   /** Content matches switched off, as "<plugin>/<feature>". */
   disabledMatches: string[];
+  webApps: WebApp[];
   [key: string]: unknown;
+}
+
+/** A site opened in its own long-lived window. */
+export interface WebApp {
+  id: string;
+  name: string;
+  url: string;
+  /** Extra search words, e.g. "ds". */
+  keywords: string[];
 }
 
 export interface RelayStatus {

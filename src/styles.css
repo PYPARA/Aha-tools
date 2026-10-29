@@ -1334,3 +1334,54 @@ p {
 .menu-item:focus-visible {
   background: var(--hover);
 }
+
+/* Web apps list (plugin 设置 tab) */
+.web-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.web-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 0 12px 0 14px;
+}
+.web-list li + li {
+  border-top: 1px solid var(--border);
+}
+.chip.sm {
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 400;
+}
+.key-btn.sm.empty {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+}
+
+/* Site icons of web apps: full-bleed when large enough, else small inside a tile. */
+.web-img {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.web-img.lg {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+.web-img.small {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
+}

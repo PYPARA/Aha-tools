@@ -8,6 +8,7 @@
 //! will use the same manifest format.
 
 pub mod launcher;
+pub mod webapps;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -24,6 +25,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/launcher/plugin.json"),
     include_str!("../../../plugins/hotkeys/plugin.json"),
     include_str!("../../../plugins/screenshot/plugin.json"),
+    include_str!("../../../plugins/webapps/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
 ];
 
@@ -31,18 +33,25 @@ const BUILTIN_MANIFESTS: &[&str] = &[
 struct Options {
     pinyin: bool,
     disabled_matches: Vec<String>,
+    web_apps: Vec<crate::config::WebApp>,
 }
 
 static OPTIONS: RwLock<Options> = RwLock::new(Options {
     pinyin: true,
     disabled_matches: vec![],
+    web_apps: vec![],
 });
 
 pub fn configure(cfg: &crate::config::Config) {
     *OPTIONS.write().unwrap() = Options {
         pinyin: cfg.pinyin,
         disabled_matches: cfg.disabled_matches.clone(),
+        web_apps: cfg.web_apps.clone(),
     };
+}
+
+fn web_apps() -> Vec<crate::config::WebApp> {
+    OPTIONS.read().unwrap().web_apps.clone()
 }
 
 /// "微信" → ["weixin", "wx"]; empty when `text` has no Chinese characters.
@@ -148,7 +157,7 @@ pub struct SearchItem {
     pub score: i64,
     pub plugin: String,
     pub kind: ItemKind,
-    /// For saved paths: "folder", "file" or "link".
+    /// For saved paths: "folder", "file" or "link". For web apps: the site URL, for its icon.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     pub action: ItemAction,
@@ -168,6 +177,8 @@ pub enum ItemKind {
 pub enum ItemAction {
     /// Open a file, folder, app or URL with the system default handler.
     OpenPath { path: String },
+    /// Show a web app's window (crate::webapps).
+    OpenWeb { id: String },
     /// Enter a plugin feature's view, optionally with text for it to work on.
     Feature {
         feature: String,

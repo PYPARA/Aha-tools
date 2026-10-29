@@ -37,6 +37,8 @@ pub enum Action {
     Screenshot,
     /// Press a relay app's own hotkey, e.g. to open uTools.
     Forward { app: String },
+    /// Show or hide a web app's window (webapps.rs).
+    OpenWeb { id: String },
 }
 
 #[derive(Default)]
@@ -77,6 +79,11 @@ pub fn dispatch(app: &AppHandle, action: &Action) {
         Action::Screenshot => crate::screenshot::take(app, None),
         Action::Forward { app: id } => {
             if let Err(e) = crate::relay::forward(app, id) {
+                crate::relay::notify(&e);
+            }
+        }
+        Action::OpenWeb { id } => {
+            if let Err(e) = crate::webapps::toggle(app, id) {
                 crate::relay::notify(&e);
             }
         }

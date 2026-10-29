@@ -15,6 +15,10 @@ export function describeAction(action: Action, cfg: Config, manifests: Manifest[
         desc: action.plugin === "settings" ? "AhaTools" : `${m?.name ?? action.plugin}插件`,
       };
     }
+    case "openWeb": {
+      const web = cfg.webApps.find((w) => w.id === action.id);
+      return { title: `打开 ${web?.name ?? action.id}`, desc: "网页应用 · 窗口在最前时再按一次就收起" };
+    }
     case "forward": {
       const app = cfg.relayApps.find((a) => a.id === action.app);
       const name = app?.name ?? action.app;
@@ -35,7 +39,7 @@ export function actionChoices(
     { group: "常用", label: "打开搜索面板", action: { type: "togglePanel" } },
     { group: "常用", label: "截图", action: { type: "screenshot" } },
     ...manifests
-      .filter((m) => m.id !== "screenshot")
+      .filter((m) => m.id !== "screenshot" && m.id !== "webapps")
       .flatMap((m) =>
         m.features.map((f) => ({
           group: "插件功能",
@@ -44,6 +48,11 @@ export function actionChoices(
           action: { type: "openFeature" as const, plugin: m.id, feature: f.code },
         })),
       ),
+    ...cfg.webApps.map((w) => ({
+      group: "网页应用",
+      label: `打开 ${w.name}`,
+      action: { type: "openWeb" as const, id: w.id },
+    })),
     ...cfg.relayApps
       .filter((a) => !a.screenshot)
       .map((a) => ({ group: "转发给其他应用", label: `转发给 ${a.name}`, action: { type: "forward" as const, app: a.id } })),

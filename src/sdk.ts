@@ -10,6 +10,7 @@ export * from "./config";
 
 export type ItemAction =
   | { type: "openPath"; path: string }
+  | { type: "openWeb"; id: string }
   | { type: "feature"; feature: string; input?: string };
 
 export interface SearchItem {
@@ -18,8 +19,8 @@ export interface SearchItem {
   score: number;
   plugin: string;
   kind: "app" | "saved" | "feature";
-  /** Saved paths only. */
-  icon?: "folder" | "file" | "link";
+  /** Saved paths: "folder" | "file" | "link". Web apps: the site URL, for its icon. */
+  icon?: string;
   action: ItemAction;
 }
 

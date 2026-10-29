@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
 import {
@@ -14,14 +14,15 @@ import {
   SearchIcon,
   SlidersIcon,
   useAppearance,
+  WebIcon,
   type Binding,
+  type Config,
+  type PathKind,
   type Manifest,
   type SearchItem,
 } from "@ahatools/sdk";
-import { actions, fullPageViews, pluginIcons, views } from "./views";
+import { actions, fullPageViews, pluginIcons, views, type Target } from "./views";
 import "./styles.css";
-
-type Target = { plugin: string; feature: string; input?: string };
 
 interface Home {
   recent: SearchItem[];
@@ -31,14 +32,27 @@ interface Home {
 /** Recent items shown before 「展开」: one row of the grid. */
 const COLUMNS = 7;
 
+/** Web app id → its current address, for site icons. Read from config rather than the
+ * item, so entries in 最近使用 saved before an address change (or without one) still match. */
+const WebAppUrls = createContext<Map<string, string>>(new Map());
+
 function ItemIcon({ item, large }: { item: SearchItem; large?: boolean }) {
+  const webUrls = useContext(WebAppUrls);
+  if (item.action.type === "openWeb") {
+    const url = webUrls.get(item.action.id) ?? item.icon;
+    if (url) return <WebIcon url={url} name={item.title} large={large} />;
+  }
   if (item.kind === "app" && item.action.type === "openPath") {
     return <AppIcon path={item.action.path} name={item.title} large={large} />;
   }
   const Icon = item.kind === "saved" ? null : (pluginIcons[item.plugin] ?? PuzzleIcon);
   return (
     <span className={large ? "tile lg" : "tile"} aria-hidden="true">
-      {Icon ? <Icon size={large ? 18 : 16} /> : <PathIcon kind={item.icon} size={large ? 18 : 16} />}
+      {Icon ? (
+        <Icon size={large ? 18 : 16} />
+      ) : (
+        <PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} />
+      )}
     </span>
   );
 }
@@ -86,7 +100,9 @@ export default function App() {
   const activeRef = useRef<Target | null>(null);
   activeRef.current = active;
 
+  const [webUrls, setWebUrls] = useState<Map<string, string>>(new Map());
   const loadHome = () => invoke<Home>("usage_home").then(setHome);
+  const loadWebUrls = (cfg: Config) => setWebUrls(new Map((cfg.webApps ?? []).map((w) => [w.id, w.url])));
   const loadHotkey = () =>
     invoke<Binding[]>("hotkey_bindings").then((bs) => {
       const b = bs.find((b) => b.enabled && b.action.type === "togglePanel");
@@ -97,6 +113,7 @@ export default function App() {
     invoke<Manifest[]>("list_plugins").then(setManifests);
     loadHome();
     loadHotkey();
+    invoke<Config>("config_get").then(loadWebUrls);
     const subs = [
       // Like uTools, coming back shows the page that was open; esc returns to search.
       listen("panel-shown", () => {
@@ -107,8 +124,15 @@ export default function App() {
         loadHome();
         requestAnimationFrame(() => inputRef.current?.select());
       }),
-      listen<Target>("open-feature", (e) => open(e.payload)),
-      listen("config-changed", loadHotkey),
+      listen<Target>("open-feature", (e) => {
+        const act = actions[`${e.payload.plugin}/${e.payload.feature}`];
+        if (act) act({ input: e.payload.input, open });
+        else open(e.payload);
+      }),
+      listen<Config>("config-changed", (e) => {
+        loadHotkey();
+        loadWebUrls(e.payload);
+      }),
     ];
     return () => subs.forEach((s) => s.then((f) => f()));
   }, []);
@@ -182,6 +206,11 @@ export default function App() {
     if (!item) return;
     setError(null);
     invoke("usage_record", { item });
+    if (item.action.type === "openWeb") {
+      setQuery("");
+      invoke("webapp_open", { id: item.action.id }).catch((e) => setError(String(e)));
+      return;
+    }
     if (item.action.type === "openPath") {
       try {
         await openPath(item.action.path);
@@ -193,8 +222,8 @@ export default function App() {
     }
     const key = `${item.plugin}/${item.action.feature}`;
     if (actions[key]) {
-      actions[key](item.action.input);
       setQuery("");
+      actions[key]({ input: item.action.input, open });
     } else {
       open({ plugin: item.plugin, feature: item.action.feature, input: item.action.input });
     }
@@ -288,11 +317,7 @@ export default function App() {
       </div>
     );
     if (fullPageViews.has(key)) {
-      return (
-        <div className="fill">
-          {viewEl}
-        </div>
-      );
+      return <div className="fill">{viewEl}</div>;
     }
     const m = manifests.find((m) => m.id === active.plugin);
     const f = m?.features.find((f) => f.code === active.feature);
@@ -445,32 +470,34 @@ export default function App() {
   }
 
   return (
-    <div className="panel">
-      <header className="search-head" data-tauri-drag-region>
-        <SearchIcon />
-        <label htmlFor="q" className="sr-only">
-          搜索
-        </label>
-        <input
-          id="q"
-          ref={inputRef}
-          autoFocus
-          spellCheck={false}
-          autoComplete="off"
-          placeholder="搜索应用、收藏和功能"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <button type="button" className="icon-btn" aria-label="设置" title="设置 ⌘," onClick={openSettings}>
-          <SlidersIcon />
-        </button>
-      </header>
-      <div className="hairline" />
-      <main className="panel-body">{body}</main>
-      <footer className="foot">
-        <span className="hints">{hints}</span>
-        {error ? <span className="error">{error}</span> : <span>{flash || right}</span>}
-      </footer>
-    </div>
+    <WebAppUrls.Provider value={webUrls}>
+      <div className="panel">
+        <header className="search-head" data-tauri-drag-region>
+          <SearchIcon />
+          <label htmlFor="q" className="sr-only">
+            搜索
+          </label>
+          <input
+            id="q"
+            ref={inputRef}
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="搜索应用、收藏和功能"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button type="button" className="icon-btn" aria-label="设置" title="设置 ⌘," onClick={openSettings}>
+            <SlidersIcon />
+          </button>
+        </header>
+        <div className="hairline" />
+        <main className="panel-body">{body}</main>
+        <footer className="foot">
+          <span className="hints">{hints}</span>
+          {error ? <span className="error">{error}</span> : <span>{flash || right}</span>}
+        </footer>
+      </div>
+    </WebAppUrls.Provider>
   );
 }

@@ -22,6 +22,28 @@ pub struct Config {
     pub appearance: String,
     /// Content matches switched off in a plugin's 自动匹配 tab, as "<plugin>/<feature>".
     pub disabled_matches: Vec<String>,
+    /// Sites opened in their own long-lived windows (webapps.rs).
+    pub web_apps: Vec<WebApp>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WebApp {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    /// Extra search words, e.g. "ds" for DeepSeek.
+    #[serde(default)]
+    pub keywords: Vec<String>,
+}
+
+pub fn default_web_apps() -> Vec<WebApp> {
+    vec![WebApp {
+        id: "deepseek".into(),
+        name: "DeepSeek".into(),
+        url: "https://chat.deepseek.com".into(),
+        keywords: vec!["ds".into()],
+    }]
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -147,6 +169,7 @@ impl Default for Config {
             pinyin: true,
             appearance: "system".into(),
             disabled_matches: vec![],
+            web_apps: default_web_apps(),
         }
     }
 }
@@ -207,6 +230,7 @@ pub fn config_set(app: AppHandle, config: Config) -> Result<Vec<String>, String>
     save_json(&app, "config", &config)?;
     crate::plugins::configure(&config);
     crate::netspeed::set_visible(config.netspeed);
+    crate::webapps::reconfigure(&app, &config.web_apps);
     let errors = crate::hotkey::reconfigure(&app, &config);
     let keys: Vec<_> = config.hotkeys.iter().filter(|b| b.enabled).map(|b| b.accelerator.as_str()).collect();
     eprintln!("[config] saved; hotkeys {keys:?}; errors {errors:?}");
@@ -232,6 +256,7 @@ mod tests {
         assert_eq!(cfg.screenshot.target, "system");
         assert_eq!(cfg.relay_apps, default_relay_apps());
         assert!(cfg.pinyin);
+        assert_eq!(cfg.web_apps, default_web_apps());
         assert_eq!(cfg.appearance, "system");
     }
 
@@ -250,7 +275,7 @@ mod tests {
 
     #[test]
     fn actions_round_trip() {
-        let json = r#"[{"type":"screenshot"},{"type":"forward","app":"utools"},{"type":"openFeature","plugin":"a","feature":"b"}]"#;
+        let json = r#"[{"type":"screenshot"},{"type":"forward","app":"utools"},{"type":"openFeature","plugin":"a","feature":"b"},{"type":"openWeb","id":"deepseek"}]"#;
         let actions: Vec<Action> = serde_json::from_str(json).unwrap();
         assert_eq!(
             actions[1],

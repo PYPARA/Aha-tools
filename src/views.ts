@@ -5,6 +5,7 @@ import type { ComponentType } from "react";
 import {
   BookmarkIcon,
   GearIcon,
+  GlobeIcon,
   invoke,
   KeyboardIcon,
   ScreenshotIcon,
@@ -16,6 +17,7 @@ import LauncherManage from "../plugins/launcher/Manage";
 import HotkeysProbe from "../plugins/hotkeys/Probe";
 import ScreenshotSettings from "../plugins/screenshot/Settings";
 import Settings from "../plugins/settings/Settings";
+import WebAppsSettings from "../plugins/webapps/Settings";
 
 export const views: Record<string, ComponentType<PluginViewProps>> = {
   "launcher/manage": LauncherManage,
@@ -26,19 +28,26 @@ export const views: Record<string, ComponentType<PluginViewProps>> = {
 /** Views that draw the whole window themselves (no page header or footer). */
 export const fullPageViews = new Set(["settings/general"]);
 
-/** Features that act right away instead of opening a page. */
-export const actions: Record<string, (input?: string) => unknown> = {
+/** A page in the panel: a plugin feature, optionally with input. */
+export type Target = { plugin: string; feature: string; input?: string };
+
+/** Features that act right away instead of opening their own page. */
+export const actions: Record<string, (ctx: { input?: string; open: (t: Target) => void }) => unknown> = {
   "screenshot/take": () => invoke("screenshot_take", { target: null }),
+  // Web apps are managed in their plugin's 设置 tab.
+  "webapps/manage": ({ open }) => open({ plugin: "settings", feature: "general", input: "plugins/webapps/settings" }),
 };
 
 export const pluginIcons: Record<string, ComponentType<{ size?: number }>> = {
   launcher: BookmarkIcon,
   hotkeys: KeyboardIcon,
   screenshot: ScreenshotIcon,
+  webapps: GlobeIcon,
   settings: GearIcon,
 };
 
 /** Each plugin's 设置 tab in the plugin detail page. */
 export const pluginSettings: Record<string, ComponentType<PluginSettingsProps>> = {
   screenshot: ScreenshotSettings,
+  webapps: WebAppsSettings,
 };

@@ -1,0 +1,14 @@
+{
+  "id": "webapps",
+  "name": "网页应用",
+  "version": "0.1.0",
+  "description": "常用网站放进独立窗口，登录和对话一直保留",
+  "searchProvider": true,
+  "features": [
+    {
+      "code": "manage",
+      "explain": "管理网页应用",
+      "cmds": ["网页应用", "webapp", "web"]
+    }
+  ]
+}

@@ -6,8 +6,9 @@ import launcher from "../plugins/launcher/plugin.json";
 import hotkeys from "../plugins/hotkeys/plugin.json";
 import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
+import webapps from "../plugins/webapps/plugin.json";
 
-const manifests = [launcher, hotkeys, screenshot, settings];
+const manifests = [launcher, hotkeys, screenshot, webapps, settings];
 
 const apps = [
   { title: "微信", subtitle: "WeChat · /Applications/WeChat.app", kind: "app", path: "/Applications/WeChat.app" },
@@ -56,6 +57,7 @@ let config = {
   pinyin: true,
   appearance: "system",
   disabledMatches: [] as string[],
+  webApps: [{ id: "deepseek", name: "DeepSeek", url: "https://chat.deepseek.com", keywords: ["ds"] }],
   screenshot: { target: "wechat", systemMode: "region" },
   relayApps: [
     { id: "wechat", name: "微信", bundleId: "com.tencent.xinWeChat", accelerator: "Control+Super+Digit1", screenshot: true, ready: false },
@@ -86,10 +88,21 @@ mockIPC((cmd, args) => {
             action: { type: "feature", feature: f.code },
           })),
       );
+      const webHits = config.webApps
+        .filter((w) => w.keywords.includes(q) || (w.name + w.url).toLowerCase().includes(q))
+        .map((w) => ({
+          title: w.name,
+          subtitle: `${new URL(w.url).host} · 网页应用`,
+          score: 200,
+          plugin: "webapps",
+          kind: "feature",
+          icon: w.url,
+          action: { type: "openWeb", id: w.id },
+        }));
       const hits = apps
         .filter((x) => (x.title + x.subtitle).toLowerCase().includes(q))
         .map((x) => ({ ...x, score: 50, plugin: "launcher", action: { type: "openPath", path: x.path } }));
-      return [...features, ...hits];
+      return [...webHits, ...features, ...hits];
     }
     case "netspeed_snapshot": {
       const history = Array.from({ length: 60 }, (_, i) => [
@@ -124,10 +137,17 @@ mockIPC((cmd, args) => {
     }
     case "app_icon":
       return null;
+    case "webapp_icon":
+      // A stand-in for the real site icon the backend downloads.
+      return {
+        src: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="9" fill="#4D6BFE"/><circle cx="20" cy="20" r="9" fill="#fff"/></svg>'),
+        fill: true,
+      };
     case "config_dir":
       return "/Users/me/Library/Application Support/com.ahatools.app";
     case "plugin:app|version":
       return "0.1.0";
+    case "webapp_open":
     case "usage_record":
     case "set_panel_large":
     case "hotkey_set_recording":
