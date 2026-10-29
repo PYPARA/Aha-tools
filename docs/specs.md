@@ -20,6 +20,44 @@
 7. **热键**：能被热键触发的功能用 `hotkey::Action::OpenFeature`（插件详情的「设为热键」已经支持），特殊的才新增 `Action` 变体（参考 `OpenWeb`），并在 `plugins/settings/actions.ts` 的 `describeAction` / `actionChoices` 里补文案。
 8. **文案**：中文，短句，说清楚会发生什么；不出现 aha 小写名，统一 AhaTools。
 
+## 0. 功能图标（先做，所有插件共用）
+
+设计：[FeatureIcons.html](design/FeatureIcons.html)，两个方向，默认方向 A（实色渐变 + 白色双色图形）。方向 A 的 SVG 已经生成好，放在 `src/assets/icons/`，文件名就是 key。如果作者改选方向 B（浅色调底 + 彩色图形），不要用图片文件：把 `soft_svg()` 的结构写成 React 组件，用 `currentColor` 跟随主题。
+
+| key | 用在 | key | 用在 |
+| --- | --- | --- | --- |
+| `launcher` | 快捷启动 | `compress` | 图片压缩 |
+| `hotkeys` | 热键检测 | `hosts` | hosts 切换 |
+| `screenshot` | 截图 | `superpanel` | 超级面板 |
+| `webapps` | 网页应用（插件本身；单个网站仍用网站图标） | `system-colorpicker` | 取色 |
+| `settings` | 设置 | `system-desktop` | 显示桌面 |
+| `qrcode` | 生成二维码 | `system-lock` | 锁屏 |
+| `qrcode-scan` | 识别二维码 | `system-ocr` | 截图识字 |
+| `translate` | 翻译 | `sysmon` | 系统监控 |
+| `external` | 外部插件的默认图标（插件自带 `icon.png` 时用它的） | | |
+
+接线：
+
+1. `src/views.ts` 里用 Vite 的 `import.meta.glob("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" })` 生成 `featureIcons: Record<key, url>`。
+2. 加一个 `featureIconKey(plugin, feature?)`：先找 `"<plugin>-<feature>"`（如 `qrcode-scan`），再找 `"<plugin>"`，都没有时用 `external`。
+3. 新组件 `FeatureIcon({ plugin, feature, size })` 渲染 `<img>`（`src/ui.tsx` 里，`aria-hidden`），替换现在用 `pluginIcons` 画灰色方块的地方：
+   - `src/App.tsx` 的 `ItemIcon`：功能结果按 `item.action.feature` 选图标；
+   - 首页格子；
+   - 插件页标题栏；
+   - 设置 → 已安装插件列表和插件详情头部；
+   - 所有指令；
+   - 「添加热键」菜单可不加。
+4. 尺寸：搜索结果 32、首页格子 40、插件页标题栏 30、插件列表 26、插件详情头部 44、超级面板 38。
+5. `pluginIcons`（线条图标）删掉，或只留给没有功能图标的地方。
+
+以后每加一个功能，先在 `docs/design/gen_boards.py` 的 `FEATURE_ICONS` 加一行（key、名称、底色、24 格线条图形），运行：
+
+```sh
+python3 docs/design/gen_boards.py <画布目录> src/assets/icons
+```
+
+没有画布目录时，可以只抄 `feature_svg()` 的写法手动生成 SVG。
+
 ## 1. 二维码
 
 设计：[QrGenerate.html](design/QrGenerate.html)、[QrScan.html](design/QrScan.html)。

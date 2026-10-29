@@ -1,10 +1,11 @@
 """Generates the 「后续功能」 design boards for the AhaTools canvas.
 
 Each board shows one screen twice, light and dark, using the v2 tokens from
-docs/design-system.md. The canvas itself (claude.ai) is private to the owner, so the
-static copies next to this file (docs/design/*.html) are what implementers look at.
+docs/design-system.md. The canvas itself (claude.ai) is private to the owner, so the static copies next to
+this file (docs/design/*.html) are what implementers look at.
 
-Run: python3 gen_boards.py <canvas project dir containing canvas.json>
+Run: python3 gen_boards.py <canvas project dir> [src/assets/icons]
+The optional second argument also writes the feature icons (direction A) as SVG files.
 """
 import json
 import random
@@ -540,6 +541,100 @@ detail = f'''<div class="detail" style="gap: 14px">
 </div>'''
 sp_settings = settings("", detail, nav_on="超级面板").replace('<span class="i">所有指令</span>', '<span class="i">所有指令</span>').replace('<span class="i">全局热键</span>', '<span class="i">全局热键</span>\n<span class="i on">超级面板</span>', 1)
 boards.append(board("SuperPanelSettings", "设置 · 超级面板", 880, 580, sp_settings))
+
+# ---- 功能图标 ----
+# Two directions on one board. A (default, written to src/assets/icons): a luminous
+# gradient tile with a fine top highlight and a two-tone white glyph. B: a tinted tile
+# with the glyph in the feature colour, drawn with currentColor so it follows the theme.
+# Glyphs sit on a 24-unit grid: "fill" parts are the soft second tone, "line" parts the
+# 1.8px outline.
+FEATURE_ICONS = [
+    # key, 名称, 底色, 浅色调（fill）, 线条（line）
+    ("launcher", "快捷启动", "#D08A3A", '<path d="M7 4h10v16l-5-3.5L7 20z"></path>', '<path d="M7 4h10v16l-5-3.5L7 20z"></path><path d="M12 8.2l.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z"></path>'),
+    ("hotkeys", "热键检测", "#5F6F86", '<rect x="3" y="6" width="18" height="12" rx="2.5"></rect>', '<rect x="3" y="6" width="18" height="12" rx="2.5"></rect><path d="M7 10h.01M10.3 10h.01M13.7 10h.01M17 10h.01M8 14.2h8"></path>'),
+    ("screenshot", "截图", "#2F9488", '<rect x="7" y="7" width="10" height="10" rx="1"></rect>', '<path d="M7 3v14h14M3 7h14v14"></path>'),
+    ("webapps", "网页应用", "#3F63A0", '<circle cx="12" cy="12" r="8.5"></circle>', ICONS["globe"]),
+    ("settings", "设置", "#7A766C", '<circle cx="12" cy="12" r="6.4"></circle>', '<circle cx="12" cy="12" r="2.8"></circle><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6"></path>'),
+    ("qrcode", "生成二维码", "#3E8A5A", '<rect x="4" y="4" width="6" height="6" rx="1.2"></rect><rect x="14" y="4" width="6" height="6" rx="1.2"></rect><rect x="4" y="14" width="6" height="6" rx="1.2"></rect>', '<rect x="4" y="4" width="6" height="6" rx="1.2"></rect><rect x="14" y="4" width="6" height="6" rx="1.2"></rect><rect x="4" y="14" width="6" height="6" rx="1.2"></rect><path d="M14 14h2.5v2.5M20 14v6h-6M17.2 17.2h.01"></path>'),
+    ("qrcode-scan", "识别二维码", "#3E8A5A", '<rect x="8" y="8" width="8" height="8" rx="1.5"></rect>', '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M3.5 12h17"></path>'),
+    ("translate", "翻译", "#D9713A", '<rect x="11.5" y="9.5" width="10" height="11" rx="2.5"></rect>', ICONS["tr"]),
+    ("compress", "图片压缩", "#C2553F", '<rect x="8.5" y="8.5" width="7" height="7" rx="1.5"></rect>', '<path d="M9 3.5V9H3.5M15 3.5V9h5.5M9 20.5V15H3.5M15 20.5V15h5.5"></path>'),
+    ("hosts", "hosts 切换", "#3E7F96", '<rect x="4" y="4" width="16" height="7" rx="2"></rect>', '<rect x="4" y="4" width="16" height="7" rx="2"></rect><rect x="4" y="13" width="16" height="7" rx="2"></rect><path d="M8 7.5h.01M8 16.5h.01M12 7.5h4M12 16.5h4"></path>'),
+    ("superpanel", "超级面板", "#8A5A9A", '<rect x="4" y="4" width="7" height="7" rx="2"></rect><rect x="13" y="4" width="7" height="7" rx="2"></rect>', '<rect x="4" y="4" width="7" height="7" rx="2"></rect><rect x="13" y="4" width="7" height="7" rx="2"></rect><rect x="4" y="13" width="7" height="7" rx="2"></rect><path d="M16.5 13.2l1 2.3 2.3 1-2.3 1-1 2.3-1-2.3-2.3-1 2.3-1z"></path>'),
+    ("system-colorpicker", "取色", "#C4517A", '<path d="M5.5 18.5c0-1.4 1.1-3 1.1-3s1.1 1.6 1.1 3a1.1 1.1 0 0 1-2.2 0z"></path>', '<path d="M14.2 4.6l5.2 5.2-2 2-5.2-5.2z"></path><path d="M13.2 7.6L7 13.8V17h3.2l6.2-6.2"></path>'),
+    ("system-desktop", "显示桌面", "#4F79B8", '<rect x="3" y="4" width="18" height="12" rx="2"></rect>', '<rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16v4"></path>'),
+    ("system-lock", "锁屏", "#4A4740", '<rect x="5" y="11" width="14" height="9" rx="2.2"></rect>', '<rect x="5" y="11" width="14" height="9" rx="2.2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3M12 14.5v2"></path>'),
+    ("system-ocr", "截图识字", "#2E7AA8", '<rect x="7" y="8" width="10" height="8" rx="1.5"></rect>', '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M9 10.5h6M9 13.5h4"></path>'),
+    ("sysmon", "系统监控", "#9A7A34", '<path d="M3 12h4l2-6 4 12 2-6h6v8H3z"></path>', '<path d="M3 12h4l2-6 4 12 2-6h6"></path>'),
+    ("external", "外部插件", "#7470A8", ICONS["puzzle"], ICONS["puzzle"]),
+]
+
+
+def mix(hex_color, other, t):
+    """Blend hex_color toward other (0..1)."""
+    a = [int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b))
+
+
+def feature_svg(key, color, fill, line, size=None):
+    """Direction A: luminous tile, white two-tone glyph. 48-unit canvas."""
+    top, bottom = mix(color, "#FFFFFF", 0.22), mix(color, "#000000", 0.14)
+    g = f"bg-{key}"
+    attrs = f' width="{size}" height="{size}"' if size else ""
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"{attrs}>'
+            f'<defs><linearGradient id="{g}" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="{top}"></stop><stop offset=".55" stop-color="{color}"></stop><stop offset="1" stop-color="{bottom}"></stop></linearGradient>'
+            f'<linearGradient id="{g}-hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".5"></stop><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"></stop></linearGradient></defs>'
+            f'<rect width="48" height="48" rx="11.5" fill="url(#{g})"></rect>'
+            f'<rect x=".6" y=".6" width="46.8" height="46.8" rx="10.9" fill="none" stroke="url(#{g}-hl)" stroke-width="1.2"></rect>'
+            f'<g transform="translate(12 12)"><g fill="#FFFFFF" fill-opacity=".26" stroke="none">{fill}</g>'
+            f'<g fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{line}</g></g></svg>')
+
+
+def soft_svg(color, fill, line, size):
+    """Direction B: tinted tile, glyph in the feature colour (follows the theme via CSS)."""
+    return (f'<span style="display: inline-flex; color: color-mix(in srgb, {color} 78%, var(--text))"><svg viewBox="0 0 48 48" width="{size}" height="{size}">'
+            f'<rect width="48" height="48" rx="11.5" fill="currentColor" fill-opacity=".13"></rect>'
+            f'<rect x=".5" y=".5" width="47" height="47" rx="11" fill="none" stroke="currentColor" stroke-opacity=".16"></rect>'
+            f'<g transform="translate(12 12)"><g fill="currentColor" fill-opacity=".2" stroke="none">{fill}</g>'
+            f'<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{line}</g></g></svg></span>')
+
+
+if len(sys.argv) > 2:
+    icon_dir = Path(sys.argv[2])
+    icon_dir.mkdir(parents=True, exist_ok=True)
+    for key, _, color, fill, line in FEATURE_ICONS:
+        (icon_dir / f"{key}.svg").write_text(feature_svg(key, color, fill, line) + "\n")
+
+
+def icon_grid(render):
+    cells = ""
+    for key, name, color, fill, line in FEATURE_ICONS:
+        cells += f'<div class="col" style="align-items: center; gap: 7px; width: 104px">{render(key, color, fill, line)}<span style="font-size: 12.5px; font-weight: 500; white-space: nowrap">{name}</span><span class="mono" style="font-size: 10px; color: var(--text-3); white-space: nowrap">{key}</span></div>'
+    return f'<div style="display: grid; grid-template-columns: repeat(9, 104px); gap: 20px 6px">{cells}</div>'
+
+
+def demo(render):
+    rows = ""
+    for i, sub in ((5, "二维码 · 插件功能"), (7, "翻译 · 插件功能"), (8, "图片压缩 · 自动匹配")):
+        key, name, color, fill, line = FEATURE_ICONS[i]
+        sel = "background: var(--selected); " if i == 5 else ""
+        rows += f'<div class="row" style="{sel}height: 50px; padding: 0 12px; border-radius: 10px; gap: 14px">{render(key, color, fill, line, 32)}<span class="st" style="gap: 2px"><b style="font-size: 14px">{name}</b><span>{sub}</span></span></div>'
+    return f'<div class="win" style="width: 360px; padding: 8px 10px">{rows}</div>'
+
+
+a_render = lambda key, color, fill, line, size=50: feature_svg(key, color, fill, line, size)
+b_render = lambda key, color, fill, line, size=50: soft_svg(color, fill, line, size)
+inner = f'''<div class="col" style="gap: 18px">
+<span class="row" style="gap: 10px"><b style="font-size: 15px; font-weight: 500">方向 A · 实色（默认，已导出到 src/assets/icons）</b><span class="note">渐变底 + 顶边高光 + 白色双色图形，像系统应用图标</span></span>
+<div class="row" style="gap: 28px; align-items: flex-start">{icon_grid(a_render)}</div>
+<div class="row" style="gap: 28px; align-items: flex-start">{demo(a_render)}<p class="note" style="max-width: 420px">图形 = 1.8px 白色线条 + 26% 白色的浅色面，给出层次；底色从提亮 22% 过渡到压暗 14%，顶边一道渐隐的高光。圆角 11.5/48。</p></div>
+<div style="height: 1px; background: var(--border)"></div>
+<span class="row" style="gap: 10px"><b style="font-size: 15px; font-weight: 500">方向 B · 柔和浅色</b><span class="note">浅色调底 + 彩色图形，更安静，跟随浅色 / 深色</span></span>
+<div class="row" style="gap: 28px; align-items: flex-start">{icon_grid(b_render)}</div>
+<div class="row" style="gap: 28px; align-items: flex-start">{demo(b_render)}<p class="note" style="max-width: 420px">底 = 功能色 13%，细边 16%，图形用功能色（和正文色混 22%，深色模式自动变亮）。更贴近界面「一个强调色，省着用」的克制；选它的话用内联 SVG 组件实现，不用图片文件。</p></div>
+</div>'''
+boards.append(board("FeatureIcons", "功能图标 · 两个方向", 1100, 1030, inner))
 
 # ---- canvas.json ----
 canvas_path = OUT / "canvas.json"
