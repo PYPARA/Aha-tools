@@ -11,7 +11,7 @@ use tauri::{
 
 pub const LABEL: &str = "menu";
 const WIDTH: f64 = 300.0;
-const HEIGHT: f64 = 456.0;
+const HEIGHT: f64 = 412.0;
 /// Gap between the menu bar and the popover, in points.
 const OFFSET: f64 = 6.0;
 

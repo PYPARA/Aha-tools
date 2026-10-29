@@ -1,6 +1,6 @@
 {
   "id": "hotkeys",
-  "name": "热键",
+  "name": "热键检测",
   "version": "0.1.0",
   "description": "检测全局热键占用，管理 AhaTools 的热键",
   "features": [

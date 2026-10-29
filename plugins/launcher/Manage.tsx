@@ -1,15 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import {
-  FileIcon,
-  FolderIcon,
-  invoke,
-  openPath,
-  PathIcon,
-  withPinned,
-  type PathKind,
-  type PluginViewProps,
-} from "@ahatools/sdk";
+import { invoke, openPath, PathIcon, withPinned, type PathKind, type PluginViewProps } from "@ahatools/sdk";
 
 interface Entry {
   name: string;
@@ -17,17 +8,20 @@ interface Entry {
   kind: PathKind;
 }
 
-export default function Manage({ setStatus }: PluginViewProps) {
+/** Search text worth pre-filling as a path: "~/x", "/x" or a URL. */
+const looksLikePath = (s: string) => /^(~\/|\/)|:\/\//.test(s);
+
+export default function Manage({ setStatus, input }: PluginViewProps) {
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [path, setPath] = useState("");
-  const [name, setName] = useState("");
+  const [path, setPath] = useState(input && looksLikePath(input) ? input : "");
+  const [name, setName] = useState(input && !looksLikePath(input) ? input : "");
 
   useEffect(() => {
     invoke<Entry[]>("launcher_saved").then(setEntries);
   }, []);
 
   useEffect(() => {
-    setStatus(`${entries.length} 个收藏 · 搜索时排在应用前面`);
+    setStatus(`${entries.length} 个收藏`);
   }, [entries, setStatus]);
 
   const add = async (p: string, n?: string) => {
@@ -54,63 +48,67 @@ export default function Manage({ setStatus }: PluginViewProps) {
 
   return (
     <div className="view">
-      <form className="toolbar" onSubmit={submit}>
-        <label htmlFor="saved-path" className="sr-only">
-          路径或网址
-        </label>
-        <input
-          id="saved-path"
-          className="input"
-          style={{ flex: 1 }}
-          autoFocus
-          placeholder="路径或网址，如 ~/Projects、https://…"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-        />
-        <label htmlFor="saved-name" className="sr-only">
-          名称
-        </label>
-        <input
-          id="saved-name"
-          className="input"
-          style={{ width: 132 }}
-          placeholder="名称（可选）"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <button className="btn primary" type="submit">
-          收藏
-        </button>
-        <span className="divider" aria-hidden="true" />
-        <button className="btn" type="button" onClick={() => pick(false)} aria-label="选择文件或应用">
-          <FileIcon size={15} />
-          文件
-        </button>
-        <button className="btn" type="button" onClick={() => pick(true)} aria-label="选择文件夹">
-          <FolderIcon size={15} />
-          文件夹
-        </button>
-      </form>
+      <p className="lede">收藏的文件、文件夹和网址，搜索时排在应用前面。</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <form className="inline" style={{ flexWrap: "nowrap" }} onSubmit={submit}>
+          <label htmlFor="saved-path" className="sr-only">
+            路径或网址
+          </label>
+          <input
+            id="saved-path"
+            className="input"
+            style={{ flex: 1 }}
+            autoFocus
+            placeholder="粘贴路径或网址，如 ~/Projects"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+          />
+          <label htmlFor="saved-name" className="sr-only">
+            名称
+          </label>
+          <input
+            id="saved-name"
+            className="input"
+            style={{ width: 150 }}
+            placeholder="名称（可选）"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button className="btn primary lg" type="submit">
+            收藏
+          </button>
+        </form>
+        <span className="inline" style={{ gap: 4 }}>
+          <button className="btn ghost sm muted" type="button" onClick={() => pick(false)}>
+            选择文件…
+          </button>
+          <button className="btn ghost sm muted" type="button" onClick={() => pick(true)}>
+            选择文件夹…
+          </button>
+        </span>
+      </div>
 
       {entries.length === 0 ? (
-        <p className="note">还没有收藏。收藏后在搜索框输入名称就能直接打开，并且排在应用前面。</p>
+        <p className="note">还没有收藏。收藏后在搜索框输入名称就能直接打开。</p>
       ) : (
-        <ul className="list card">
+        <ul className="list">
           {entries.map((e) => (
             <li key={e.path}>
-              <span className="tile sm" aria-hidden="true">
-                <PathIcon kind={e.kind} size={15} />
+              <span className="tile" aria-hidden="true">
+                <PathIcon kind={e.kind} />
               </span>
               <span className="info">
                 <span className="name">{e.name}</span>
                 <span className="path">{e.path}</span>
               </span>
-              <button className="btn text" type="button" onClick={() => openPath(e.path)}>
-                打开
-              </button>
-              <button className="btn text danger" type="button" onClick={() => remove(e.path)}>
-                移除
-              </button>
+              <span className="hover-actions">
+                <button className="btn ghost" type="button" onClick={() => openPath(e.path)}>
+                  打开
+                </button>
+                <button className="btn ghost danger" type="button" onClick={() => remove(e.path)}>
+                  移除
+                </button>
+              </span>
             </li>
           ))}
         </ul>

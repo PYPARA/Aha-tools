@@ -4,10 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use base64::Engine;
+use tauri::{AppHandle, Manager, State};
 
 use super::{ItemAction, ItemKind, SearchItem, SearchProvider};
 use crate::config;
@@ -51,11 +51,11 @@ impl Launcher {
 impl SearchProvider for Launcher {
     fn search(&self, query: &str, matcher: &SkimMatcherV2) -> Vec<SearchItem> {
         let score = |e: &Entry| {
-            let by_name = matcher.fuzzy_match(&e.name, query);
+            let by_name = super::match_text(matcher, &e.name, query);
             let by_alias = e
                 .alias
                 .as_deref()
-                .and_then(|a| matcher.fuzzy_match(a, query));
+                .and_then(|a| super::match_text(matcher, a, query));
             by_name.max(by_alias)
         };
         let item = |e: &Entry, score: i64, kind: ItemKind| SearchItem {
@@ -68,7 +68,7 @@ impl SearchProvider for Launcher {
             score,
             plugin: ID.into(),
             kind,
-            icon: (kind == ItemKind::Saved).then(|| path_kind(&e.path)),
+            icon: (kind == ItemKind::Saved).then(|| path_kind(&e.path).to_string()),
             action: ItemAction::OpenPath {
                 path: e.path.clone(),
             },
@@ -273,6 +273,56 @@ pub fn launcher_remove(
     Ok(launcher_saved(launcher))
 }
 
+/// The bundle's .icns, from CFBundleIconFile (the extension is optional there).
+fn icon_file(app: &Path) -> Option<PathBuf> {
+    let info = plist::Value::from_file(app.join("Contents/Info.plist")).ok()?;
+    let name = info
+        .as_dictionary()?
+        .get("CFBundleIconFile")
+        .and_then(|v| v.as_string())
+        .unwrap_or("AppIcon");
+    let mut path = app.join("Contents/Resources").join(name);
+    if path.extension().is_none() {
+        path.set_extension("icns");
+    }
+    path.exists().then_some(path)
+}
+
+/// An app's icon as a PNG data URL, converted once with `sips` and cached. None for apps
+/// whose icon lives only in an asset catalog; the panel then draws a letter tile.
+#[tauri::command]
+pub async fn app_icon(app: AppHandle, path: String) -> Option<String> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    if !path.ends_with(".app") {
+        return None;
+    }
+    let mut h = DefaultHasher::new();
+    path.hash(&mut h);
+    let dir = app.path().app_cache_dir().ok()?.join("icons");
+    let png = dir.join(format!("{:016x}.png", h.finish()));
+    if !png.exists() {
+        let icns = icon_file(Path::new(&path))?;
+        fs::create_dir_all(&dir).ok()?;
+        // 80px: the largest tile is 40pt on a Retina screen.
+        let ok = std::process::Command::new("sips")
+            .args(["-s", "format", "png", "-Z", "80"])
+            .arg(&icns)
+            .arg("--out")
+            .arg(&png)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !ok {
+            return None;
+        }
+    }
+    let bytes = fs::read(&png).ok()?;
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +347,11 @@ mod tests {
         assert_eq!(path_kind("/etc/hosts"), "file");
         assert_eq!(path_kind("/Applications"), "folder");
         assert_eq!(path_kind("/Applications/Safari.app"), "file");
+    }
+
+    #[test]
+    fn finds_icns_for_system_apps() {
+        assert!(icon_file(Path::new("/System/Applications/Calculator.app")).is_some());
     }
 
     #[test]

@@ -6,6 +6,7 @@ mod plugins;
 mod popover;
 mod relay;
 mod screenshot;
+mod usage;
 
 use std::thread;
 
@@ -32,6 +33,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             let cfg = config::load(app.handle());
+            plugins::configure(&cfg);
 
             let launcher = Launcher::new(app.handle().clone());
             let mut registry = Registry::new();
@@ -49,14 +51,21 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             config::config_get,
             config::config_set,
+            config::config_dir,
             panel::hide_panel,
             panel::set_panel_pinned,
+            panel::set_panel_large,
             plugins::list_plugins,
             plugins::search,
             plugins::open_path,
             launcher::launcher_saved,
             launcher::launcher_add,
             launcher::launcher_remove,
+            launcher::app_icon,
+            usage::usage_home,
+            usage::usage_record,
+            usage::usage_toggle_pin,
+            usage::usage_forget,
             hotkey::hotkey_bindings,
             hotkey::hotkey_probe,
             hotkey::hotkey_status,
@@ -95,6 +104,6 @@ fn setup_tray(app: &App, cfg: &config::Config) -> tauri::Result<()> {
         .build(app)?;
 
     // Sample even without the menu-bar display: the popover needs the numbers.
-    netspeed::start(app.handle().clone(), cfg.netspeed.then_some(tray));
+    netspeed::start(app.handle().clone(), tray, cfg.netspeed);
     Ok(())
 }

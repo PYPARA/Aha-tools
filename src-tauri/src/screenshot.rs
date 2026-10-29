@@ -11,7 +11,7 @@ use crate::config::{self, SystemMode};
 use crate::relay;
 
 /// Takes a screenshot with `target` (or the configured tool). Falls back to the system
-/// tool when the chosen app isn't running. Runs off the calling thread.
+/// tool when the chosen app isn't running or isn't set up yet. Runs off the calling thread.
 pub fn take(app: &AppHandle, target: Option<String>) {
     let app = app.clone();
     thread::spawn(move || {
@@ -21,9 +21,16 @@ pub fn take(app: &AppHandle, target: Option<String>) {
         thread::sleep(Duration::from_millis(150));
 
         let cfg = config::load(&app);
+        // 「测试截图」 names the tool explicitly: that's how the user checks the setup.
+        let testing = target.is_some();
         let target = target.unwrap_or(cfg.screenshot.target.clone());
         if let Some(r) = cfg.relay_apps.iter().find(|a| a.id == target) {
-            if relay::is_running(&r.bundle_id) {
+            if !r.ready && !testing {
+                relay::notify(&format!(
+                    "{} 还没设置暗号键，已改用系统截图。在截图插件的设置里完成一次性设置",
+                    r.name
+                ));
+            } else if relay::is_running(&r.bundle_id) {
                 match relay::press(&r.accelerator) {
                     Ok(()) => return,
                     Err(e) => relay::notify(&format!("{e}，已改用系统截图")),

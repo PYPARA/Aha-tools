@@ -1,7 +1,7 @@
 //! Relay apps: other apps AhaTools triggers by pressing their own hotkey for them.
 //!
 //! Global hotkeys go to every app registered for them, so you can't make just WeChat
-//! answer ⌘⇧A. Instead each app gets its own rarely used "secret" combo (⌃⌥⇧⌘1…), set
+//! answer ⌘⇧A. Instead each app gets its own rarely used "secret" combo (⌃⌘1…), set
 //! once in that app's settings, and AhaTools presses it when its own hotkey routes there.
 
 use std::path::Path;
@@ -33,6 +33,9 @@ pub fn press(accelerator: &str) -> Result<(), String> {
 
 pub fn forward(app: &AppHandle, id: &str) -> Result<(), String> {
     let relay = find(app, id).ok_or_else(|| format!("找不到转发目标 {id}"))?;
+    if !relay.ready {
+        return Err(format!("{0} 还没设置暗号键：先在 {0} 里把快捷键改成 AhaTools 设置里显示的暗号键", relay.name));
+    }
     if !is_running(&relay.bundle_id) {
         return Err(format!("{} 没在运行", relay.name));
     }

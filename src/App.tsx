@@ -1,88 +1,116 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { Menu } from "@tauri-apps/api/menu";
 import {
+  AppIcon,
   BackIcon,
   formatAccelerator,
   hidePanel,
   invoke,
-  NoResultIcon,
   openPath,
+  PageActionsSlot,
   PathIcon,
   PuzzleIcon,
   SearchIcon,
+  SlidersIcon,
+  useAppearance,
+  type Binding,
   type Manifest,
   type SearchItem,
 } from "@ahatools/sdk";
-import { pluginIcons, views } from "./views";
+import { actions, fullPageViews, pluginIcons, views } from "./views";
 import "./styles.css";
 
-type Active = { plugin: string; feature: string; input?: string } | null;
+type Target = { plugin: string; feature: string; input?: string };
 
-const KIND_LABEL: Record<SearchItem["kind"], string> = { app: "应用", saved: "收藏", feature: "功能" };
+interface Home {
+  recent: SearchItem[];
+  pinned: SearchItem[];
+}
 
+/** Recent items shown before 「展开」: one row of the grid. */
+const COLUMNS = 7;
 
-function ResultIcon({ item }: { item: SearchItem }) {
-  if (item.kind === "app") {
-    return (
-      <span className="tile initial" aria-hidden="true">
-        {item.title.charAt(0).toUpperCase()}
-      </span>
-    );
+function ItemIcon({ item, large }: { item: SearchItem; large?: boolean }) {
+  if (item.kind === "app" && item.action.type === "openPath") {
+    return <AppIcon path={item.action.path} name={item.title} large={large} />;
   }
-  if (item.kind === "saved") {
-    return (
-      <span className="tile" aria-hidden="true">
-        <PathIcon kind={item.icon} size={18} />
-      </span>
-    );
-  }
-  const Icon = pluginIcons[item.plugin] ?? PuzzleIcon;
+  const Icon = item.kind === "saved" ? null : (pluginIcons[item.plugin] ?? PuzzleIcon);
   return (
-    <span className="tile feature" aria-hidden="true">
-      <Icon size={18} />
+    <span className={large ? "tile lg" : "tile"} aria-hidden="true">
+      {Icon ? <Icon size={large ? 18 : 16} /> : <PathIcon kind={item.icon} size={large ? 18 : 16} />}
     </span>
   );
 }
 
-function Hint({ keys, label }: { keys: string; label: string }) {
-  return (
-    <span className="hint">
-      <kbd>{keys}</kbd>
-      {label}
-    </span>
-  );
+/** Identity of a result for pinning; a feature is the same with or without input text. */
+function pinKey(item: SearchItem) {
+  const a = item.action.type === "feature" ? { type: "feature", feature: item.action.feature } : item.action;
+  return `${item.plugin}|${JSON.stringify(a)}`;
+}
+
+/** Grid cells laid out as rows of COLUMNS across both sections, for arrow-key moves. */
+function moveInGrid(sections: number[], index: number, key: string) {
+  const cells: { row: number; col: number }[] = [];
+  let row = 0;
+  for (const count of sections) {
+    for (let i = 0; i < count; i++) cells.push({ row: row + Math.floor(i / COLUMNS), col: i % COLUMNS });
+    row += Math.ceil(count / COLUMNS);
+  }
+  const cur = cells[index];
+  if (!cur) return 0;
+  if (key === "ArrowLeft") return Math.max(0, index - 1);
+  if (key === "ArrowRight") return Math.min(cells.length - 1, index + 1);
+  const targetRow = cur.row + (key === "ArrowDown" ? 1 : -1);
+  const inRow = cells.map((c, i) => ({ ...c, i })).filter((c) => c.row === targetRow);
+  if (inRow.length === 0) return index;
+  return (inRow.find((c) => c.col === cur.col) ?? inRow[inRow.length - 1]).i;
 }
 
 export default function App() {
+  useAppearance();
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<SearchItem[]>([]);
   const [selected, setSelected] = useState(0);
-  const [active, setActive] = useState<Active>(null);
+  const [active, setActive] = useState<Target | null>(null);
   const [manifests, setManifests] = useState<Manifest[]>([]);
-  const [hotkey, setHotkey] = useState("⌥Space");
+  const [home, setHome] = useState<Home>({ recent: [], pinned: [] });
+  const [expanded, setExpanded] = useState(false);
+  const [hotkey, setHotkey] = useState("⌥ Space");
   const [status, setStatus] = useState("");
+  const [flash, setFlash] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const activeRef = useRef<Target | null>(null);
+  activeRef.current = active;
+
+  const loadHome = () => invoke<Home>("usage_home").then(setHome);
+  const loadHotkey = () =>
+    invoke<Binding[]>("hotkey_bindings").then((bs) => {
+      const b = bs.find((b) => b.enabled && b.action.type === "togglePanel");
+      setHotkey(b ? formatAccelerator(b.accelerator) : "");
+    });
 
   useEffect(() => {
     invoke<Manifest[]>("list_plugins").then(setManifests);
-    invoke<{ accelerator: string; action: { type: string }; enabled: boolean }[]>("hotkey_bindings").then((bs) => {
-      const b = bs.find((b) => b.enabled && b.action.type === "togglePanel");
-      if (b) setHotkey(formatAccelerator(b.accelerator));
-    });
-    const unShown = listen("panel-shown", () => {
-      setActive(null);
-      setError(null);
-      requestAnimationFrame(() => inputRef.current?.select());
-    });
-    const unOpen = listen<{ plugin: string; feature: string; input?: string }>("open-feature", (e) =>
-      open(e.payload),
-    );
-    return () => {
-      unShown.then((f) => f());
-      unOpen.then((f) => f());
-    };
+    loadHome();
+    loadHotkey();
+    const subs = [
+      // Like uTools, coming back shows the page that was open; esc returns to search.
+      listen("panel-shown", () => {
+        setError(null);
+        if (activeRef.current) return;
+        setExpanded(false);
+        setSelected(0);
+        loadHome();
+        requestAnimationFrame(() => inputRef.current?.select());
+      }),
+      listen<Target>("open-feature", (e) => open(e.payload)),
+      listen("config-changed", loadHotkey),
+    ];
+    return () => subs.forEach((s) => s.then((f) => f()));
   }, []);
 
   useEffect(() => {
@@ -98,26 +126,48 @@ export default function App() {
     };
   }, [query]);
 
+  // Search is compact; plugin and settings pages get the larger window.
   useEffect(() => {
-    listRef.current?.children[selected]?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+    invoke("set_panel_large", { large: active !== null });
+  }, [active]);
 
-  const crumbs = useMemo(() => {
-    if (!active) return null;
-    const m = manifests.find((m) => m.id === active.plugin);
-    const f = m?.features.find((f) => f.code === active.feature);
-    return { plugin: m?.name ?? active.plugin, feature: f?.explain ?? active.feature };
-  }, [active, manifests]);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(""), 2000);
+    return () => clearTimeout(t);
+  }, [flash]);
 
-  const shortcuts = useMemo(
+  const hasQuery = query.trim() !== "";
+  const pinnedKeys = useMemo(() => new Set(home.pinned.map(pinKey)), [home.pinned]);
+
+  /** Shown when nothing has been used yet: every plugin feature. */
+  const allFeatures = useMemo<SearchItem[]>(
     () =>
-      manifests.flatMap((m) =>
-        m.features.map((f) => ({ plugin: m.id, feature: f.code, label: f.explain, keyword: f.cmds[0] })),
-      ),
+      manifests
+        .filter((m) => m.id !== "settings")
+        .flatMap((m) =>
+          m.features.map((f) => ({
+            title: f.explain,
+            subtitle: m.name,
+            score: 0,
+            plugin: m.id,
+            kind: "feature" as const,
+            action: { type: "feature" as const, feature: f.code },
+          })),
+        ),
     [manifests],
   );
 
-  function open(target: { plugin: string; feature: string; input?: string }) {
+  const recent = expanded ? home.recent : home.recent.slice(0, COLUMNS);
+  const sections = home.recent.length || home.pinned.length ? [recent, home.pinned] : [allFeatures];
+  const gridItems = sections.flat();
+  const visible = hasQuery ? items : gridItems;
+
+  useEffect(() => {
+    if (hasQuery) listRef.current?.children[selected]?.scrollIntoView({ block: "nearest" });
+  }, [selected, hasQuery]);
+
+  function open(target: Target) {
     setStatus("");
     setError(null);
     setActive(target);
@@ -131,6 +181,7 @@ export default function App() {
   const run = async (item: SearchItem | undefined) => {
     if (!item) return;
     setError(null);
+    invoke("usage_record", { item });
     if (item.action.type === "openPath") {
       try {
         await openPath(item.action.path);
@@ -138,12 +189,47 @@ export default function App() {
       } catch (e) {
         setError(String(e));
       }
+      return;
+    }
+    const key = `${item.plugin}/${item.action.feature}`;
+    if (actions[key]) {
+      actions[key](item.action.input);
+      setQuery("");
     } else {
       open({ plugin: item.plugin, feature: item.action.feature, input: item.action.input });
     }
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
+  const togglePin = async (item: SearchItem | undefined) => {
+    if (!item) return;
+    const pinned = await invoke<boolean>("usage_toggle_pin", { item });
+    setFlash(pinned ? `已固定「${item.title}」` : `已取消固定「${item.title}」`);
+    loadHome();
+  };
+
+  const forget = async (item: SearchItem) => {
+    await invoke("usage_forget", { item });
+    setFlash(`已从最近使用中删除「${item.title}」`);
+    loadHome();
+  };
+
+  /** Right-click menu, native like uTools': pin / unpin, and remove from 最近使用. */
+  const showItemMenu = async (e: React.MouseEvent, item: SearchItem, inRecent: boolean) => {
+    e.preventDefault();
+    const pinned = pinnedKeys.has(pinKey(item));
+    const entries = [
+      { text: pinned ? "取消固定" : "固定到首页", accelerator: "CmdOrCtrl+D", action: () => togglePin(item) },
+      ...(inRecent ? [{ text: "从「最近使用」中删除", action: () => forget(item) }] : []),
+    ];
+    try {
+      const menu = await Menu.new({ items: entries });
+      await menu.popup();
+    } catch {
+      // No native menus in the browser preview.
+    }
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
     if (e.metaKey && e.key === ",") {
       e.preventDefault();
       open({ plugin: "settings", feature: "general" });
@@ -157,37 +243,93 @@ export default function App() {
       return;
     }
     if (active) return;
-    if (e.key === "ArrowDown") {
+    if (e.metaKey && e.key.toLowerCase() === "d") {
       e.preventDefault();
-      setSelected((s) => Math.min(s + 1, items.length - 1));
-    } else if (e.key === "ArrowUp") {
+      togglePin(visible[selected]);
+    } else if (e.metaKey && /^[1-9]$/.test(e.key) && hasQuery) {
       e.preventDefault();
-      setSelected((s) => Math.max(s - 1, 0));
+      run(items[Number(e.key) - 1]);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      run(items[selected]);
+      run(visible[selected]);
+    } else if (hasQuery && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      setSelected((s) => Math.max(0, Math.min(s + (e.key === "ArrowDown" ? 1 : -1), items.length - 1)));
+    } else if (!hasQuery && e.key.startsWith("Arrow")) {
+      // Left/right stay in the text box while there's text to move through.
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && query) return;
+      e.preventDefault();
+      setSelected((s) => moveInGrid(sections.map((x) => x.length), s, e.key));
     }
   };
 
-  const View = active ? views[`${active.plugin}/${active.feature}`] : null;
-  const hasQuery = query.trim() !== "";
+  // On the window, not the panel element: pages without a focused field (热键检测)
+  // would otherwise never see esc.
+  const keyHandler = useRef(onKeyDown);
+  keyHandler.current = onKeyDown;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  const openSettings = useCallback(() => open({ plugin: "settings", feature: "general" }), []);
+
+  // ---- Plugin and settings pages ----
+
+  if (active) {
+    const key = `${active.plugin}/${active.feature}`;
+    const View = views[key];
+    const viewEl = View ? (
+      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} />
+    ) : (
+      <div className="state">
+        <span className="note">插件页面不存在：{key}</span>
+      </div>
+    );
+    if (fullPageViews.has(key)) {
+      return (
+        <div className="fill">
+          {viewEl}
+        </div>
+      );
+    }
+    const m = manifests.find((m) => m.id === active.plugin);
+    const f = m?.features.find((f) => f.code === active.feature);
+    const Icon = pluginIcons[active.plugin] ?? PuzzleIcon;
+    return (
+      <div className="panel">
+        <header className="page-head" data-tauri-drag-region>
+          <button type="button" className="icon-btn" onClick={back} aria-label="返回搜索">
+            <BackIcon size={18} />
+          </button>
+          <span className="tile md" aria-hidden="true">
+            <Icon />
+          </span>
+          <span className="page-title" data-tauri-drag-region>
+            <strong>{f?.explain ?? active.feature}</strong>
+            <span>{m?.name ?? active.plugin}</span>
+          </span>
+          <span className="page-actions" ref={setActionsSlot} />
+        </header>
+        <main className="panel-body">
+          <PageActionsSlot.Provider value={actionsSlot}>{viewEl}</PageActionsSlot.Provider>
+        </main>
+        <footer className="foot">
+          <span>esc 返回搜索</span>
+          <span>{status}</span>
+        </footer>
+      </div>
+    );
+  }
+
+  // ---- Search ----
 
   let body: React.ReactNode;
   let hints: React.ReactNode;
-  let right: string;
-  if (active) {
-    body = View ? (
-      <View key={`${active.plugin}/${active.feature}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} />
-    ) : (
-      <div className="state">
-        <span className="note">
-          插件页面不存在：{active.plugin}/{active.feature}
-        </span>
-      </div>
-    );
-    hints = <Hint keys="esc" label="返回" />;
-    right = status;
-  } else if (items.length > 0) {
+  let right: React.ReactNode;
+
+  if (hasQuery && items.length > 0) {
     body = (
       <ul className="results" ref={listRef}>
         {items.map((item, i) => (
@@ -196,19 +338,17 @@ export default function App() {
             className={`result${i === selected ? " selected" : ""}`}
             onMouseMove={() => setSelected(i)}
             onClick={() => run(item)}
+            onContextMenu={(e) => showItemMenu(e, item, false)}
           >
-            <ResultIcon item={item} />
+            <ItemIcon item={item} />
             <span className="text">
               <span className="title">{item.title}</span>
               <span className="subtitle">{item.subtitle}</span>
             </span>
             {i === selected ? (
-              <span className="go">
-                <kbd>↵</kbd>
-                {item.kind === "feature" ? "进入" : "打开"}
-              </span>
+              <span className="go">↵ 打开</span>
             ) : (
-              <span className="kind">{KIND_LABEL[item.kind]}</span>
+              <span className="key">{i < 9 ? `⌘${i + 1}` : ""}</span>
             )}
           </li>
         ))}
@@ -216,103 +356,120 @@ export default function App() {
     );
     hints = (
       <>
-        <Hint keys="↑↓" label="选择" />
-        <Hint keys="↵" label="打开" />
-        <Hint keys="esc" label="关闭" />
+        <span>↑↓ 选择</span>
+        <span>⌘1–9 直接打开</span>
+        <span>右键 固定</span>
       </>
     );
-    right = `${items.length} 个结果`;
+    right = `${items.length} 个结果 · 拼音首字母也能搜`;
   } else if (hasQuery) {
+    const q = query.trim();
     body = (
       <div className="state">
-        <span className="badge">
-          <NoResultIcon />
-        </span>
-        <div className="headline">
-          <strong>没有找到「{query.trim()}」</strong>
-          <span>检查一下拼写；常用但搜不到的文件或网址，可以加进收藏</span>
+        <div className="copy">
+          <p className="headline">没有找到「{q}」</p>
+          <p className="lede">换个写法试试；常用但搜不到的文件或网址，可以收藏起来</p>
         </div>
-        <button type="button" className="btn" onClick={() => open({ plugin: "launcher", feature: "manage" })}>
-          管理收藏
+        <button type="button" className="btn" onClick={() => open({ plugin: "launcher", feature: "manage", input: q })}>
+          收藏一个路径
         </button>
       </div>
     );
-    hints = <Hint keys="esc" label="清空" />;
+    hints = <span>esc 清空</span>;
     right = "0 个结果";
   } else {
+    const cell = (item: SearchItem, index: number, inRecent = false) => (
+      <button
+        type="button"
+        key={`${item.plugin}:${item.title}:${index}`}
+        className={`grid-item${index === selected ? " selected" : ""}`}
+        onClick={() => run(item)}
+        onMouseMove={() => setSelected(index)}
+        onContextMenu={(e) => {
+          setSelected(index);
+          showItemMenu(e, item, inRecent);
+        }}
+        title={item.subtitle}
+      >
+        <ItemIcon item={item} large />
+        <span className="label">{item.title}</span>
+      </button>
+    );
+    const firstTime = sections.length === 1;
     body = (
-      <div className="state">
-        <div className="headline">
-          <strong>输入关键词开始搜索</strong>
-          <span>应用名中英文都能搜，收藏的路径排在最前面</span>
-        </div>
-        {shortcuts.length > 0 && (
-          <div className="shortcuts">
-            <span>常用功能</span>
-            {shortcuts.map((s) => {
-              const Icon = pluginIcons[s.plugin] ?? PuzzleIcon;
-              return (
-                <button
-                  type="button"
-                  key={`${s.plugin}/${s.feature}`}
-                  className="shortcut"
-                  onClick={() => open({ plugin: s.plugin, feature: s.feature })}
-                >
-                  <span className="tile sm" aria-hidden="true">
-                    <Icon />
-                  </span>
-                  <span className="label">{s.label}</span>
-                  {s.keyword && <kbd>{s.keyword}</kbd>}
-                </button>
-              );
-            })}
-          </div>
+      <div className="home">
+        {firstTime ? (
+          <>
+            <div className="section-head">
+              <h2>功能</h2>
+              <span className="aside">用过的应用和功能会出现在这里</span>
+            </div>
+            <div className="grid">{allFeatures.map((it, i) => cell(it, i))}</div>
+          </>
+        ) : (
+          <>
+            {home.recent.length > 0 && (
+              <>
+                <div className="section-head">
+                  <h2>最近使用</h2>
+                  {home.recent.length > COLUMNS && (
+                    <button type="button" className="link-btn" onClick={() => setExpanded((x) => !x)}>
+                      {expanded ? "收起" : `展开 ${home.recent.length - COLUMNS}`}
+                    </button>
+                  )}
+                </div>
+                <div className="grid">{recent.map((it, i) => cell(it, i, true))}</div>
+              </>
+            )}
+            {home.pinned.length > 0 && (
+              <>
+                <div className="section-head">
+                  <h2>已固定</h2>
+                  <span className="aside">右键或 ⌘D 固定、取消</span>
+                </div>
+                <div className="grid">{home.pinned.map((it, i) => cell(it, recent.length + i))}</div>
+              </>
+            )}
+          </>
         )}
       </div>
     );
-    hints = <Hint keys="esc" label="关闭" />;
-    right = `${hotkey} 随时唤出`;
+    hints = (
+      <>
+        <span>方向键 选择</span>
+        <span>↵ 打开</span>
+        <span>esc 关闭</span>
+      </>
+    );
+    right = <span className="mono">{hotkey}</span>;
   }
 
   return (
-    <div className="panel" onKeyDown={onKeyDown}>
-      {active && crumbs ? (
-        <header className="panel-header crumbs" data-tauri-drag-region>
-          <button type="button" className="back" onClick={back} aria-label="返回搜索">
-            <BackIcon />
-          </button>
-          <span className="parent">{crumbs.plugin}</span>
-          <span className="sep" aria-hidden="true">
-            /
-          </span>
-          <span className="current">{crumbs.feature}</span>
-        </header>
-      ) : (
-        <header className="panel-header" data-tauri-drag-region>
-          <span className="search-icon">
-            <SearchIcon />
-          </span>
-          <label htmlFor="q" className="sr-only">
-            搜索
-          </label>
-          <input
-            id="q"
-            ref={inputRef}
-            autoFocus
-            spellCheck={false}
-            autoComplete="off"
-            placeholder="搜索应用、收藏或功能…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </header>
-      )}
-
+    <div className="panel">
+      <header className="search-head" data-tauri-drag-region>
+        <SearchIcon />
+        <label htmlFor="q" className="sr-only">
+          搜索
+        </label>
+        <input
+          id="q"
+          ref={inputRef}
+          autoFocus
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="搜索应用、收藏和功能"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <button type="button" className="icon-btn" aria-label="设置" title="设置 ⌘," onClick={openSettings}>
+          <SlidersIcon />
+        </button>
+      </header>
+      <div className="hairline" />
       <main className="panel-body">{body}</main>
-
-      <footer className="panel-footer">
+      <footer className="foot">
         <span className="hints">{hints}</span>
-        {error ? <span className="error">{error}</span> : <span>{right}</span>}
+        {error ? <span className="error">{error}</span> : <span>{flash || right}</span>}
       </footer>
     </div>
   );

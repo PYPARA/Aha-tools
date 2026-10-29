@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export { invoke };
 export * from "./ui";
+export * from "./config";
 
 export type ItemAction =
   | { type: "openPath"; path: string }

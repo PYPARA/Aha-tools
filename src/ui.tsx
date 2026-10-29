@@ -1,10 +1,12 @@
 // Shared UI pieces for the panel and plugin views. Plugins get these via "@ahatools/sdk".
 // Icons are 24-unit stroke paths drawn in currentColor.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
-function Icon({ size = 16, width = 2, children }: { size?: number; width?: number; children: ReactNode }) {
+function Icon({ size = 16, width = 1.6, children }: { size?: number; width?: number; children: ReactNode }) {
   return (
     <svg
       width={size}
@@ -37,7 +39,7 @@ export const NoResultIcon = ({ size = 24 }: P) => (
   </Icon>
 );
 export const BackIcon = ({ size = 16 }: P) => (
-  <Icon size={size} width={2.2}>
+  <Icon size={size}>
     <path d="M15 18l-6-6 6-6" />
   </Icon>
 );
@@ -103,12 +105,107 @@ export const CloseIcon = ({ size = 14 }: P) => (
     <path d="M6 6l12 12M18 6L6 18" />
   </Icon>
 );
+export const SlidersIcon = ({ size = 18 }: P) => (
+  <Icon size={size}>
+    <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+    <circle cx="16" cy="7" r="2" />
+    <circle cx="10" cy="17" r="2" />
+  </Icon>
+);
+export const ScreenshotIcon = ({ size = 16 }: P) => (
+  <Icon size={size}>
+    <path d="M7 3v14h14M3 7h14v14" />
+  </Icon>
+);
+export const ChevronIcon = ({ size = 12 }: P) => (
+  <Icon size={size} width={2}>
+    <path d="M9 6l6 6-6 6" />
+  </Icon>
+);
+export const InfoIcon = ({ size = 22 }: P) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8h.01" />
+  </Icon>
+);
 export const RefreshIcon = ({ size = 14 }: P) => (
   <Icon size={size}>
     <path d="M20 11a8 8 0 1 0-2.3 5.7" />
     <path d="M20 4v7h-7" />
   </Icon>
 );
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+  small,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  label: string;
+  small?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <input
+      type="checkbox"
+      role="switch"
+      className={small ? "switch sm" : "switch"}
+      aria-label={label}
+      checked={checked}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.checked)}
+    />
+  );
+}
+
+const iconCache = new Map<string, Promise<string | null>>();
+
+/** An app's real icon, or a letter tile while loading / when it has none. */
+export function AppIcon({ path, name, large }: { path: string; name: string; large?: boolean }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!iconCache.has(path)) iconCache.set(path, invoke<string | null>("app_icon", { path }).catch(() => null));
+    iconCache.get(path)!.then((s) => live && setSrc(s));
+    return () => {
+      live = false;
+    };
+  }, [path]);
+  if (src) return <img className={large ? "app-img lg" : "app-img"} src={src} alt="" aria-hidden="true" />;
+  return (
+    <span className={large ? "tile lg letter" : "tile letter"} aria-hidden="true">
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+/** Follows 外观 in config.json: "system", "light" or "dark". Call once per window. */
+export function useAppearance() {
+  useEffect(() => {
+    const apply = (c: { appearance?: string }) => {
+      const t = c.appearance;
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      else delete document.documentElement.dataset.theme;
+    };
+    invoke<{ appearance?: string }>("config_get").then(apply);
+    const un = listen<{ appearance?: string }>("config-changed", (e) => apply(e.payload));
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+}
+
+/** Where a plugin page's header buttons go; set by the panel. */
+export const PageActionsSlot = createContext<HTMLElement | null>(null);
+
+/** Renders its children on the right of the plugin page header. */
+export function PageActions({ children }: { children: ReactNode }) {
+  const slot = useContext(PageActionsSlot);
+  return slot ? createPortal(children, slot) : null;
+}
 
 export function Spinner({ label }: { label: string }) {
   return (
@@ -144,14 +241,14 @@ const KEY_LABELS: Record<string, string> = {
   BracketRight: "]", Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/",
 };
 
-/** "Control+Alt+Shift+Super+Digit1" → "⌃⌥⇧⌘1", modifiers in macOS order. */
+/** "Control+Alt+Shift+Super+Digit1" → "⌃⌥⇧⌘ 1", modifiers in macOS order. */
 export function formatAccelerator(acc: string) {
   const parts = acc.split("+").filter(Boolean);
   const mods = new Set(parts.slice(0, -1).map((p) => MOD_ALIASES[p.toLowerCase()] ?? p.toLowerCase()));
   const key = parts[parts.length - 1] ?? "";
   const label = KEY_LABELS[key] ?? key.replace(/^Key/, "").replace(/^Digit/, "");
   const symbols = MOD_SYMBOLS.filter(([m]) => mods.has(m)).map(([, s]) => s).join("");
-  return label === "Space" && symbols ? `${symbols} Space` : `${symbols}${label}`;
+  return `${symbols} ${label}`.trim();
 }
 
 /**
@@ -163,13 +260,24 @@ export function HotkeyRecorder({
   onChange,
   placeholder = "点击录制",
   className = "",
+  startRecording = false,
+  onCancel,
 }: {
   value: string;
   onChange: (accelerator: string) => void;
   placeholder?: string;
   className?: string;
+  /** Start listening right away, e.g. after 「设为热键」. */
+  startRecording?: boolean;
+  /** Recording ended without a new combo. */
+  onCancel?: () => void;
 }) {
-  const [recording, setRecording] = useState(false);
+  const [recording, setRecording] = useState(startRecording);
+  const button = useRef<HTMLButtonElement>(null);
+  // Parents pass new closures every render; the listeners must not restart for that,
+  // or recording would end and start again (re-registering every hotkey) mid-press.
+  const handlers = useRef({ onChange, onCancel });
+  handlers.current = { onChange, onCancel };
 
   useEffect(() => {
     if (!recording) return;
@@ -178,30 +286,58 @@ export function HotkeyRecorder({
       e.preventDefault();
       e.stopPropagation();
       const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
-      if (e.key === "Escape" && plain) return setRecording(false);
+      if (e.key === "Escape" && plain) {
+        setRecording(false);
+        handlers.current.onCancel?.();
+        return;
+      }
       if (["Meta", "Control", "Alt", "Shift", "CapsLock", "Fn"].includes(e.key)) return;
       const mods = [e.ctrlKey && "Control", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(
         Boolean,
       );
       // A bare letter would fire while typing anywhere; only F-keys may go without modifiers.
       if (mods.length === 0 && !/^F\d+$/.test(e.code)) return;
-      onChange([...mods, e.code].join("+"));
+      handlers.current.onChange([...mods, e.code].join("+"));
       setRecording(false);
     };
+    // Clicking anywhere else cancels, like pressing esc.
+    const onDown = (e: MouseEvent) => {
+      if (e.target instanceof Node && button.current?.contains(e.target)) return;
+      setRecording(false);
+      handlers.current.onCancel?.();
+    };
+    // With 独占热键 on, the native key tap catches the combo before anything else can;
+    // the keydown listener above is the fallback when the tap isn't installed.
+    const subs = [
+      listen<string>("hotkey-recorded", (e) => {
+        handlers.current.onChange(e.payload);
+        setRecording(false);
+      }),
+      listen("hotkey-recording-stopped", () => {
+        setRecording(false);
+        handlers.current.onCancel?.();
+      }),
+    ];
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("mousedown", onDown, true);
     return () => {
+      subs.forEach((u) => u.then((f) => f()));
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("mousedown", onDown, true);
       invoke("hotkey_set_recording", { on: false });
     };
-  }, [recording, onChange]);
+  }, [recording]);
 
+  const state = recording ? " recording" : value ? "" : " empty";
   return (
     <button
+      ref={button}
       type="button"
-      className={`recorder${recording ? " recording" : ""} ${className}`}
+      className={`key-btn${state} ${className}`}
       onClick={() => setRecording((r) => !r)}
+      autoFocus={startRecording}
     >
-      {recording ? "按下新的组合键…" : value ? formatAccelerator(value) : placeholder}
+      {recording ? "按下组合键…" : value ? formatAccelerator(value) : placeholder}
     </button>
   );
 }

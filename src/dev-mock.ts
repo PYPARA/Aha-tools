@@ -4,9 +4,10 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import launcher from "../plugins/launcher/plugin.json";
 import hotkeys from "../plugins/hotkeys/plugin.json";
+import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
 
-const manifests = [launcher, hotkeys, settings];
+const manifests = [launcher, hotkeys, screenshot, settings];
 
 const apps = [
   { title: "微信", subtitle: "WeChat · /Applications/WeChat.app", kind: "app", path: "/Applications/WeChat.app" },
@@ -24,6 +25,26 @@ let saved = [
 
 let exclusive = true;
 
+const feature = (plugin: string, code: string, title: string, subtitle: string) => ({
+  title, subtitle, score: 0, plugin, kind: "feature", action: { type: "feature", feature: code },
+});
+const app = (title: string, path: string) => ({
+  title, subtitle: path, score: 0, plugin: "launcher", kind: "app", action: { type: "openPath", path },
+});
+const usage = {
+  recent: [
+    app("微信", "/Applications/WeChat.app"),
+    feature("screenshot", "take", "截图", "截图"),
+    app("访达", "/System/Library/CoreServices/Finder.app"),
+    feature("hotkeys", "probe", "检测热键占用", "热键检测"),
+    app("Cursor", "/Applications/Cursor.app"),
+    feature("launcher", "manage", "管理收藏的路径", "快捷启动"),
+    app("系统设置", "/System/Applications/System Settings.app"),
+    app("备忘录", "/System/Applications/Notes.app"),
+  ],
+  pinned: [app("Ghostty", "/Applications/Ghostty.app"), app("微信", "/Applications/WeChat.app"), feature("screenshot", "take", "截图", "截图")],
+};
+
 let config = {
   hotkeys: [
     { accelerator: "Alt+Space", action: { type: "togglePanel" }, enabled: true },
@@ -32,12 +53,15 @@ let config = {
   ],
   netspeed: true,
   exclusiveHotkeys: true,
+  pinyin: true,
+  appearance: "system",
+  disabledMatches: [] as string[],
   screenshot: { target: "wechat", systemMode: "region" },
   relayApps: [
-    { id: "wechat", name: "微信", bundleId: "com.tencent.xinWeChat", accelerator: "Control+Alt+Shift+Super+Digit1", screenshot: true },
-    { id: "qq", name: "QQ", bundleId: "com.tencent.qq", accelerator: "Control+Alt+Shift+Super+Digit2", screenshot: true },
-    { id: "dingtalk", name: "钉钉", bundleId: "com.alibaba.DingTalkMac", accelerator: "Control+Alt+Shift+Super+Digit3", screenshot: true },
-    { id: "utools", name: "uTools", bundleId: "org.yuanli.utools", accelerator: "Control+Alt+Shift+Super+Digit0", screenshot: false },
+    { id: "wechat", name: "微信", bundleId: "com.tencent.xinWeChat", accelerator: "Control+Super+Digit1", screenshot: true, ready: false },
+    { id: "qq", name: "QQ", bundleId: "com.tencent.qq", accelerator: "Control+Super+Digit2", screenshot: true, ready: false },
+    { id: "dingtalk", name: "钉钉", bundleId: "com.alibaba.DingTalkMac", accelerator: "Control+Super+Digit3", screenshot: true, ready: false },
+    { id: "utools", name: "uTools", bundleId: "org.yuanli.utools", accelerator: "Control+Super+Digit0", screenshot: false, ready: false },
   ],
 };
 
@@ -89,6 +113,23 @@ mockIPC((cmd, args) => {
         { id: "dingtalk", installed: true, running: false },
         { id: "utools", installed: true, running: true },
       ];
+    case "usage_home":
+      return usage;
+    case "usage_toggle_pin": {
+      const item = a.item as (typeof usage.pinned)[number];
+      const same = (x: typeof item) => x.plugin === item.plugin && JSON.stringify(x.action) === JSON.stringify(item.action);
+      const had = usage.pinned.some(same);
+      usage.pinned = had ? usage.pinned.filter((x) => !same(x)) : [...usage.pinned, item];
+      return !had;
+    }
+    case "app_icon":
+      return null;
+    case "config_dir":
+      return "/Users/me/Library/Application Support/com.ahatools.app";
+    case "plugin:app|version":
+      return "0.1.0";
+    case "usage_record":
+    case "set_panel_large":
     case "hotkey_set_recording":
     case "relay_press_later":
     case "screenshot_take":

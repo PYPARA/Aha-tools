@@ -1,0 +1,13 @@
+{
+  "id": "screenshot",
+  "name": "截图",
+  "version": "0.1.0",
+  "description": "一个热键，交给你选的截图工具",
+  "features": [
+    {
+      "code": "take",
+      "explain": "截图",
+      "cmds": ["截图", "截屏", "screenshot"]
+    }
+  ]
+}

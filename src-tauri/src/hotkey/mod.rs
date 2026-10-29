@@ -126,12 +126,19 @@ pub fn set_exclusive(app: &AppHandle, on: bool) -> Result<(), String> {
     cfg.exclusive_hotkeys = on;
     crate::config::save_json(app, "config", &cfg)?;
     reconfigure(app, &cfg);
+    // Open settings pages hold a copy of the config; keep it from going stale.
+    let _ = app.emit("config-changed", &cfg);
     Ok(())
 }
+
+/// Serializes re-registering. Ending a recording reloads config.json while settings may
+/// be saving a new combo; without this the stale reload could win and undo the change.
+static APPLYING: Mutex<()> = Mutex::new(());
 
 /// Applies the hotkey settings in `cfg` right away. Returns one message per binding
 /// that couldn't be registered.
 pub fn reconfigure(app: &AppHandle, cfg: &Config) -> Vec<String> {
+    let _guard = APPLYING.lock().unwrap();
     tap::set_enabled(cfg.exclusive_hotkeys);
     if cfg.exclusive_hotkeys {
         ensure_tap(app);
@@ -229,15 +236,28 @@ pub fn hotkey_request_access() {
         .spawn();
 }
 
-/// While recording a hotkey in settings, nothing may react to key presses.
+/// Ends a recording the page didn't end itself, e.g. the panel hid mid-recording.
+/// Otherwise every hotkey, ⌥Space included, would stay paused with no way back in.
+pub fn stop_recording(app: &AppHandle) {
+    if !tap::is_recording() {
+        return;
+    }
+    hotkey_set_recording(app.clone(), false);
+    let _ = app.emit("hotkey-recording-stopped", ());
+}
+
+/// While recording a hotkey in settings, nothing may react to key presses. The combo
+/// itself is caught by the tap and sent as "hotkey-recorded".
 #[tauri::command]
 pub fn hotkey_set_recording(app: AppHandle, on: bool) {
+    let _guard = APPLYING.lock().unwrap();
     tap::set_recording(on);
     if on {
         let _ = app.global_shortcut().unregister_all();
     } else {
         apply(&app, &crate::config::load(&app).hotkeys);
     }
+    eprintln!("[hotkey] recording {}", if on { "started" } else { "ended" });
 }
 
 #[tauri::command]

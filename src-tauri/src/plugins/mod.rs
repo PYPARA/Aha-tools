@@ -10,11 +10,12 @@
 pub mod launcher;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use pinyin::ToPinyin;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
@@ -22,8 +23,63 @@ use tauri::{AppHandle, Manager, Runtime, State};
 const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/launcher/plugin.json"),
     include_str!("../../../plugins/hotkeys/plugin.json"),
+    include_str!("../../../plugins/screenshot/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
 ];
+
+/// Search options from config.json, set by `configure`.
+struct Options {
+    pinyin: bool,
+    disabled_matches: Vec<String>,
+}
+
+static OPTIONS: RwLock<Options> = RwLock::new(Options {
+    pinyin: true,
+    disabled_matches: vec![],
+});
+
+pub fn configure(cfg: &crate::config::Config) {
+    *OPTIONS.write().unwrap() = Options {
+        pinyin: cfg.pinyin,
+        disabled_matches: cfg.disabled_matches.clone(),
+    };
+}
+
+/// "微信" → ["weixin", "wx"]; empty when `text` has no Chinese characters.
+fn pinyin_forms(text: &str) -> Vec<String> {
+    let mut full = String::new();
+    let mut initials = String::new();
+    let mut any = false;
+    for (c, p) in text.chars().zip(text.to_pinyin()) {
+        match p {
+            Some(p) => {
+                any = true;
+                full.push_str(p.plain());
+                initials.push_str(p.first_letter());
+            }
+            None if c.is_alphanumeric() => {
+                let lower = c.to_ascii_lowercase();
+                full.push(lower);
+                initials.push(lower);
+            }
+            None => {}
+        }
+    }
+    if any { vec![full, initials] } else { vec![] }
+}
+
+/// Fuzzy score of `query` against `text`, also trying its pinyin when that's switched on.
+pub fn match_text(matcher: &SkimMatcherV2, text: &str, query: &str) -> Option<i64> {
+    let direct = matcher.fuzzy_match(text, query);
+    if !query.is_ascii() || !OPTIONS.read().unwrap().pinyin {
+        return direct;
+    }
+    pinyin_forms(text)
+        .iter()
+        .filter_map(|p| matcher.fuzzy_match(p, query))
+        .max()
+        .max(direct)
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -84,7 +140,7 @@ impl Match {
     }
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchItem {
     pub title: String,
@@ -93,13 +149,13 @@ pub struct SearchItem {
     pub plugin: String,
     pub kind: ItemKind,
     /// For saved paths: "folder", "file" or "link".
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<&'static str>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub action: ItemAction,
 }
 
 /// What the result is, for its icon and label in the list.
-#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum ItemKind {
     App,
@@ -107,7 +163,7 @@ pub enum ItemKind {
     Feature,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ItemAction {
     /// Open a file, folder, app or URL with the system default handler.
@@ -160,6 +216,7 @@ impl Registry {
         }
         let matcher = SkimMatcherV2::default().ignore_case();
         let mut items = vec![];
+        let disabled = OPTIONS.read().unwrap().disabled_matches.clone();
 
         // "fy hello" → the feature whose cmd is "fy", with input "hello".
         let cmd_input = query
@@ -194,12 +251,15 @@ impl Registry {
                 let best = f
                     .cmds
                     .iter()
-                    .filter_map(|cmd| matcher.fuzzy_match(cmd, query))
+                    .filter_map(|cmd| match_text(&matcher, cmd, query))
                     .max();
+                let key = format!("{}/{}", m.id, f.code);
                 if let Some(score) = best {
                     // Plugin features rank above files for the same match quality.
                     items.push(feature_item(score + 20, None));
-                } else if f.matches.as_ref().is_some_and(|mt| mt.accepts(query)) {
+                } else if f.matches.as_ref().is_some_and(|mt| mt.accepts(query))
+                    && !disabled.contains(&key)
+                {
                     items.push(feature_item(CONTENT_MATCH_SCORE, Some(query)));
                 }
             }
@@ -304,6 +364,15 @@ mod tests {
         let items = r.search("https://example.com");
         assert_eq!(input_of(&items[0]), Some("https://example.com"));
         assert_eq!(items[0].score, CONTENT_MATCH_SCORE);
+    }
+
+    #[test]
+    fn pinyin_full_and_initials() {
+        assert_eq!(pinyin_forms("微信"), ["weixin", "wx"]);
+        assert_eq!(pinyin_forms("QQ邮箱"), ["qqyouxiang", "qqyx"]);
+        assert!(pinyin_forms("Safari").is_empty());
+        let m = SkimMatcherV2::default().ignore_case();
+        assert!(match_text(&m, "截图", "jt").is_some());
     }
 
     #[test]

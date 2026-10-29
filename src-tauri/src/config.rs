@@ -16,6 +16,12 @@ pub struct Config {
     pub screenshot: Screenshot,
     /// Apps AhaTools can trigger by pressing their own ("secret") hotkey for them.
     pub relay_apps: Vec<RelayApp>,
+    /// Match Chinese names by pinyin, e.g. "wx" finds 微信.
+    pub pinyin: bool,
+    /// "system", "light" or "dark".
+    pub appearance: String,
+    /// Content matches switched off in a plugin's 自动匹配 tab, as "<plugin>/<feature>".
+    pub disabled_matches: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -56,6 +62,32 @@ pub struct RelayApp {
     /// Offered as a screenshot tool.
     #[serde(default)]
     pub screenshot: bool,
+    /// The user confirmed the secret hotkey is set inside that app. Until then AhaTools
+    /// doesn't press it (the press would do nothing) and says so instead.
+    #[serde(default)]
+    pub ready: bool,
+}
+
+/// Modifiers of the default secret keys. ⌃⌘ + a digit: unused by macOS, and accepted by
+/// QQ's recorder, which dropped ⇧ and ⌥ from the first choice, ⌃⌥⇧⌘.
+const SECRET_MODS: &str = "Control+Super";
+const OLD_SECRET_MODS: &str = "Control+Alt+Shift+Super";
+
+/// Moves secret keys still on the old ⌃⌥⇧⌘ default (and not confirmed as set up in the
+/// other app) to the new default. Returns whether anything changed.
+fn migrate_secret_keys(cfg: &mut Config) -> bool {
+    let defaults = default_relay_apps();
+    let mut changed = false;
+    for app in cfg.relay_apps.iter_mut().filter(|a| !a.ready) {
+        let Some(key) = app.accelerator.strip_prefix(OLD_SECRET_MODS).and_then(|k| k.strip_prefix('+')) else {
+            continue;
+        };
+        if defaults.iter().any(|d| d.id == app.id && d.accelerator.ends_with(&format!("+{key}"))) {
+            app.accelerator = format!("{SECRET_MODS}+{key}");
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn relay(id: &str, name: &str, bundle_id: &str, key: &str, screenshot: bool) -> RelayApp {
@@ -63,8 +95,9 @@ fn relay(id: &str, name: &str, bundle_id: &str, key: &str, screenshot: bool) -> 
         id: id.into(),
         name: name.into(),
         bundle_id: bundle_id.into(),
-        accelerator: format!("Control+Alt+Shift+Super+{key}"),
+        accelerator: format!("{SECRET_MODS}+{key}"),
         screenshot,
+        ready: false,
     }
 }
 
@@ -111,6 +144,9 @@ impl Default for Config {
             exclusive_hotkeys: true,
             screenshot: Screenshot::default(),
             relay_apps: default_relay_apps(),
+            pinyin: true,
+            appearance: "system".into(),
+            disabled_matches: vec![],
         }
     }
 }
@@ -152,7 +188,11 @@ pub fn load(app: &AppHandle) -> Config {
         // Write defaults once so the file is there to edit by hand.
         let _ = save_json(app, "config", &Config::default());
     }
-    load_json(app, "config")
+    let mut cfg: Config = load_json(app, "config");
+    if migrate_secret_keys(&mut cfg) {
+        let _ = save_json(app, "config", &cfg);
+    }
+    cfg
 }
 
 #[tauri::command]
@@ -165,9 +205,19 @@ pub fn config_get(app: AppHandle) -> Config {
 #[tauri::command]
 pub fn config_set(app: AppHandle, config: Config) -> Result<Vec<String>, String> {
     save_json(&app, "config", &config)?;
+    crate::plugins::configure(&config);
+    crate::netspeed::set_visible(config.netspeed);
     let errors = crate::hotkey::reconfigure(&app, &config);
+    let keys: Vec<_> = config.hotkeys.iter().filter(|b| b.enabled).map(|b| b.accelerator.as_str()).collect();
+    eprintln!("[config] saved; hotkeys {keys:?}; errors {errors:?}");
     let _ = app.emit("config-changed", &config);
     Ok(errors)
+}
+
+/// The folder holding config.json and the other data files, for 关于 AhaTools.
+#[tauri::command]
+pub fn config_dir(app: AppHandle) -> String {
+    data_dir(&app).to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
@@ -181,6 +231,21 @@ mod tests {
         assert_eq!(cfg.hotkeys.len(), 1);
         assert_eq!(cfg.screenshot.target, "system");
         assert_eq!(cfg.relay_apps, default_relay_apps());
+        assert!(cfg.pinyin);
+        assert_eq!(cfg.appearance, "system");
+    }
+
+    #[test]
+    fn old_secret_keys_move_unless_confirmed() {
+        let mut cfg = Config::default();
+        for a in &mut cfg.relay_apps {
+            a.accelerator = a.accelerator.replace(SECRET_MODS, OLD_SECRET_MODS);
+        }
+        cfg.relay_apps[1].ready = true;
+        assert!(migrate_secret_keys(&mut cfg));
+        assert_eq!(cfg.relay_apps[0].accelerator, "Control+Super+Digit1");
+        assert_eq!(cfg.relay_apps[1].accelerator, "Control+Alt+Shift+Super+Digit2");
+        assert!(!migrate_secret_keys(&mut cfg));
     }
 
     #[test]

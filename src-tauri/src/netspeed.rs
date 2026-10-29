@@ -12,6 +12,7 @@ use std::ffi::CStr;
 use std::mem::size_of;
 use std::ptr;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -172,6 +173,13 @@ const ARROWS: &[[(f32, f32); 2]] = &[
     [(20.5, 19.5), (16.0, 24.0)],
 ];
 
+fn arrow_segments() -> Vec<[(f32, f32); 2]> {
+    ARROWS
+        .iter()
+        .map(|[(x1, y1), (x2, y2)]| [(*x1, y1 + ARROW_TOP), (*x2, y2 + ARROW_TOP)])
+        .collect()
+}
+
 pub struct Renderer {
     font: FontVec,
     scale: PxScale,
@@ -213,16 +221,33 @@ impl Renderer {
             width,
             rgba: vec![0; (width * HEIGHT * 4) as usize],
         };
-        let segments: Vec<_> = ARROWS
-            .iter()
-            .map(|[(x1, y1), (x2, y2)]| [(*x1, y1 + ARROW_TOP), (*x2, y2 + ARROW_TOP)])
-            .collect();
-        canvas.stroke(&segments, STROKE);
+        canvas.stroke(&arrow_segments(), STROKE);
 
         for (text, baseline) in [format_rate(up), format_rate(down)].iter().zip(BASELINES) {
             let x = width as f32 - 2.0 - self.measure(text);
             self.draw(&mut canvas, text, x, baseline);
         }
+        Image::new_owned(canvas.rgba, width, HEIGHT)
+    }
+
+    /// The AhaTools mark (a 2×2 grid of tiles), for when the speed is switched off:
+    /// arrows without numbers would still read as "network".
+    pub fn render_idle(&self) -> Image<'static> {
+        const SIDE: f32 = 11.0;
+        const GAP: f32 = 5.0;
+        let width = (2.0 * SIDE + GAP) as u32 + 6;
+        let top = (HEIGHT as f32 - (2.0 * SIDE + GAP)) / 2.0;
+        let mut segments = vec![];
+        for (col, row) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+            let (x, y) = (3.0 + col * (SIDE + GAP), top + row * (SIDE + GAP));
+            let (r, b) = (x + SIDE, y + SIDE);
+            segments.extend([[(x, y), (r, y)], [(r, y), (r, b)], [(r, b), (x, b)], [(x, b), (x, y)]]);
+        }
+        let mut canvas = Canvas {
+            width,
+            rgba: vec![0; (width * HEIGHT * 4) as usize],
+        };
+        canvas.stroke(&segments, 2.4);
         Image::new_owned(canvas.rgba, width, HEIGHT)
     }
 
@@ -328,6 +353,12 @@ pub struct Snapshot {
 }
 
 static LATEST: Mutex<Option<Snapshot>> = Mutex::new(None);
+/// Show the speed in the menu bar; when off, the icon is the AhaTools mark.
+static VISIBLE: AtomicBool = AtomicBool::new(true);
+
+pub fn set_visible(on: bool) {
+    VISIBLE.store(on, Ordering::Relaxed);
+}
 
 #[tauri::command]
 pub fn netspeed_snapshot() -> Snapshot {
@@ -335,9 +366,10 @@ pub fn netspeed_snapshot() -> Snapshot {
 }
 
 /// Samples once a second: redraws the tray icon and emits a `Snapshot`.
-pub fn start(app: AppHandle, tray: Option<TrayIcon>) {
+pub fn start(app: AppHandle, tray: TrayIcon, visible: bool) {
+    set_visible(visible);
     let renderer = Renderer::new();
-    if let (Some(tray), Some(r)) = (&tray, &renderer) {
+    if let Some(r) = &renderer {
         let _ = tray.set_title(None::<&str>);
         let _ = tray.set_icon_with_as_template(Some(r.render(0.0, 0.0)), true);
     }
@@ -393,8 +425,15 @@ pub fn start(app: AppHandle, tray: Option<TrayIcon>) {
             *LATEST.lock().unwrap() = Some(snapshot.clone());
             let _ = app.emit("netspeed", snapshot);
 
-            let Some(tray) = &tray else { continue };
+            let visible = VISIBLE.load(Ordering::Relaxed);
             match &renderer {
+                // Redrawn every second anyway, so toggling needs no extra bookkeeping.
+                Some(r) if !visible => {
+                    let _ = tray.set_icon_with_as_template(Some(r.render_idle()), true);
+                }
+                None if !visible => {
+                    let _ = tray.set_title(Some("↑↓"));
+                }
                 // Not `set_icon`: tray-icon resets the template flag there, which leaves
                 // black text that vanishes on a dark menu bar.
                 Some(r) => {
@@ -456,12 +495,17 @@ mod tests {
 
 #[cfg(test)]
 mod preview {
-    /// `AHATOOLS_PREVIEW=out.pgm cargo test preview -- --ignored` writes the icon on a dark menu bar.
+    /// `AHATOOLS_PREVIEW=out.pgm cargo test preview -- --ignored` writes the icon on a dark
+    /// menu bar; add `AHATOOLS_PREVIEW_IDLE=1` for the icon shown with the speed switched off.
     #[test]
     #[ignore]
     fn dump() {
         let r = super::Renderer::new().unwrap();
-        let img = r.render(120.0 * 1024.0, 3.4 * 1024.0 * 1024.0);
+        let img = if std::env::var_os("AHATOOLS_PREVIEW_IDLE").is_some() {
+            r.render_idle()
+        } else {
+            r.render(120.0 * 1024.0, 3.4 * 1024.0 * 1024.0)
+        };
         let (w, h) = (img.width(), img.height());
         let mut out = format!("P5 {w} {h} 255\n").into_bytes();
         out.extend(

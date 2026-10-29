@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { formatAccelerator, invoke } from "@ahatools/sdk";
+import { ChevronIcon, formatAccelerator, invoke, Switch, useAppearance, type Config } from "@ahatools/sdk";
 
 interface Snapshot {
   up: number;
@@ -21,13 +21,6 @@ interface HotkeyStatus {
   enabled: boolean;
   exclusive: boolean;
   trusted: boolean;
-}
-
-/** The parts of config.json the popover shows. */
-interface ShotConfig {
-  screenshot: { target: string };
-  relayApps: { id: string; name: string; screenshot: boolean }[];
-  [key: string]: unknown;
 }
 
 const openSettings = () => invoke("menu_open_feature", { plugin: "settings", feature: "general" });
@@ -53,8 +46,8 @@ function formatBytes(bytes: number) {
 }
 
 
-const W = 276;
-const H = 48;
+const W = 268;
+const H = 44;
 const SLOTS = 60;
 
 function Sparkline({ history }: { history: [number, number][] }) {
@@ -63,7 +56,7 @@ function Sparkline({ history }: { history: [number, number][] }) {
   const points = (pick: 0 | 1) =>
     history.map((s, i) => {
       const x = W - (history.length - 1 - i) * (W / (SLOTS - 1));
-      const y = H - 2 - (s[pick] / max) * (H - 6);
+      const y = H - 3 - (s[pick] / max) * (H - 8);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     });
   const down = points(0);
@@ -73,46 +66,30 @@ function Sparkline({ history }: { history: [number, number][] }) {
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="最近 60 秒网速曲线">
       {down.length > 1 && (
         <>
-          <polygon points={`${firstX},${H} ${down.join(" ")} ${W},${H}`} fill="var(--accent-soft)" />
-          <polyline points={down.join(" ")} fill="none" stroke="var(--accent)" strokeWidth="1.6" strokeLinejoin="round" />
-          <polyline points={up.join(" ")} fill="none" stroke="var(--text-2)" strokeWidth="1.2" strokeDasharray="3 2" />
+          <polygon points={`${firstX},${H} ${down.join(" ")} ${W},${H}`} fill="var(--accent)" opacity="0.1" />
+          <polyline points={down.join(" ")} fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinejoin="round" />
+          <polyline points={up.join(" ")} fill="none" stroke="var(--text-3)" strokeWidth="1.2" strokeDasharray="3 3" />
         </>
       )}
     </svg>
   );
 }
 
-function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <input
-      type="checkbox"
-      role="switch"
-      className="switch"
-      aria-label={label}
-      checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
-    />
-  );
-}
-
 export default function MenuPopover() {
+  useAppearance();
   const [net, setNet] = useState<Snapshot>(EMPTY);
   const [hotkey, setHotkey] = useState<HotkeyStatus | null>(null);
-  const [accelerator, setAccelerator] = useState("⌥Space");
+  const [accelerator, setAccelerator] = useState("⌥ Space");
   const [autostart, setAutostart] = useState(false);
-  const [cfg, setCfg] = useState<ShotConfig | null>(null);
+  const [cfg, setCfg] = useState<Config | null>(null);
 
   const refresh = () => {
     invoke<Snapshot>("netspeed_snapshot").then(setNet);
     invoke<HotkeyStatus>("hotkey_status").then(setHotkey);
-    invoke<ShotConfig>("config_get").then(setCfg);
+    invoke<Config>("config_get").then(setCfg);
     isEnabled()
       .then(setAutostart)
       .catch(() => setAutostart(false));
-    invoke<{ accelerator: string; action: { type: string }; enabled: boolean }[]>("hotkey_bindings").then((bs) => {
-      const b = bs.find((b) => b.enabled && b.action.type === "togglePanel");
-      if (b) setAccelerator(formatAccelerator(b.accelerator));
-    });
   };
 
   useEffect(() => {
@@ -121,7 +98,7 @@ export default function MenuPopover() {
       listen<Snapshot>("netspeed", (e) => setNet(e.payload)),
       listen<HotkeyStatus>("hotkey-status", (e) => setHotkey(e.payload)),
       listen("menu-shown", refresh),
-      listen<ShotConfig>("config-changed", (e) => setCfg(e.payload)),
+      listen<Config>("config-changed", (e) => setCfg(e.payload)),
     ];
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") getCurrentWindow().hide();
@@ -136,13 +113,20 @@ export default function MenuPopover() {
     };
   }, []);
 
-  const tools = cfg ? [{ id: "system", name: "系统截图" }, ...cfg.relayApps.filter((a) => a.screenshot)] : [];
-  const toolIndex = Math.max(0, tools.findIndex((x) => x.id === cfg?.screenshot.target));
-  /** Clicking the row moves to the next screenshot tool. */
-  const nextTool = () => {
-    if (!cfg || tools.length === 0) return;
-    const next = tools[(toolIndex + 1) % tools.length].id;
-    const updated = { ...cfg, screenshot: { ...cfg.screenshot, target: next } };
+  useEffect(() => {
+    const b = cfg?.hotkeys.find((b) => b.enabled && b.action.type === "togglePanel");
+    setAccelerator(b ? formatAccelerator(b.accelerator) : "");
+  }, [cfg]);
+
+  const tools = cfg
+    ? [
+        { id: "system", name: "系统截图" },
+        ...cfg.relayApps.filter((a) => a.screenshot).map((a) => ({ id: a.id, name: a.ready ? a.name : `${a.name}（未设置）` })),
+      ]
+    : [];
+  const setTool = (target: string) => {
+    if (!cfg) return;
+    const updated = { ...cfg, screenshot: { ...cfg.screenshot, target } };
     setCfg(updated);
     invoke("config_set", { config: updated });
   };
@@ -158,24 +142,24 @@ export default function MenuPopover() {
 
   return (
     <div className="popover" role="dialog" aria-label="AhaTools 菜单">
-      <div className="popover-head">
-        <span>网速</span>
-        {net.iface && (
-          <span className="chip">{net.ifaceLabel ? `${net.ifaceLabel} · ${net.iface}` : net.iface}</span>
-        )}
+      <div className="pop-head">
+        <strong>网速</strong>
+        {net.iface && <span>{net.ifaceLabel ? `${net.ifaceLabel} · ${net.iface}` : net.iface}</span>}
       </div>
 
       <div className="speeds">
         <div className="speed">
           <span className="label">↓ 下载</span>
-          <span className="value down">
-            {down} <small>{downUnit}</small>
+          <span className="value">
+            {down}
+            <small> {downUnit}</small>
           </span>
         </div>
         <div className="speed">
           <span className="label">↑ 上传</span>
           <span className="value">
-            {up} <small>{upUnit}</small>
+            {up}
+            <small> {upUnit}</small>
           </span>
         </div>
       </div>
@@ -195,36 +179,34 @@ export default function MenuPopover() {
       <div className="menu-group">
         <button type="button" className="menu-row" onClick={() => invoke("menu_open_panel")}>
           打开搜索面板
-          <kbd>{accelerator}</kbd>
-        </button>
-        <button
-          type="button"
-          className="menu-row"
-          onClick={() => invoke("menu_open_feature", { plugin: "hotkeys", feature: "probe" })}
-        >
-          热键检测
-        </button>
-        <button type="button" className="menu-row" onClick={nextTool} title="点击切换到下一个截图工具">
-          截图工具
-          <span className="row-end muted">
-            {tools[toolIndex]?.name ?? "系统截图"}
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-          </span>
+          {accelerator && <span className="keys">{accelerator}</span>}
         </button>
         <label className="menu-row">
+          截图工具
+          <span className="value">
+            {tools.find((t) => t.id === cfg?.screenshot.target)?.name ?? "系统截图"}
+            <ChevronIcon />
+          </span>
+          <select aria-label="截图工具" value={cfg?.screenshot.target ?? "system"} onChange={(e) => setTool(e.target.value)}>
+            {tools.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="menu-row">
           独占热键
-          <span className="row-end">
+          <span className="end">
             {hotkey?.enabled &&
               (hotkey.exclusive ? (
-                <span className="state ok">已生效</span>
+                <span className="menu-state ok">已生效</span>
               ) : (
-                <button type="button" className="state warn" onClick={() => invoke("hotkey_request_access")}>
+                <button type="button" className="menu-state warn" onClick={() => invoke("hotkey_request_access")}>
                   等待授权
                 </button>
               ))}
-            <Switch label="独占热键" checked={!!hotkey?.enabled} onChange={setExclusive} />
+            <Switch small label="独占热键" checked={!!hotkey?.enabled} onChange={setExclusive} />
           </span>
         </label>
       </div>
@@ -234,15 +216,15 @@ export default function MenuPopover() {
       <div className="menu-group">
         <button type="button" className="menu-row" onClick={openSettings}>
           设置…
-          <kbd>⌘,</kbd>
+          <span className="keys">⌘ ,</span>
         </button>
         <label className="menu-row">
           开机自动启动
-          <Switch label="开机自动启动" checked={autostart} onChange={setAutostartOn} />
+          <Switch small label="开机自动启动" checked={autostart} onChange={setAutostartOn} />
         </label>
         <button type="button" className="menu-row" onClick={() => invoke("quit_app")}>
           退出 AhaTools
-          <kbd>⌘Q</kbd>
+          <span className="keys">⌘ Q</span>
         </button>
       </div>
     </div>

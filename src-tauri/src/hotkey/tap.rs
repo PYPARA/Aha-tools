@@ -9,7 +9,7 @@ use std::ffi::c_void;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
 use super::Action;
@@ -121,6 +121,10 @@ pub fn set_recording(on: bool) {
     RECORDING.store(on, Ordering::Relaxed);
 }
 
+pub fn is_recording() -> bool {
+    RECORDING.load(Ordering::Relaxed)
+}
+
 pub fn is_trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
@@ -220,8 +224,37 @@ fn flags_for(mods: Modifiers) -> u64 {
     .fold(0, |acc, (_, f)| acc | f)
 }
 
+/// Modifier keys in the order a person presses them, with their key codes.
+const MODIFIER_KEYS: [(u64, u16); 4] = [
+    (FLAG_CONTROL, 0x3B),
+    (FLAG_ALT, 0x3A),
+    (FLAG_SHIFT, 0x38),
+    (FLAG_COMMAND, 0x37),
+];
+
+/// The key events of typing `keycode` with `flags` held: each modifier goes down one by
+/// one, then the key, then the modifiers come up in reverse, as with a real keyboard. Some
+/// apps track modifiers from those separate events and miss ones that only ride on the
+/// key event (QQ recorded ⌘⌃2 when sent a lone ⌃⌥⇧⌘2).
+fn key_sequence(keycode: u16, flags: u64) -> Vec<(u16, bool, u64)> {
+    let mods: Vec<_> = MODIFIER_KEYS.iter().filter(|(f, _)| flags & f != 0).collect();
+    let mut held = 0;
+    let mut seq = vec![];
+    for &&(f, k) in &mods {
+        held |= f;
+        seq.push((k, true, held));
+    }
+    seq.push((keycode, true, flags));
+    seq.push((keycode, false, flags));
+    for &&(f, k) in mods.iter().rev() {
+        held &= !f;
+        seq.push((k, false, held));
+    }
+    seq
+}
+
 /// Presses and releases `shortcut` as if typed, for other apps' global hotkeys to see.
-/// Needs Accessibility permission.
+/// Needs Accessibility permission. Blocks for a few milliseconds per key.
 pub fn post_shortcut(shortcut: &Shortcut) -> Result<(), String> {
     if !is_trusted() {
         return Err("需要先在系统设置里允许 AhaTools 使用「辅助功能」".into());
@@ -230,8 +263,8 @@ pub fn post_shortcut(shortcut: &Shortcut) -> Result<(), String> {
     let flags = flags_for(shortcut.mods);
     unsafe {
         let source = CGEventSourceCreate(SOURCE_STATE_HID_SYSTEM);
-        for down in [true, false] {
-            let event = CGEventCreateKeyboardEvent(source, keycode, down);
+        for (key, down, flags) in key_sequence(keycode, flags) {
+            let event = CGEventCreateKeyboardEvent(source, key, down);
             if event.is_null() {
                 continue;
             }
@@ -239,6 +272,8 @@ pub fn post_shortcut(shortcut: &Shortcut) -> Result<(), String> {
             CGEventSetIntegerValueField(event, FIELD_SOURCE_USER_DATA, SYNTHETIC_MARK);
             CGEventPost(HID_EVENT_TAP, event);
             CFRelease(event);
+            // Apps read modifier state as events arrive; give each one a moment.
+            std::thread::sleep(std::time::Duration::from_millis(8));
         }
         if !source.is_null() {
             CFRelease(source);
@@ -266,7 +301,29 @@ unsafe extern "C" fn callback(
         return event;
     }
 
-    if !ENABLED.load(Ordering::Relaxed) || RECORDING.load(Ordering::Relaxed) {
+    if RECORDING.load(Ordering::Relaxed) {
+        // Record here rather than in the page: the combo may never reach the web view
+        // (macOS or another app can claim it first). Swallow it so nothing else reacts.
+        let keycode = unsafe { CGEventGetIntegerValueField(event, FIELD_KEYCODE) } as u16;
+        if etype == KEY_DOWN {
+            let flags = unsafe { CGEventGetFlags(event) } & MOD_MASK;
+            if let Some(acc) = accelerator_for(keycode, flags) {
+                state.held.push(keycode);
+                let app = state.app.clone();
+                let _ = state.app.run_on_main_thread(move || {
+                    let _ = app.emit("hotkey-recorded", acc);
+                });
+                return std::ptr::null_mut();
+            }
+        } else if etype == KEY_UP {
+            if let Some(i) = state.held.iter().position(|&k| k == keycode) {
+                state.held.swap_remove(i);
+                return std::ptr::null_mut();
+            }
+        }
+        return event;
+    }
+    if !ENABLED.load(Ordering::Relaxed) {
         state.held.clear();
         return event;
     }
@@ -311,87 +368,113 @@ unsafe extern "C" fn callback(
 }
 
 /// macOS virtual key codes (ANSI layout).
+const KEYS: &[(Code, u16)] = &[
+    (Code::KeyA, 0x00),
+    (Code::KeyS, 0x01),
+    (Code::KeyD, 0x02),
+    (Code::KeyF, 0x03),
+    (Code::KeyH, 0x04),
+    (Code::KeyG, 0x05),
+    (Code::KeyZ, 0x06),
+    (Code::KeyX, 0x07),
+    (Code::KeyC, 0x08),
+    (Code::KeyV, 0x09),
+    (Code::KeyB, 0x0B),
+    (Code::KeyQ, 0x0C),
+    (Code::KeyW, 0x0D),
+    (Code::KeyE, 0x0E),
+    (Code::KeyR, 0x0F),
+    (Code::KeyY, 0x10),
+    (Code::KeyT, 0x11),
+    (Code::KeyO, 0x1F),
+    (Code::KeyU, 0x20),
+    (Code::KeyI, 0x22),
+    (Code::KeyP, 0x23),
+    (Code::KeyL, 0x25),
+    (Code::KeyJ, 0x26),
+    (Code::KeyK, 0x28),
+    (Code::KeyN, 0x2D),
+    (Code::KeyM, 0x2E),
+    (Code::Digit1, 0x12),
+    (Code::Digit2, 0x13),
+    (Code::Digit3, 0x14),
+    (Code::Digit4, 0x15),
+    (Code::Digit5, 0x17),
+    (Code::Digit6, 0x16),
+    (Code::Digit7, 0x1A),
+    (Code::Digit8, 0x1C),
+    (Code::Digit9, 0x19),
+    (Code::Digit0, 0x1D),
+    (Code::Space, 0x31),
+    (Code::Enter, 0x24),
+    (Code::Tab, 0x30),
+    (Code::Escape, 0x35),
+    (Code::Backspace, 0x33),
+    (Code::Backquote, 0x32),
+    (Code::Minus, 0x1B),
+    (Code::Equal, 0x18),
+    (Code::BracketLeft, 0x21),
+    (Code::BracketRight, 0x1E),
+    (Code::Backslash, 0x2A),
+    (Code::Semicolon, 0x29),
+    (Code::Quote, 0x27),
+    (Code::Comma, 0x2B),
+    (Code::Period, 0x2F),
+    (Code::Slash, 0x2C),
+    (Code::ArrowLeft, 0x7B),
+    (Code::ArrowRight, 0x7C),
+    (Code::ArrowDown, 0x7D),
+    (Code::ArrowUp, 0x7E),
+    (Code::F1, 0x7A),
+    (Code::F2, 0x78),
+    (Code::F3, 0x63),
+    (Code::F4, 0x76),
+    (Code::F5, 0x60),
+    (Code::F6, 0x61),
+    (Code::F7, 0x62),
+    (Code::F8, 0x64),
+    (Code::F9, 0x65),
+    (Code::F10, 0x6D),
+    (Code::F11, 0x67),
+    (Code::F12, 0x6F),
+    (Code::F13, 0x69),
+    (Code::F14, 0x6B),
+    (Code::F15, 0x71),
+    (Code::F16, 0x6A),
+    (Code::F17, 0x40),
+    (Code::F18, 0x4F),
+    (Code::F19, 0x50),
+    (Code::F20, 0x5A),
+];
+
 fn keycode(code: Code) -> Option<u16> {
-    use Code::*;
-    Some(match code {
-        KeyA => 0x00,
-        KeyS => 0x01,
-        KeyD => 0x02,
-        KeyF => 0x03,
-        KeyH => 0x04,
-        KeyG => 0x05,
-        KeyZ => 0x06,
-        KeyX => 0x07,
-        KeyC => 0x08,
-        KeyV => 0x09,
-        KeyB => 0x0B,
-        KeyQ => 0x0C,
-        KeyW => 0x0D,
-        KeyE => 0x0E,
-        KeyR => 0x0F,
-        KeyY => 0x10,
-        KeyT => 0x11,
-        KeyO => 0x1F,
-        KeyU => 0x20,
-        KeyI => 0x22,
-        KeyP => 0x23,
-        KeyL => 0x25,
-        KeyJ => 0x26,
-        KeyK => 0x28,
-        KeyN => 0x2D,
-        KeyM => 0x2E,
-        Digit1 => 0x12,
-        Digit2 => 0x13,
-        Digit3 => 0x14,
-        Digit4 => 0x15,
-        Digit5 => 0x17,
-        Digit6 => 0x16,
-        Digit7 => 0x1A,
-        Digit8 => 0x1C,
-        Digit9 => 0x19,
-        Digit0 => 0x1D,
-        Space => 0x31,
-        Enter => 0x24,
-        Tab => 0x30,
-        Escape => 0x35,
-        Backspace => 0x33,
-        Backquote => 0x32,
-        Minus => 0x1B,
-        Equal => 0x18,
-        BracketLeft => 0x21,
-        BracketRight => 0x1E,
-        Backslash => 0x2A,
-        Semicolon => 0x29,
-        Quote => 0x27,
-        Comma => 0x2B,
-        Period => 0x2F,
-        Slash => 0x2C,
-        ArrowLeft => 0x7B,
-        ArrowRight => 0x7C,
-        ArrowDown => 0x7D,
-        ArrowUp => 0x7E,
-        F1 => 0x7A,
-        F2 => 0x78,
-        F3 => 0x63,
-        F4 => 0x76,
-        F5 => 0x60,
-        F6 => 0x61,
-        F7 => 0x62,
-        F8 => 0x64,
-        F9 => 0x65,
-        F10 => 0x6D,
-        F11 => 0x67,
-        F12 => 0x6F,
-        F13 => 0x69,
-        F14 => 0x6B,
-        F15 => 0x71,
-        F16 => 0x6A,
-        F17 => 0x40,
-        F18 => 0x4F,
-        F19 => 0x50,
-        F20 => 0x5A,
-        _ => return None,
-    })
+    KEYS.iter().find(|(c, _)| *c == code).map(|&(_, k)| k)
+}
+
+fn code_for(keycode: u16) -> Option<Code> {
+    KEYS.iter().find(|&&(_, k)| k == keycode).map(|&(c, _)| c)
+}
+
+/// "Control+Alt+KeyA" from a key-down, in the order the settings page writes them.
+/// None for keys without modifiers (except F-keys): they'd fire while typing.
+fn accelerator_for(keycode: u16, flags: u64) -> Option<String> {
+    let code = code_for(keycode)?;
+    let mut parts: Vec<String> = [
+        (FLAG_CONTROL, "Control"),
+        (FLAG_ALT, "Alt"),
+        (FLAG_SHIFT, "Shift"),
+        (FLAG_COMMAND, "Super"),
+    ]
+    .iter()
+    .filter(|(f, _)| flags & f != 0)
+    .map(|(_, n)| n.to_string())
+    .collect();
+    let name = code.to_string();
+    if parts.is_empty() && !(name.starts_with('F') && name[1..].parse::<u8>().is_ok()) {
+        return None;
+    }
+    parts.push(name);
+    Some(parts.join("+"))
 }
 
 #[cfg(test)]
@@ -404,6 +487,33 @@ mod tests {
         let b = binding_for(&s, Action::TogglePanel).unwrap();
         assert_eq!(b.keycode, 0x12);
         assert_eq!(b.flags, MOD_MASK);
+    }
+
+    #[test]
+    fn modifiers_press_one_by_one() {
+        let seq = key_sequence(0x13, FLAG_CONTROL | FLAG_COMMAND);
+        assert_eq!(
+            seq,
+            vec![
+                (0x3B, true, FLAG_CONTROL),
+                (0x37, true, FLAG_CONTROL | FLAG_COMMAND),
+                (0x13, true, FLAG_CONTROL | FLAG_COMMAND),
+                (0x13, false, FLAG_CONTROL | FLAG_COMMAND),
+                (0x37, false, FLAG_CONTROL),
+                (0x3B, false, 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn recorded_combo_round_trips() {
+        let acc = accelerator_for(0x00, FLAG_COMMAND | FLAG_SHIFT).unwrap();
+        assert_eq!(acc, "Shift+Super+KeyA");
+        let s: Shortcut = acc.parse().unwrap();
+        assert_eq!(binding_for(&s, Action::TogglePanel).unwrap().keycode, 0x00);
+        assert_eq!(accelerator_for(0x31, FLAG_ALT).as_deref(), Some("Alt+Space"));
+        assert_eq!(accelerator_for(0x7A, 0).as_deref(), Some("F1"));
+        assert!(accelerator_for(0x00, 0).is_none());
     }
 
     #[test]
