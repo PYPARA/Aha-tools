@@ -20,6 +20,7 @@
 | 插件输入（`fy hello` 带入文字；清单 `match` 匹配任意文字） | 完成 | 单元测试 |
 | 设置窗口（第二版：通用、全局热键、已安装插件、所有指令、关于），改动立即生效 | 完成 | 浏览器预览核对深浅色；真机待确认 |
 | 插件详情页（关键词 / 自动匹配 / 设置），截图设置在截图插件的「设置」页签 | 完成 | 浏览器预览核对 |
+| 网页应用（内置 DeepSeek，可自己加网站；独立常驻窗口，关掉只是收起；登录和窗口位置保留；新窗口链接用默认浏览器打开；自动使用网站图标） | 完成 | 单元测试搜索；浏览器预览设置页签；真机待确认 |
 | 外观（跟随系统 / 浅色 / 深色）、菜单栏网速开关（关闭后显示 AhaTools 标志） | 完成 | 浏览器预览核对；网速开关待真机确认 |
 | 截图热键路由（系统截图 / 微信 / QQ / 钉钉） | 完成 | 浏览器预览核对；代按第三方应用待真机确认 |
 | ⌥Space 等热键转发给 uTools | 完成 | 待真机确认 |
@@ -98,10 +99,12 @@ src-tauri/src/
   popover.rs      菜单栏弹出面板窗口（label "menu"）
   panel.rs        搜索面板窗口（label "panel"）：显示、失焦隐藏、搜索 / 插件页两种尺寸
   usage.rs        最近使用和已固定（usage.json）
+  favicon.rs      网页应用的网站图标：读页面的 icon 声明（优先 apple-touch-icon），curl 下载、sips 转 PNG 并缓存；下载被拦的网站（如 ChatGPT 的 Cloudflare）在网页窗口加载完后从页面里补取
+  webapps.rs      网页应用窗口（label "web-<id>"）：创建、收起而不关闭、记住位置（webapps.json）
   hotkey/         热键路由（mod.rs）、独占拦截和代按（tap.rs）、占用检测（probe.rs）
   relay.rs        转发目标应用：代按暗号键、是否安装 / 运行、系统通知
   screenshot.rs   截图路由：系统截图或转发给选中的应用
-  plugins/        插件注册、搜索汇总和拼音匹配（mod.rs）、快捷启动和应用图标（launcher.rs）
+  plugins/        插件注册、搜索汇总和拼音匹配（mod.rs）、快捷启动和应用图标（launcher.rs）、网页应用搜索（webapps.rs）
   config.rs       配置读写（config_get / config_set 命令，保存后立即生效）
 src/
   App.tsx         搜索面板界面，以及插件页的外框（标题栏、底栏）
@@ -126,12 +129,14 @@ docs/             设计需求、本文档
 ### 关键约束和坑
 
 - 所有命名统一用 AhaTools，不用 aha，避免和本机另一个 Aha 应用（bundle id `app.aha.desktop.next`，数据在 `~/Library/Application Support/aha*` 和 `~/.aha-next`）混淆。bundle id 是 `com.ahatools.app`，程序名 `ahatools`，插件接口别名 `@ahatools/sdk`。
-- 数据只存在 `~/Library/Application Support/com.ahatools.app/`（`config.json`、`launcher.json`、`usage.json`、`window.json`，以后的外部插件放 `plugins/`）；应用图标缓存在 `~/Library/Caches/com.ahatools.app/icons`；网页缓存在 `~/Library/Caches/com.ahatools.app` 和 `~/Library/WebKit/com.ahatools.app`，由系统自动生成。不要在用户主目录下建隐藏文件夹。改 bundle id 会换数据目录，`config.rs` 里有从旧目录 `com.aha.tools` 一次性迁移的逻辑。
+- 数据只存在 `~/Library/Application Support/com.ahatools.app/`（`config.json`、`launcher.json`、`usage.json`、`window.json`、`webapps.json`，以后的外部插件放 `plugins/`）；应用图标缓存在 `~/Library/Caches/com.ahatools.app/icons`；网页缓存在 `~/Library/Caches/com.ahatools.app` 和 `~/Library/WebKit/com.ahatools.app`，由系统自动生成。不要在用户主目录下建隐藏文件夹。改 bundle id 会换数据目录，`config.rs` 里有从旧目录 `com.aha.tools` 一次性迁移的逻辑。
 - 菜单栏图标刷新必须用 `set_icon_with_as_template`：`set_icon` 会丢掉模板标记，图标在深色菜单栏上变成黑字看不见。
 - 独占热键用的是事件拦截，需要「辅助功能」权限；没授权时自动退回共享模式，授权后无需重启即可切换。从终端跑 dev 时，权限会算到启动它的终端程序头上。
 - 热键检测只能发现独占注册的热键和系统快捷键，见「已知问题」。
 - 菜单栏应用没有自己的应用菜单，⌘Q 等快捷键要在页面里自己处理（弹出面板里已处理 ⌘Q）。面板的 esc、⌘, 等快捷键监听在 window 上（`App.tsx`），不要挂在某个元素上，否则没有聚焦输入框的页面收不到。
 - 两个窗口都是透明无边框的，圆角和底色由页面自己画（`.panel`、`.settings`、`.popover`）。弹出面板的高度写死在 `popover.rs` 的 `HEIGHT`，改了内容要一起调。
+- 应用菜单（`lib.rs` 的 `setup_menu`）不显示，但网页里的 ⌘C / ⌘V / ⌘A / ⌘Z 靠它生效；故意没有 ⌘Q，免得在网页应用窗口里误按退出整个 AhaTools。⌘W 收起窗口，⌘R 重新加载网页应用。
+- 网页应用窗口不在 `capabilities/default.json` 的窗口列表里，外部网站调用不了 AhaTools 的任何命令；加新窗口时保持这一点。
 - 新界面先在设计稿上画，再按 [design-system.md](design-system.md) 实现：选中和悬停用暖灰，不用强调色铺底。
 - 代按的按键事件带有标记（`tap.rs` 的 `SYNTHETIC_MARK`），拦截回调见到标记直接放行，否则 AhaTools 会拦住自己发出的按键。
 - 录制热键时调用 `hotkey_set_recording` 暂停所有全局热键（`HotkeyRecorder` 组件已处理），否则正在录的组合键会被触发或吞掉。结束录制会从 config.json 重新注册，和保存新热键可能同时发生，所以两者都在 `hotkey/mod.rs` 的 `APPLYING` 锁里执行。录制时组合键由事件拦截（`tap.rs`）直接捕获并发出 `hotkey-recorded` 事件，不依赖网页能否收到按键（实测网页收不到）；没装拦截时才退回网页的 keydown。面板隐藏时 `stop_recording` 会结束录制，否则所有热键（包括 ⌥Space）会一直暂停。终端里的 `[hotkey]`、`[config]` 日志可以看录制和保存是否发生。
