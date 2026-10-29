@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>二维码 · 生成</title>
+<!-- 设计稿静态版，由 docs/design/gen_boards.py 生成；浅色、深色并排。 -->
+<style>
+body{margin:0}
+.t-light{--desk:#E6E3DA;--bg:#FAF9F6;--surface:#FFFFFF;--sunken:#F3F2EC;--hover:rgba(120,113,100,.08);--selected:rgba(120,113,100,.14);--border:rgba(40,36,30,.11);--border-strong:rgba(40,36,30,.22);--text:#1D1C1A;--text-2:#6B6860;--text-3:#A3A096;--ok:#4C7A3D;--warn:#9A5B13;--bad:#A8402F;--on-accent:#FFFFFF;--menubar:rgba(250,249,246,.82);--shadow:0 18px 50px rgba(30,25,15,.18),0 0 0 1px rgba(40,36,30,.11)}
+.t-dark{--desk:#141413;--bg:#262522;--surface:#302F2B;--sunken:#1F1E1C;--hover:rgba(255,250,240,.06);--selected:rgba(255,250,240,.10);--border:rgba(255,250,240,.10);--border-strong:rgba(255,250,240,.20);--text:#EEEDE8;--text-2:#A9A69C;--text-3:#76736B;--ok:#8FC27A;--warn:#E3A85A;--bad:#F08B78;--on-accent:#16202F;--menubar:rgba(38,37,34,.86);--shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(255,250,240,.10)}
+.t-light,.t-dark{--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;--serif:ui-serif,"New York","Songti SC",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--accent-soft:color-mix(in srgb,var(--accent) 12%,transparent);font-family:var(--sans);color:var(--text)}
+input::placeholder,textarea::placeholder{color:var(--text-3)}
+.win{border-radius:14px;background:var(--bg);box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;font-size:13px;flex-shrink:0}
+.head{height:64px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--border)}
+.ib{width:30px;height:30px;border-radius:8px;border:none;background:transparent;color:var(--text-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0}
+.tile{width:30px;height:30px;box-sizing:border-box;border-radius:8px;background:var(--sunken);border:1px solid var(--border);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px}
+.tile.xl{width:44px;height:44px;border-radius:11px}
+.tile.sm{width:26px;height:26px;border-radius:7px;font-size:11px}
+.ttl{flex:1;display:flex;flex-direction:column;gap:1px}.ttl b{font-family:var(--serif);font-size:19px;font-weight:500;line-height:1.2}.ttl span{font-size:11px;color:var(--text-2)}
+.body{flex:1;min-height:0;display:flex;gap:20px;padding:20px 28px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.foot{height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-top:1px solid var(--border);font-size:11px;color:var(--text-2)}
+.btn{height:30px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-family:inherit;font-size:13px;color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;flex-shrink:0}
+.btn.p{border:none;background:var(--accent);color:var(--on-accent);font-weight:500}
+.btn.g{border:none;background:transparent;color:var(--text-2)}
+.btn.a{border:none;background:transparent;color:var(--accent)}
+.btn.sm{height:26px;padding:0 10px;font-size:12px}
+.inp{height:30px;box-sizing:border-box;padding:0 10px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-family:inherit;font-size:13px;color:var(--text);outline:none;min-width:0}
+.ta{box-sizing:border-box;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:inherit;font-size:14px;line-height:1.65;color:var(--text);outline:none;resize:none;margin:0}
+.note{font-size:12px;color:var(--text-2);line-height:1.5;margin:0}
+.lbl{font-size:12px;font-weight:600;color:var(--text-2)}
+.row{display:flex;align-items:center;gap:10px}
+.sp{flex:1}
+.seg{display:inline-flex;padding:3px;border-radius:8px;background:var(--sunken);gap:2px;flex-shrink:0}.seg span{height:24px;padding:0 12px;border-radius:6px;display:flex;align-items:center;font-size:12px;color:var(--text-2)}.seg span.on{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.08);color:var(--text);font-weight:500}
+.dot{width:7px;height:7px;border-radius:4px;display:inline-block;flex-shrink:0}
+.sw{width:36px;height:22px;box-sizing:border-box;padding:2px;border-radius:11px;background:var(--border-strong);display:flex;flex-shrink:0}.sw.on{background:var(--accent);justify-content:flex-end}.sw i{width:18px;height:18px;border-radius:9px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.sw.sm{width:30px;height:18px}.sw.sm i{width:14px;height:14px}
+.card{border-radius:10px;border:1px solid var(--border);background:var(--surface)}
+.mono{font-family:var(--mono)}
+.chip{height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:999px;background:var(--sunken);border:1px solid var(--border);font-size:11px;color:var(--text-2)}
+.strip{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px 0 14px;border-radius:10px;background:var(--sunken)}
+.sel{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px 0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-size:13px;flex-shrink:0}
+.side{width:208px;flex-shrink:0;background:var(--sunken);border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
+.side .h{display:flex;align-items:center;gap:8px;padding:2px 6px 14px}.side .h b{font-family:var(--serif);font-size:18px;font-weight:500}
+.side .g{padding:14px 10px 6px;font-size:11px;color:var(--text-2)}
+.side .i{display:flex;align-items:center;height:34px;padding:0 10px 0 36px;border-radius:8px;font-size:13px}
+.side .i.on,.plist .i.on{background:var(--selected);font-weight:500}
+.plist{width:184px;flex-shrink:0;padding:14px 8px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
+.plist .i{display:flex;align-items:center;gap:10px;height:40px;padding:0 8px;border-radius:8px}
+.plist .g{padding:10px 8px 4px;font-size:11px;color:var(--text-2)}
+.detail{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;padding:28px 30px;overflow:hidden}
+.dh{display:flex;align-items:center;gap:14px}.dh b{font-family:var(--serif);font-size:22px;font-weight:500;line-height:1.2;display:block}
+.srow{display:flex;align-items:center;gap:20px;min-height:58px;border-bottom:1px solid var(--border)}
+.srow:last-child{border-bottom:none}
+.st{flex:1;display:flex;flex-direction:column;gap:3px}.st b{font-size:14px;font-weight:500}.st span{font-size:12px;color:var(--text-2);line-height:1.45}
+.bar{display:block;height:6px;border-radius:3px;background:var(--sunken);overflow:hidden}.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;padding:0 10px 8px;font-size:12px;font-weight:500;color:var(--text-2)}
+td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
+</style>
+<div style="width:1920px;display:flex">
+<div class="t-light" style="width: 960px; height: 688px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#3A5A8C">
+<div style="font-size: 12px; color: var(--text-2)">浅色</div>
+<section class="win" style="width: 880px; height: 580px">
+<header class="head">
+<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><path d="M14 14h2v2M20 14v6h-6M17 17h.01"></path></svg></span>
+<span class="ttl"><b>生成二维码</b><span>二维码</span></span>
+<button type="button" class="btn">识别剪贴板里的二维码</button>
+</header>
+<div class="body">
+<div class="col" style="flex: 1">
+<span class="lbl">内容</span>
+<textarea class="ta" style="flex: 1">https://github.com/ZToolsCenter/ZTools</textarea>
+<span class="row"><span class="note">38 个字符 · 从搜索框带入</span><span class="sp"></span><span class="note">容错</span><span class="seg"><span>低</span><span class="on">中</span><span>较高</span><span>高</span></span></span>
+</div>
+<div class="col" style="width: 300px; align-items: center">
+<span class="lbl" style="align-self: flex-start">预览</span>
+<div class="card" style="width: 300px; height: 300px; box-sizing: border-box; padding: 26px; display: flex; align-items: center; justify-content: center; background: #FFFFFF">
+<svg width="248" height="248" viewBox="-1 -1 27 27" shape-rendering="crispEdges" role="img" aria-label="二维码"><path d="M0 0h1v1h-1zM1 0h1v1h-1zM2 0h1v1h-1zM3 0h1v1h-1zM4 0h1v1h-1zM5 0h1v1h-1zM6 0h1v1h-1zM8 0h1v1h-1zM9 0h1v1h-1zM10 0h1v1h-1zM11 0h1v1h-1zM12 0h1v1h-1zM14 0h1v1h-1zM15 0h1v1h-1zM18 0h1v1h-1zM19 0h1v1h-1zM20 0h1v1h-1zM21 0h1v1h-1zM22 0h1v1h-1zM23 0h1v1h-1zM24 0h1v1h-1zM0 1h1v1h-1zM6 1h1v1h-1zM8 1h1v1h-1zM9 1h1v1h-1zM10 1h1v1h-1zM12 1h1v1h-1zM13 1h1v1h-1zM15 1h1v1h-1zM16 1h1v1h-1zM18 1h1v1h-1zM24 1h1v1h-1zM0 2h1v1h-1zM2 2h1v1h-1zM3 2h1v1h-1zM4 2h1v1h-1zM6 2h1v1h-1zM11 2h1v1h-1zM15 2h1v1h-1zM18 2h1v1h-1zM20 2h1v1h-1zM21 2h1v1h-1zM22 2h1v1h-1zM24 2h1v1h-1zM0 3h1v1h-1zM2 3h1v1h-1zM3 3h1v1h-1zM4 3h1v1h-1zM6 3h1v1h-1zM9 3h1v1h-1zM10 3h1v1h-1zM11 3h1v1h-1zM13 3h1v1h-1zM14 3h1v1h-1zM18 3h1v1h-1zM20 3h1v1h-1zM21 3h1v1h-1zM22 3h1v1h-1zM24 3h1v1h-1zM0 4h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 4h1v1h-1zM6 4h1v1h-1zM8 4h1v1h-1zM15 4h1v1h-1zM18 4h1v1h-1zM20 4h1v1h-1zM21 4h1v1h-1zM22 4h1v1h-1zM24 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM8 5h1v1h-1zM9 5h1v1h-1zM12 5h1v1h-1zM13 5h1v1h-1zM14 5h1v1h-1zM15 5h1v1h-1zM16 5h1v1h-1zM18 5h1v1h-1zM24 5h1v1h-1zM0 6h1v1h-1zM1 6h1v1h-1zM2 6h1v1h-1zM3 6h1v1h-1zM4 6h1v1h-1zM5 6h1v1h-1zM6 6h1v1h-1zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h1v1h-1zM19 6h1v1h-1zM20 6h1v1h-1zM21 6h1v1h-1zM22 6h1v1h-1zM23 6h1v1h-1zM24 6h1v1h-1zM10 7h1v1h-1zM14 7h1v1h-1zM15 7h1v1h-1zM16 7h1v1h-1zM0 8h1v1h-1zM5 8h1v1h-1zM6 8h1v1h-1zM8 8h1v1h-1zM11 8h1v1h-1zM12 8h1v1h-1zM15 8h1v1h-1zM16 8h1v1h-1zM17 8h1v1h-1zM20 8h1v1h-1zM24 8h1v1h-1zM1 9h1v1h-1zM2 9h1v1h-1zM7 9h1v1h-1zM10 9h1v1h-1zM11 9h1v1h-1zM12 9h1v1h-1zM13 9h1v1h-1zM15 9h1v1h-1zM16 9h1v1h-1zM17 9h1v1h-1zM19 9h1v1h-1zM20 9h1v1h-1zM23 9h1v1h-1zM3 10h1v1h-1zM4 10h1v1h-1zM5 10h1v1h-1zM6 10h1v1h-1zM8 10h1v1h-1zM9 10h1v1h-1zM12 10h1v1h-1zM16 10h1v1h-1zM18 10h1v1h-1zM19 10h1v1h-1zM0 11h1v1h-1zM5 11h1v1h-1zM7 11h1v1h-1zM12 11h1v1h-1zM16 11h1v1h-1zM17 11h1v1h-1zM18 11h1v1h-1zM19 11h1v1h-1zM20 11h1v1h-1zM21 11h1v1h-1zM0 12h1v1h-1zM3 12h1v1h-1zM6 12h1v1h-1zM8 12h1v1h-1zM12 12h1v1h-1zM13 12h1v1h-1zM15 12h1v1h-1zM16 12h1v1h-1zM17 12h1v1h-1zM19 12h1v1h-1zM21 12h1v1h-1zM22 12h1v1h-1zM23 12h1v1h-1zM1 13h1v1h-1zM5 13h1v1h-1zM7 13h1v1h-1zM9 13h1v1h-1zM10 13h1v1h-1zM11 13h1v1h-1zM14 13h1v1h-1zM15 13h1v1h-1zM19 13h1v1h-1zM20 13h1v1h-1zM22 13h1v1h-1zM23 13h1v1h-1zM2 14h1v1h-1zM4 14h1v1h-1zM6 14h1v1h-1zM7 14h1v1h-1zM10 14h1v1h-1zM11 14h1v1h-1zM13 14h1v1h-1zM14 14h1v1h-1zM15 14h1v1h-1zM16 14h1v1h-1zM17 14h1v1h-1zM18 14h1v1h-1zM19 14h1v1h-1zM21 14h1v1h-1zM23 14h1v1h-1zM24 14h1v1h-1zM0 15h1v1h-1zM1 15h1v1h-1zM2 15h1v1h-1zM5 15h1v1h-1zM8 15h1v1h-1zM10 15h1v1h-1zM13 15h1v1h-1zM17 15h1v1h-1zM21 15h1v1h-1zM22 15h1v1h-1zM23 15h1v1h-1zM24 15h1v1h-1zM0 16h1v1h-1zM2 16h1v1h-1zM3 16h1v1h-1zM4 16h1v1h-1zM6 16h1v1h-1zM8 16h1v1h-1zM9 16h1v1h-1zM10 16h1v1h-1zM11 16h1v1h-1zM12 16h1v1h-1zM13 16h1v1h-1zM14 16h1v1h-1zM18 16h1v1h-1zM20 16h1v1h-1zM21 16h1v1h-1zM22 16h1v1h-1zM23 16h1v1h-1zM24 16h1v1h-1zM8 17h1v1h-1zM9 17h1v1h-1zM10 17h1v1h-1zM17 17h1v1h-1zM18 17h1v1h-1zM20 17h1v1h-1zM23 17h1v1h-1zM0 18h1v1h-1zM1 18h1v1h-1zM2 18h1v1h-1zM3 18h1v1h-1zM4 18h1v1h-1zM5 18h1v1h-1zM6 18h1v1h-1zM14 18h1v1h-1zM15 18h1v1h-1zM16 18h1v1h-1zM17 18h1v1h-1zM18 18h1v1h-1zM0 19h1v1h-1zM6 19h1v1h-1zM8 19h1v1h-1zM9 19h1v1h-1zM10 19h1v1h-1zM12 19h1v1h-1zM16 19h1v1h-1zM17 19h1v1h-1zM22 19h1v1h-1zM23 19h1v1h-1zM24 19h1v1h-1zM0 20h1v1h-1zM2 20h1v1h-1zM3 20h1v1h-1zM4 20h1v1h-1zM6 20h1v1h-1zM9 20h1v1h-1zM11 20h1v1h-1zM12 20h1v1h-1zM13 20h1v1h-1zM15 20h1v1h-1zM18 20h1v1h-1zM19 20h1v1h-1zM22 20h1v1h-1zM23 20h1v1h-1zM24 20h1v1h-1zM0 21h1v1h-1zM2 21h1v1h-1zM3 21h1v1h-1zM4 21h1v1h-1zM6 21h1v1h-1zM11 21h1v1h-1zM14 21h1v1h-1zM15 21h1v1h-1zM17 21h1v1h-1zM18 21h1v1h-1zM19 21h1v1h-1zM20 21h1v1h-1zM21 21h1v1h-1zM23 21h1v1h-1zM0 22h1v1h-1zM2 22h1v1h-1zM3 22h1v1h-1zM4 22h1v1h-1zM6 22h1v1h-1zM10 22h1v1h-1zM11 22h1v1h-1zM12 22h1v1h-1zM13 22h1v1h-1zM14 22h1v1h-1zM16 22h1v1h-1zM18 22h1v1h-1zM19 22h1v1h-1zM21 22h1v1h-1zM22 22h1v1h-1zM0 23h1v1h-1zM6 23h1v1h-1zM8 23h1v1h-1zM11 23h1v1h-1zM12 23h1v1h-1zM14 23h1v1h-1zM15 23h1v1h-1zM16 23h1v1h-1zM17 23h1v1h-1zM20 23h1v1h-1zM22 23h1v1h-1zM24 23h1v1h-1zM0 24h1v1h-1zM1 24h1v1h-1zM2 24h1v1h-1zM3 24h1v1h-1zM4 24h1v1h-1zM5 24h1v1h-1zM6 24h1v1h-1zM8 24h1v1h-1zM9 24h1v1h-1zM10 24h1v1h-1zM11 24h1v1h-1zM12 24h1v1h-1zM13 24h1v1h-1zM14 24h1v1h-1zM15 24h1v1h-1zM19 24h1v1h-1zM20 24h1v1h-1zM22 24h1v1h-1zM23 24h1v1h-1zM24 24h1v1h-1z" fill="#1D1C1A"></path></svg>
+</div>
+<span class="row" style="width: 300px"><button type="button" class="btn p" style="flex: 1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>复制图片</button><button type="button" class="btn" style="flex: 1">保存 PNG…</button></span>
+<span class="note">二维码始终是白底黑码，深色模式下也方便扫描</span>
+</div>
+</div>
+<footer class="foot"><span>esc 返回搜索 · ⌘C 复制图片</span><span>边输入边更新</span></footer>
+</section>
+</div>
+
+<div class="t-dark" style="width: 960px; height: 688px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#93B1E3">
+<div style="font-size: 12px; color: var(--text-2)">深色</div>
+<section class="win" style="width: 880px; height: 580px">
+<header class="head">
+<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><path d="M14 14h2v2M20 14v6h-6M17 17h.01"></path></svg></span>
+<span class="ttl"><b>生成二维码</b><span>二维码</span></span>
+<button type="button" class="btn">识别剪贴板里的二维码</button>
+</header>
+<div class="body">
+<div class="col" style="flex: 1">
+<span class="lbl">内容</span>
+<textarea class="ta" style="flex: 1">https://github.com/ZToolsCenter/ZTools</textarea>
+<span class="row"><span class="note">38 个字符 · 从搜索框带入</span><span class="sp"></span><span class="note">容错</span><span class="seg"><span>低</span><span class="on">中</span><span>较高</span><span>高</span></span></span>
+</div>
+<div class="col" style="width: 300px; align-items: center">
+<span class="lbl" style="align-self: flex-start">预览</span>
+<div class="card" style="width: 300px; height: 300px; box-sizing: border-box; padding: 26px; display: flex; align-items: center; justify-content: center; background: #FFFFFF">
+<svg width="248" height="248" viewBox="-1 -1 27 27" shape-rendering="crispEdges" role="img" aria-label="二维码"><path d="M0 0h1v1h-1zM1 0h1v1h-1zM2 0h1v1h-1zM3 0h1v1h-1zM4 0h1v1h-1zM5 0h1v1h-1zM6 0h1v1h-1zM8 0h1v1h-1zM9 0h1v1h-1zM10 0h1v1h-1zM11 0h1v1h-1zM12 0h1v1h-1zM14 0h1v1h-1zM15 0h1v1h-1zM18 0h1v1h-1zM19 0h1v1h-1zM20 0h1v1h-1zM21 0h1v1h-1zM22 0h1v1h-1zM23 0h1v1h-1zM24 0h1v1h-1zM0 1h1v1h-1zM6 1h1v1h-1zM8 1h1v1h-1zM9 1h1v1h-1zM10 1h1v1h-1zM12 1h1v1h-1zM13 1h1v1h-1zM15 1h1v1h-1zM16 1h1v1h-1zM18 1h1v1h-1zM24 1h1v1h-1zM0 2h1v1h-1zM2 2h1v1h-1zM3 2h1v1h-1zM4 2h1v1h-1zM6 2h1v1h-1zM11 2h1v1h-1zM15 2h1v1h-1zM18 2h1v1h-1zM20 2h1v1h-1zM21 2h1v1h-1zM22 2h1v1h-1zM24 2h1v1h-1zM0 3h1v1h-1zM2 3h1v1h-1zM3 3h1v1h-1zM4 3h1v1h-1zM6 3h1v1h-1zM9 3h1v1h-1zM10 3h1v1h-1zM11 3h1v1h-1zM13 3h1v1h-1zM14 3h1v1h-1zM18 3h1v1h-1zM20 3h1v1h-1zM21 3h1v1h-1zM22 3h1v1h-1zM24 3h1v1h-1zM0 4h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 4h1v1h-1zM6 4h1v1h-1zM8 4h1v1h-1zM15 4h1v1h-1zM18 4h1v1h-1zM20 4h1v1h-1zM21 4h1v1h-1zM22 4h1v1h-1zM24 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM8 5h1v1h-1zM9 5h1v1h-1zM12 5h1v1h-1zM13 5h1v1h-1zM14 5h1v1h-1zM15 5h1v1h-1zM16 5h1v1h-1zM18 5h1v1h-1zM24 5h1v1h-1zM0 6h1v1h-1zM1 6h1v1h-1zM2 6h1v1h-1zM3 6h1v1h-1zM4 6h1v1h-1zM5 6h1v1h-1zM6 6h1v1h-1zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h1v1h-1zM19 6h1v1h-1zM20 6h1v1h-1zM21 6h1v1h-1zM22 6h1v1h-1zM23 6h1v1h-1zM24 6h1v1h-1zM10 7h1v1h-1zM14 7h1v1h-1zM15 7h1v1h-1zM16 7h1v1h-1zM0 8h1v1h-1zM5 8h1v1h-1zM6 8h1v1h-1zM8 8h1v1h-1zM11 8h1v1h-1zM12 8h1v1h-1zM15 8h1v1h-1zM16 8h1v1h-1zM17 8h1v1h-1zM20 8h1v1h-1zM24 8h1v1h-1zM1 9h1v1h-1zM2 9h1v1h-1zM7 9h1v1h-1zM10 9h1v1h-1zM11 9h1v1h-1zM12 9h1v1h-1zM13 9h1v1h-1zM15 9h1v1h-1zM16 9h1v1h-1zM17 9h1v1h-1zM19 9h1v1h-1zM20 9h1v1h-1zM23 9h1v1h-1zM3 10h1v1h-1zM4 10h1v1h-1zM5 10h1v1h-1zM6 10h1v1h-1zM8 10h1v1h-1zM9 10h1v1h-1zM12 10h1v1h-1zM16 10h1v1h-1zM18 10h1v1h-1zM19 10h1v1h-1zM0 11h1v1h-1zM5 11h1v1h-1zM7 11h1v1h-1zM12 11h1v1h-1zM16 11h1v1h-1zM17 11h1v1h-1zM18 11h1v1h-1zM19 11h1v1h-1zM20 11h1v1h-1zM21 11h1v1h-1zM0 12h1v1h-1zM3 12h1v1h-1zM6 12h1v1h-1zM8 12h1v1h-1zM12 12h1v1h-1zM13 12h1v1h-1zM15 12h1v1h-1zM16 12h1v1h-1zM17 12h1v1h-1zM19 12h1v1h-1zM21 12h1v1h-1zM22 12h1v1h-1zM23 12h1v1h-1zM1 13h1v1h-1zM5 13h1v1h-1zM7 13h1v1h-1zM9 13h1v1h-1zM10 13h1v1h-1zM11 13h1v1h-1zM14 13h1v1h-1zM15 13h1v1h-1zM19 13h1v1h-1zM20 13h1v1h-1zM22 13h1v1h-1zM23 13h1v1h-1zM2 14h1v1h-1zM4 14h1v1h-1zM6 14h1v1h-1zM7 14h1v1h-1zM10 14h1v1h-1zM11 14h1v1h-1zM13 14h1v1h-1zM14 14h1v1h-1zM15 14h1v1h-1zM16 14h1v1h-1zM17 14h1v1h-1zM18 14h1v1h-1zM19 14h1v1h-1zM21 14h1v1h-1zM23 14h1v1h-1zM24 14h1v1h-1zM0 15h1v1h-1zM1 15h1v1h-1zM2 15h1v1h-1zM5 15h1v1h-1zM8 15h1v1h-1zM10 15h1v1h-1zM13 15h1v1h-1zM17 15h1v1h-1zM21 15h1v1h-1zM22 15h1v1h-1zM23 15h1v1h-1zM24 15h1v1h-1zM0 16h1v1h-1zM2 16h1v1h-1zM3 16h1v1h-1zM4 16h1v1h-1zM6 16h1v1h-1zM8 16h1v1h-1zM9 16h1v1h-1zM10 16h1v1h-1zM11 16h1v1h-1zM12 16h1v1h-1zM13 16h1v1h-1zM14 16h1v1h-1zM18 16h1v1h-1zM20 16h1v1h-1zM21 16h1v1h-1zM22 16h1v1h-1zM23 16h1v1h-1zM24 16h1v1h-1zM8 17h1v1h-1zM9 17h1v1h-1zM10 17h1v1h-1zM17 17h1v1h-1zM18 17h1v1h-1zM20 17h1v1h-1zM23 17h1v1h-1zM0 18h1v1h-1zM1 18h1v1h-1zM2 18h1v1h-1zM3 18h1v1h-1zM4 18h1v1h-1zM5 18h1v1h-1zM6 18h1v1h-1zM14 18h1v1h-1zM15 18h1v1h-1zM16 18h1v1h-1zM17 18h1v1h-1zM18 18h1v1h-1zM0 19h1v1h-1zM6 19h1v1h-1zM8 19h1v1h-1zM9 19h1v1h-1zM10 19h1v1h-1zM12 19h1v1h-1zM16 19h1v1h-1zM17 19h1v1h-1zM22 19h1v1h-1zM23 19h1v1h-1zM24 19h1v1h-1zM0 20h1v1h-1zM2 20h1v1h-1zM3 20h1v1h-1zM4 20h1v1h-1zM6 20h1v1h-1zM9 20h1v1h-1zM11 20h1v1h-1zM12 20h1v1h-1zM13 20h1v1h-1zM15 20h1v1h-1zM18 20h1v1h-1zM19 20h1v1h-1zM22 20h1v1h-1zM23 20h1v1h-1zM24 20h1v1h-1zM0 21h1v1h-1zM2 21h1v1h-1zM3 21h1v1h-1zM4 21h1v1h-1zM6 21h1v1h-1zM11 21h1v1h-1zM14 21h1v1h-1zM15 21h1v1h-1zM17 21h1v1h-1zM18 21h1v1h-1zM19 21h1v1h-1zM20 21h1v1h-1zM21 21h1v1h-1zM23 21h1v1h-1zM0 22h1v1h-1zM2 22h1v1h-1zM3 22h1v1h-1zM4 22h1v1h-1zM6 22h1v1h-1zM10 22h1v1h-1zM11 22h1v1h-1zM12 22h1v1h-1zM13 22h1v1h-1zM14 22h1v1h-1zM16 22h1v1h-1zM18 22h1v1h-1zM19 22h1v1h-1zM21 22h1v1h-1zM22 22h1v1h-1zM0 23h1v1h-1zM6 23h1v1h-1zM8 23h1v1h-1zM11 23h1v1h-1zM12 23h1v1h-1zM14 23h1v1h-1zM15 23h1v1h-1zM16 23h1v1h-1zM17 23h1v1h-1zM20 23h1v1h-1zM22 23h1v1h-1zM24 23h1v1h-1zM0 24h1v1h-1zM1 24h1v1h-1zM2 24h1v1h-1zM3 24h1v1h-1zM4 24h1v1h-1zM5 24h1v1h-1zM6 24h1v1h-1zM8 24h1v1h-1zM9 24h1v1h-1zM10 24h1v1h-1zM11 24h1v1h-1zM12 24h1v1h-1zM13 24h1v1h-1zM14 24h1v1h-1zM15 24h1v1h-1zM19 24h1v1h-1zM20 24h1v1h-1zM22 24h1v1h-1zM23 24h1v1h-1zM24 24h1v1h-1z" fill="#1D1C1A"></path></svg>
+</div>
+<span class="row" style="width: 300px"><button type="button" class="btn p" style="flex: 1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>复制图片</button><button type="button" class="btn" style="flex: 1">保存 PNG…</button></span>
+<span class="note">二维码始终是白底黑码，深色模式下也方便扫描</span>
+</div>
+</div>
+<footer class="foot"><span>esc 返回搜索 · ⌘C 复制图片</span><span>边输入边更新</span></footer>
+</section>
+</div>
+</div>

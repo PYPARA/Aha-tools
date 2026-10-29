@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>超级面板 · 选中文字</title>
+<!-- 设计稿静态版，由 docs/design/gen_boards.py 生成；浅色、深色并排。 -->
+<style>
+body{margin:0}
+.t-light{--desk:#E6E3DA;--bg:#FAF9F6;--surface:#FFFFFF;--sunken:#F3F2EC;--hover:rgba(120,113,100,.08);--selected:rgba(120,113,100,.14);--border:rgba(40,36,30,.11);--border-strong:rgba(40,36,30,.22);--text:#1D1C1A;--text-2:#6B6860;--text-3:#A3A096;--ok:#4C7A3D;--warn:#9A5B13;--bad:#A8402F;--on-accent:#FFFFFF;--menubar:rgba(250,249,246,.82);--shadow:0 18px 50px rgba(30,25,15,.18),0 0 0 1px rgba(40,36,30,.11)}
+.t-dark{--desk:#141413;--bg:#262522;--surface:#302F2B;--sunken:#1F1E1C;--hover:rgba(255,250,240,.06);--selected:rgba(255,250,240,.10);--border:rgba(255,250,240,.10);--border-strong:rgba(255,250,240,.20);--text:#EEEDE8;--text-2:#A9A69C;--text-3:#76736B;--ok:#8FC27A;--warn:#E3A85A;--bad:#F08B78;--on-accent:#16202F;--menubar:rgba(38,37,34,.86);--shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(255,250,240,.10)}
+.t-light,.t-dark{--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;--serif:ui-serif,"New York","Songti SC",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--accent-soft:color-mix(in srgb,var(--accent) 12%,transparent);font-family:var(--sans);color:var(--text)}
+input::placeholder,textarea::placeholder{color:var(--text-3)}
+.win{border-radius:14px;background:var(--bg);box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;font-size:13px;flex-shrink:0}
+.head{height:64px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--border)}
+.ib{width:30px;height:30px;border-radius:8px;border:none;background:transparent;color:var(--text-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0}
+.tile{width:30px;height:30px;box-sizing:border-box;border-radius:8px;background:var(--sunken);border:1px solid var(--border);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px}
+.tile.xl{width:44px;height:44px;border-radius:11px}
+.tile.sm{width:26px;height:26px;border-radius:7px;font-size:11px}
+.ttl{flex:1;display:flex;flex-direction:column;gap:1px}.ttl b{font-family:var(--serif);font-size:19px;font-weight:500;line-height:1.2}.ttl span{font-size:11px;color:var(--text-2)}
+.body{flex:1;min-height:0;display:flex;gap:20px;padding:20px 28px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.foot{height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-top:1px solid var(--border);font-size:11px;color:var(--text-2)}
+.btn{height:30px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-family:inherit;font-size:13px;color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;flex-shrink:0}
+.btn.p{border:none;background:var(--accent);color:var(--on-accent);font-weight:500}
+.btn.g{border:none;background:transparent;color:var(--text-2)}
+.btn.a{border:none;background:transparent;color:var(--accent)}
+.btn.sm{height:26px;padding:0 10px;font-size:12px}
+.inp{height:30px;box-sizing:border-box;padding:0 10px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-family:inherit;font-size:13px;color:var(--text);outline:none;min-width:0}
+.ta{box-sizing:border-box;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:inherit;font-size:14px;line-height:1.65;color:var(--text);outline:none;resize:none;margin:0}
+.note{font-size:12px;color:var(--text-2);line-height:1.5;margin:0}
+.lbl{font-size:12px;font-weight:600;color:var(--text-2)}
+.row{display:flex;align-items:center;gap:10px}
+.sp{flex:1}
+.seg{display:inline-flex;padding:3px;border-radius:8px;background:var(--sunken);gap:2px;flex-shrink:0}.seg span{height:24px;padding:0 12px;border-radius:6px;display:flex;align-items:center;font-size:12px;color:var(--text-2)}.seg span.on{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.08);color:var(--text);font-weight:500}
+.dot{width:7px;height:7px;border-radius:4px;display:inline-block;flex-shrink:0}
+.sw{width:36px;height:22px;box-sizing:border-box;padding:2px;border-radius:11px;background:var(--border-strong);display:flex;flex-shrink:0}.sw.on{background:var(--accent);justify-content:flex-end}.sw i{width:18px;height:18px;border-radius:9px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.sw.sm{width:30px;height:18px}.sw.sm i{width:14px;height:14px}
+.card{border-radius:10px;border:1px solid var(--border);background:var(--surface)}
+.mono{font-family:var(--mono)}
+.chip{height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:999px;background:var(--sunken);border:1px solid var(--border);font-size:11px;color:var(--text-2)}
+.strip{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px 0 14px;border-radius:10px;background:var(--sunken)}
+.sel{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px 0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-size:13px;flex-shrink:0}
+.side{width:208px;flex-shrink:0;background:var(--sunken);border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
+.side .h{display:flex;align-items:center;gap:8px;padding:2px 6px 14px}.side .h b{font-family:var(--serif);font-size:18px;font-weight:500}
+.side .g{padding:14px 10px 6px;font-size:11px;color:var(--text-2)}
+.side .i{display:flex;align-items:center;height:34px;padding:0 10px 0 36px;border-radius:8px;font-size:13px}
+.side .i.on,.plist .i.on{background:var(--selected);font-weight:500}
+.plist{width:184px;flex-shrink:0;padding:14px 8px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
+.plist .i{display:flex;align-items:center;gap:10px;height:40px;padding:0 8px;border-radius:8px}
+.plist .g{padding:10px 8px 4px;font-size:11px;color:var(--text-2)}
+.detail{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;padding:28px 30px;overflow:hidden}
+.dh{display:flex;align-items:center;gap:14px}.dh b{font-family:var(--serif);font-size:22px;font-weight:500;line-height:1.2;display:block}
+.srow{display:flex;align-items:center;gap:20px;min-height:58px;border-bottom:1px solid var(--border)}
+.srow:last-child{border-bottom:none}
+.st{flex:1;display:flex;flex-direction:column;gap:3px}.st b{font-size:14px;font-weight:500}.st span{font-size:12px;color:var(--text-2);line-height:1.45}
+.bar{display:block;height:6px;border-radius:3px;background:var(--sunken);overflow:hidden}.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;padding:0 10px 8px;font-size:12px;font-weight:500;color:var(--text-2)}
+td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
+</style>
+<div style="width:2360px;display:flex">
+<div class="t-light" style="width: 1180px; height: 648px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#3A5A8C">
+<div style="font-size: 12px; color: var(--text-2)">浅色</div>
+<div class="row" style="align-items: flex-start; gap: 36px"><div style="position: relative; width: 760px; height: 540px; border-radius: 12px; overflow: hidden; background: linear-gradient(160deg, color-mix(in srgb, var(--desk) 80%, var(--accent)), var(--desk)); box-shadow: 0 0 0 1px var(--border)">
+<div style="position: absolute; left: 40px; top: 40px; width: 520px; height: 380px; border-radius: 10px; background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,.12); opacity: .75"></div>
+<div style="position: absolute; left: 300px; top: 50px"><section class="win" style="width: 300px; height: 460px; border-radius: 12px">
+<header class="row" style="height: 48px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0"><span class="row" style="gap: 6px; min-width: 0"><span class="tile sm" style="width: 22px; height: 22px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span><span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Safari · 选中 42 个字</span></span><span class="sp"></span>
+<button type="button" class="ib" aria-label="搜索"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></button><button type="button" class="ib" aria-label="超级面板设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"></path></svg></button></header>
+<div style="margin: 10px 10px 4px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); display: flex; flex-direction: column; gap: 6px">
+<span class="note" style="font-size: 11px">翻译 · deepseek-chat</span>
+<span style="font-size: 13px; line-height: 1.55">Tauri 让你用网页前端构建更小、更快、更安全的桌面应用。</span>
+<span class="row"><span class="sp"></span><button type="button" class="btn sm g">复制</button><button type="button" class="btn sm g">展开</button></span></div><div style="display: flex; flex-direction: column; gap: 1px; padding: 6px"><span class="row" style="background: var(--selected); height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18l-1 3 3.5-1.5A8 8 0 1 0 5 18z"></path><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5M12 16h.01"></path></svg></span><span style="flex: 1">问 DeepSeek</span><span class="note" style="font-size: 11px">网页应用</span></span><span class="row" style="height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><path d="M14 14h2v2M20 14v6h-6M17 17h.01"></path></svg></span><span style="flex: 1">生成二维码</span><span class="note" style="font-size: 11px"></span></span><span class="row" style="height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></span><span style="flex: 1">在搜索面板中打开</span><span class="note" style="font-size: 11px"></span></span><span class="row" style="height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span><span style="flex: 1">复制为纯文本</span><span class="note" style="font-size: 11px"></span></span></div>
+<footer class="row" style="height: 30px; padding: 0 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-3); flex-shrink: 0">⌥⇧ Space 呼出 · esc 关闭</footer>
+</section></div>
+<svg style="position: absolute; left: 294px; top: 42px" width="16" height="22" viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1v17l4.5-4 3 7 3-1.4-3-6.6H15z" fill="#1D1C1A" stroke="#fff" stroke-width="1.2"></path></svg>
+</div>
+<div class="col" style="width: 300px; gap: 12px; padding-top: 6px">
+<b style="font-size: 15px; font-weight: 500">任何应用里选中了文字</b>
+<p class="note">读选中文字：先用辅助功能接口读（不碰剪贴板），读不到再模拟一次 ⌘C 并在读完后恢复原剪贴板。</p>
+<p class="note">翻译直接在面板顶部给出结果（流式），不用再进翻译页面；「展开」进入完整的翻译页面。</p>
+<p class="note">其余是对文字能做的事：交给网页应用、生成二维码、带进搜索面板（等于在搜索框粘贴，匹配到的插件都能用）。文字是网址时多一项「在浏览器中打开」。</p>
+</div></div>
+</div>
+
+<div class="t-dark" style="width: 1180px; height: 648px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#93B1E3">
+<div style="font-size: 12px; color: var(--text-2)">深色</div>
+<div class="row" style="align-items: flex-start; gap: 36px"><div style="position: relative; width: 760px; height: 540px; border-radius: 12px; overflow: hidden; background: linear-gradient(160deg, color-mix(in srgb, var(--desk) 80%, var(--accent)), var(--desk)); box-shadow: 0 0 0 1px var(--border)">
+<div style="position: absolute; left: 40px; top: 40px; width: 520px; height: 380px; border-radius: 10px; background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,.12); opacity: .75"></div>
+<div style="position: absolute; left: 300px; top: 50px"><section class="win" style="width: 300px; height: 460px; border-radius: 12px">
+<header class="row" style="height: 48px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0"><span class="row" style="gap: 6px; min-width: 0"><span class="tile sm" style="width: 22px; height: 22px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span><span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Safari · 选中 42 个字</span></span><span class="sp"></span>
+<button type="button" class="ib" aria-label="搜索"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></button><button type="button" class="ib" aria-label="超级面板设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"></path></svg></button></header>
+<div style="margin: 10px 10px 4px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); display: flex; flex-direction: column; gap: 6px">
+<span class="note" style="font-size: 11px">翻译 · deepseek-chat</span>
+<span style="font-size: 13px; line-height: 1.55">Tauri 让你用网页前端构建更小、更快、更安全的桌面应用。</span>
+<span class="row"><span class="sp"></span><button type="button" class="btn sm g">复制</button><button type="button" class="btn sm g">展开</button></span></div><div style="display: flex; flex-direction: column; gap: 1px; padding: 6px"><span class="row" style="background: var(--selected); height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18l-1 3 3.5-1.5A8 8 0 1 0 5 18z"></path><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5M12 16h.01"></path></svg></span><span style="flex: 1">问 DeepSeek</span><span class="note" style="font-size: 11px">网页应用</span></span><span class="row" style="height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><path d="M14 14h2v2M20 14v6h-6M17 17h.01"></path></svg></span><span style="flex: 1">生成二维码</span><span class="note" style="font-size: 11px"></span></span><span class="row" style="height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></span><span style="flex: 1">在搜索面板中打开</span><span class="note" style="font-size: 11px"></span></span><span class="row" style="height: 38px; padding: 0 10px; border-radius: 8px; gap: 12px"><span style="color: var(--text-2); display: flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span><span style="flex: 1">复制为纯文本</span><span class="note" style="font-size: 11px"></span></span></div>
+<footer class="row" style="height: 30px; padding: 0 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-3); flex-shrink: 0">⌥⇧ Space 呼出 · esc 关闭</footer>
+</section></div>
+<svg style="position: absolute; left: 294px; top: 42px" width="16" height="22" viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1v17l4.5-4 3 7 3-1.4-3-6.6H15z" fill="#1D1C1A" stroke="#fff" stroke-width="1.2"></path></svg>
+</div>
+<div class="col" style="width: 300px; gap: 12px; padding-top: 6px">
+<b style="font-size: 15px; font-weight: 500">任何应用里选中了文字</b>
+<p class="note">读选中文字：先用辅助功能接口读（不碰剪贴板），读不到再模拟一次 ⌘C 并在读完后恢复原剪贴板。</p>
+<p class="note">翻译直接在面板顶部给出结果（流式），不用再进翻译页面；「展开」进入完整的翻译页面。</p>
+<p class="note">其余是对文字能做的事：交给网页应用、生成二维码、带进搜索面板（等于在搜索框粘贴，匹配到的插件都能用）。文字是网址时多一项「在浏览器中打开」。</p>
+</div></div>
+</div>
+</div>
