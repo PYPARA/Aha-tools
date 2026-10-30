@@ -74,18 +74,19 @@ python3 docs/design/gen_boards.py <画布目录> src/assets/icons
 
 ## 2. 翻译
 
-设计：[TranslateText.html](design/TranslateText.html)、[TranslateWord.html](design/TranslateWord.html)、[TranslateSettings.html](design/TranslateSettings.html)。
+设计：[TranslateText.html](design/TranslateText.html)、[TranslateWord.html](design/TranslateWord.html)、[TranslateSettings.html](design/TranslateSettings.html)。2026-10-30 更新：采用多套纯自定义配置。
 
-- **插件**：`plugins/translate/`，功能 `translate`「翻译」，`cmds: ["翻译", "fy", "translate"]`，`match: { text: true, minLength: 2 }`（插件详情「自动匹配」页签可关）。
-- **配置**：`config.translate = { provider: "deepseek" | "openai" | "custom", baseUrl, model, direction: "auto" }`。默认 DeepSeek：`https://api.deepseek.com/v1`、`deepseek-chat`。API key 用 `keyring` crate 存钥匙串（service `com.ahatools.app`，account `translate`），提供命令 `translate_set_key(key)` / `translate_has_key()`，前端只显示掩码。
-- **后端**：`src-tauri/src/plugins/translate.rs`，命令 `translate_start(id, text, mode)`。
-  - 用 `reqwest`（`rustls-tls`、`stream`）POST `{baseUrl}/chat/completions`，`stream: true`，解析 SSE 的 `data:` 行。
-  - 每段文字 `emit("translate-chunk", { id, delta })`，结束 `translate-done`，出错 `translate-error`；`translate_stop(id)` 能中止。
-  - 提示词按模式：翻译（自动方向：含中文就译英文，否则译中文）、润色、解释。
-  - 只有一个英文单词时，要求模型输出 JSON：音标、词性、释义、例句（英文 + 中文）、近义词，前端按单词版式显示。
-- **前端**：段落版左原文右译文，译文流式追加，有光标；底部显示模型名和「停止 / 复制译文」。输入停止 400ms 后自动翻译，⌘↵ 立即重新翻译。
-- **设置页签**：服务、接口地址、模型、API Key（更换）、默认方向、「测试连接」（发一个极短请求，显示首字耗时或错误原文）。
-- **验收**：粘贴一段英文，搜索结果末尾出现「翻译」，进入后流式出中文；没填 key 时页面提示去设置，不报错；key 不出现在 config.json 里。
+- 插件 `translate/translate`，关键词「翻译 / fy / translate」，文字自动匹配至少 2 字，可独立关闭。
+- `config.translate = { profiles: [{ id, name, protocol, baseUrl, model }], activeProfileId: null, direction: "auto" }`，默认列表为空。协议为 `openai-chat`、`openai-responses`、`anthropic-messages`。所有服务地址、模型与密钥由用户填写。Base URL 含版本前缀，只追加资源路径，不自动补 `/v1`。
+- 每套密钥存系统钥匙串，service `com.ahatools.app`，account `translate:<id>`；不回传原密钥，不写配置和日志。更换协议或地址需重填密钥。配置与密钥保存 / 删除在后端协调，失败保留可恢复状态。
+- 设置页签：配置增删改、当前配置、协议、地址、掩码密钥、模型手填与获取列表、测试连接（首个非空正文耗时）。模型查询失败仍可手填。首次保存自动启用，删除当前配置选第一套剩余配置。原生钥匙串弹窗用 `withPinned`。
+- 三种流式适配：Chat `/chat/completions`、Responses `/responses`（`store:false`）、Messages `/messages`（`x-api-key`、`anthropic-version:2023-06-01`）。共用 SSE 解帧，处理 UTF-8 跨块、心跳、截断和错误。连接 10 秒、无正文 60 秒、总时限 180 秒；不自动重试或更换配置。
+- `translate_start(id, profileId, text, mode, direction)`、`translate_stop(id)`；`translate-chunk/done/error` 均带请求 ID，只发给调用窗口。取消真正中止 HTTP，每个请求只结束一次。
+- 翻译页左原文右结果，720px 以下上下排列；可直接切换配置并重译。输入停止 400ms 后请求，输入法组词时不发请求，⌘↵ 重译，停止保留部分结果。模式 / 方向 / 配置变化使旧请求失效。面板隐藏继续，离开页面取消。
+- 方向「自动 / 英文→中文 / 中文→英文」；自动含中文译英文，其余译中文。润色保持原语言，解释用中文，这两种模式禁用方向选择。
+- 单个英文词（允许词内连字符 / 撇号）且目标中文时生成 JSON：`phonetic`、`senses[{partOfSpeech,meaning,explanation}]`、`examples[{en,zh}]`、`synonyms`。流式时加载，完成校验再渲染；格式失败显示纯文本。本轮无朗读。
+- ⌘C 有选区复制选区，无选区复制结果。未配置 / 缺密钥提供设置入口，返回恢复内存草稿；原文和结果不写历史。
+- Rust 用本地模拟 HTTP / 密钥存储测试三种协议、模型、取消与失败恢复；Bun 测试请求状态和释义；浏览器 mock 验证深浅色与 880×580 / 600×400；真实接口、钥匙串和剪贴板由作者真机验收。
 
 ## 3. 图片压缩
 
