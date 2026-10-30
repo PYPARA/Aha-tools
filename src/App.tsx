@@ -8,7 +8,6 @@ import {
   formatAccelerator,
   hidePanel,
   invoke,
-  onFileDrop,
   openPath,
   PageActionsSlot,
   PathIcon,
@@ -20,15 +19,14 @@ import {
   type Config,
   type PathKind,
   type Manifest,
+  type PanelShownEvent,
   type SearchItem,
 } from "@ahatools/sdk";
 import { actions, fullPageViews, views, type Target } from "./views";
+import { ContentChip, useSearchContent } from "./search-content";
+import { pinKey, type Home } from "./pinned-sort";
+import { PinnedGrid, type PinnedGridHandle } from "./PinnedGrid";
 import "./styles.css";
-
-interface Home {
-  recent: SearchItem[];
-  pinned: SearchItem[];
-}
 
 /** Recent items shown before 「展开」: one row of the grid. */
 const COLUMNS = 7;
@@ -46,18 +44,14 @@ function ItemIcon({ item, large }: { item: SearchItem; large?: boolean }) {
   if (item.kind === "app" && item.action.type === "openPath") {
     return <AppIcon path={item.action.path} name={item.title} large={large} />;
   }
-  if (item.kind !== "saved") return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={large ? 40 : 32} />;
+  if (item.kind !== "saved") {
+    return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={large ? 40 : 32} />;
+  }
   return (
     <span className={large ? "tile lg" : "tile"} aria-hidden="true">
       <PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} />
     </span>
   );
-}
-
-/** Identity of a result for pinning; a feature is the same with or without input text. */
-function pinKey(item: SearchItem) {
-  const a = item.action.type === "feature" ? { type: "feature", feature: item.action.feature } : item.action;
-  return `${item.plugin}|${JSON.stringify(a)}`;
 }
 
 /** Grid cells laid out as rows of COLUMNS across both sections, for arrow-key moves. */
@@ -81,8 +75,6 @@ function moveInGrid(sections: number[], index: number, key: string) {
 export default function App() {
   useAppearance();
   const [query, setQuery] = useState("");
-  const [filePaths, setFilePaths] = useState<string[] | null>(null);
-  const [filesLoading, setFilesLoading] = useState(false);
   const [searchRevision, setSearchRevision] = useState(0);
   const [items, setItems] = useState<SearchItem[]>([]);
   const [selected, setSelected] = useState(0);
@@ -99,6 +91,29 @@ export default function App() {
   const listRef = useRef<HTMLUListElement>(null);
   const activeRef = useRef<Target | null>(null);
   activeRef.current = active;
+  const beforeLeave = useRef<(() => Promise<boolean>) | null>(null);
+  const navigating = useRef(false);
+  const registerBeforeLeave = useCallback((handler: () => Promise<boolean>) => {
+    beforeLeave.current = handler;
+    return () => { if (beforeLeave.current === handler) beforeLeave.current = null; };
+  }, []);
+  const navigate = useCallback(async (next: () => void) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    try {
+      if (beforeLeave.current && !(await beforeLeave.current())) return;
+      beforeLeave.current = null;
+      next();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      navigating.current = false;
+    }
+  }, []);
+  const { content, loading: contentLoading, dragging, clear: clearContent, paste, drop, setDragging } = useSearchContent(!active, () => {
+    setQuery(""); setSelected(0);
+  }, setError);
+  const sorting = useRef<PinnedGridHandle>(null);
 
   const [webUrls, setWebUrls] = useState<Map<string, string>>(new Map());
   const loadHome = () => invoke<Home>("usage_home").then(setHome);
@@ -115,18 +130,37 @@ export default function App() {
     loadHotkey();
     invoke<Config>("config_get").then(loadWebUrls);
     const subs = [
-      // Like uTools, coming back shows the page that was open; esc returns to search.
-      listen("panel-shown", () => {
+      listen<PanelShownEvent>("panel-shown", (event) => {
         setError(null);
+        const showSearch = () => {
+          setExpanded(false);
+          setSelected(0);
+          loadHome();
+          requestAnimationFrame(() => inputRef.current?.select());
+        };
+        if (event.payload?.reset) {
+          // Reopening may reset a page, but must still protect unsaved plugin drafts.
+          if (beforeLeave.current && activeRef.current) {
+            void invoke("set_panel_large", { large: true }).catch((error) => setError(String(error)));
+          }
+          void navigate(() => {
+            sorting.current?.cancel();
+            activeRef.current = null;
+            setActive(null);
+            clearContent();
+            setStatus("");
+            setFlash("");
+            setItems([]);
+            showSearch();
+          });
+          return;
+        }
         if (activeRef.current) return;
-        setExpanded(false);
-        setSelected(0);
-        loadHome();
-        requestAnimationFrame(() => inputRef.current?.select());
+        showSearch();
       }),
       listen<Target>("open-feature", (e) => {
         const act = actions[`${e.payload.plugin}/${e.payload.feature}`];
-        if (act) act({ input: e.payload.input, open });
+        if (act) Promise.resolve().then(() => act({ input: e.payload.input, open })).catch((error) => setError(String(error)));
         else open(e.payload);
       }),
       listen<Config>("config-changed", (e) => {
@@ -140,31 +174,17 @@ export default function App() {
 
   useEffect(() => {
     let stale = false;
-    const files = filePaths !== null;
-    setFilesLoading(files);
-    invoke<SearchItem[]>(files ? "search_files" : "search", files ? { paths: filePaths } : { query }).then((r) => {
+    setItems([]);
+    invoke<SearchItem[]>("search", { query, content: content?.type === "files" ? { type: "files", paths: content.paths } : content ? { type: "image" } : null }).then((r) => {
       if (!stale) {
         setItems(r);
         setSelected(0);
-        setFilesLoading(false);
       }
-    }).catch((e) => {
-      if (!stale) { setItems([]); setFilesLoading(false); setError(String(e)); }
-    });
+    }).catch((error) => { if (!stale) setError(`搜索失败：${String(error)}`); });
     return () => {
       stale = true;
     };
-  }, [query, searchRevision, filePaths]);
-
-  useEffect(() => {
-    let disposed = false;
-    const sub = onFileDrop((paths) => {
-      if (disposed || activeRef.current || paths.length === 0) return;
-      setError(null); setQuery(""); setItems([]); setFilePaths(paths); setSelected(0);
-    });
-    void sub.catch(() => { if (!disposed) setError("无法监听文件拖放，请重新打开面板"); });
-    return () => { disposed = true; void sub.then((off) => off()).catch(() => {}); };
-  }, []);
+  }, [query, searchRevision, content]);
 
   // Search is compact; plugin and settings pages get the larger window.
   useEffect(() => {
@@ -177,7 +197,7 @@ export default function App() {
     return () => clearTimeout(t);
   }, [flash]);
 
-  const hasQuery = query.trim() !== "" || filePaths !== null;
+  const hasQuery = query.trim() !== "";
   const pinnedKeys = useMemo(() => new Set(home.pinned.map(pinKey)), [home.pinned]);
 
   /** Shown when nothing has been used yet: every plugin feature. */
@@ -201,27 +221,34 @@ export default function App() {
   const recent = expanded ? home.recent : home.recent.slice(0, COLUMNS);
   const sections = home.recent.length || home.pinned.length ? [recent, home.pinned] : [allFeatures];
   const gridItems = sections.flat();
-  const visible = hasQuery ? items : gridItems;
+  const visible = contentLoading ? [] : content || hasQuery ? items : gridItems;
 
   useEffect(() => {
     if (hasQuery) listRef.current?.children[selected]?.scrollIntoView({ block: "nearest" });
   }, [selected, hasQuery]);
 
   function open(target: Target) {
-    setStatus("");
-    setError(null);
-    setActive(target);
+    if (activeRef.current === target) return;
+    void navigate(() => {
+      activeRef.current = target;
+      setStatus("");
+      setError(null);
+      setActive(target);
+    });
   }
 
   const back = () => {
-    setActive(null);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    void navigate(() => {
+      const target = activeRef.current?.returnTo ?? null;
+      activeRef.current = target;
+      setActive(target);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    });
   };
 
   const run = async (item: SearchItem | undefined) => {
     if (!item) return;
     setError(null);
-    setFilePaths(null);
     invoke("usage_record", { item });
     if (item.action.type === "openWeb") {
       setQuery("");
@@ -239,10 +266,13 @@ export default function App() {
     }
     const key = `${item.plugin}/${item.action.feature}`;
     if (actions[key]) {
-      setQuery("");
-      actions[key]({ input: item.action.input, open });
+      if (!content) setQuery("");
+      try {
+        const message = await actions[key]({ input: item.action.input, content: content ?? undefined, open });
+        if (typeof message === "string") setFlash(message);
+      } catch (error) { setError(String(error).replace(/^Error: /, "")); }
     } else {
-      open({ plugin: item.plugin, feature: item.action.feature, input: item.action.input });
+      open({ plugin: item.plugin, feature: item.action.feature, input: item.action.input, content: content ?? undefined });
     }
   };
 
@@ -276,6 +306,7 @@ export default function App() {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.isComposing) return;
     if (e.metaKey && e.key === ",") {
       e.preventDefault();
       open({ plugin: "settings", feature: "general" });
@@ -283,30 +314,33 @@ export default function App() {
     }
     if (e.key === "Escape") {
       e.preventDefault();
+      if (sorting.current?.cancel()) return;
       if (active) back();
-      else if (filePaths !== null) setFilePaths(null);
       else if (query) setQuery("");
+      else if (content || contentLoading) clearContent();
       else hidePanel();
       return;
     }
     if (active) return;
+    if (sorting.current?.isSorting()) { e.preventDefault(); return; }
+    if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button")) return;
     if (e.metaKey && e.key.toLowerCase() === "d") {
       e.preventDefault();
       togglePin(visible[selected]);
-    } else if (e.metaKey && /^[1-9]$/.test(e.key) && hasQuery) {
+    } else if (e.metaKey && /^[1-9]$/.test(e.key) && (hasQuery || content)) {
       e.preventDefault();
       run(items[Number(e.key) - 1]);
     } else if (e.key === "Enter") {
       e.preventDefault();
       run(visible[selected]);
-    } else if (hasQuery && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    } else if (!content && hasQuery && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       setSelected((s) => Math.max(0, Math.min(s + (e.key === "ArrowDown" ? 1 : -1), items.length - 1)));
-    } else if (!hasQuery && e.key.startsWith("Arrow")) {
+    } else if ((!hasQuery || content) && e.key.startsWith("Arrow")) {
       // Left/right stay in the text box while there's text to move through.
       if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && query) return;
       e.preventDefault();
-      setSelected((s) => moveInGrid(sections.map((x) => x.length), s, e.key));
+      setSelected((s) => moveInGrid(content ? [items.length] : sections.map((x) => x.length), s, e.key));
     }
   };
 
@@ -328,7 +362,8 @@ export default function App() {
     const key = `${active.plugin}/${active.feature}`;
     const View = views[key];
     const viewEl = View ? (
-      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} openFeature={open} />
+      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} content={active.content} openFeature={open}
+        registerBeforeLeave={registerBeforeLeave} />
     ) : (
       <div className="state">
         <span className="note">插件页面不存在：{key}</span>
@@ -352,7 +387,7 @@ export default function App() {
           </span>
           <span className="page-actions" ref={setActionsSlot} />
         </header>
-        <main className="panel-body">
+        <main className={`panel-body${key === "hosts/hosts" ? " hosts-body" : ""}`}>
           <PageActionsSlot.Provider value={actionsSlot}>{viewEl}</PageActionsSlot.Provider>
         </main>
         <footer className="foot">
@@ -369,7 +404,25 @@ export default function App() {
   let hints: React.ReactNode;
   let right: React.ReactNode;
 
-  if (hasQuery && items.length > 0) {
+  if (contentLoading) {
+    body = <div className="state"><p className="lede" role="status">正在读取粘贴的图片…</p></div>;
+    hints = <span>esc 取消</span>;
+    right = "读取中";
+  } else if (content) {
+    body = (
+      <div className="home">
+        <div className="section-head"><h2>匹配结果</h2><span className="aside">只显示适用于当前内容的功能</span></div>
+        {items.length ? <div className="grid" aria-label="匹配结果">{items.map((item, i) => (
+          <button type="button" key={pinKey(item)} className={`grid-item${i === selected ? " selected" : ""}`}
+            onMouseMove={() => setSelected(i)} onClick={() => run(item)} onContextMenu={(event) => showItemMenu(event, item, false)}>
+            <ItemIcon item={item} large /><span className="label">{item.title}</span>
+          </button>
+        ))}</div> : <div className="home-empty"><p className="lede">{hasQuery ? "没有符合筛选条件的功能" : "当前没有适用的功能"}</p><p className="note">{hasQuery ? "换个关键词，或清空筛选条件" : "可在插件详情的「自动匹配」中检查开关；二维码识别支持 PNG、JPEG 和 WebP"}</p></div>}
+      </div>
+    );
+    hints = <><span>方向键 选择</span><span>↵ 打开</span><span>esc {hasQuery ? "清空筛选" : "移除内容"}</span></>;
+    right = `${items.length} 个匹配功能`;
+  } else if (hasQuery && items.length > 0) {
     body = (
       <ul className="results" ref={listRef}>
         {items.map((item, i) => (
@@ -401,13 +454,10 @@ export default function App() {
         <span>右键 固定</span>
       </>
     );
-    right = filePaths !== null ? `${items.length} 个文件动作 · ↵ 开始` : `${items.length} 个结果 · 拼音首字母也能搜`;
+    right = `${items.length} 个结果 · 拼音首字母也能搜`;
   } else if (hasQuery) {
     const q = query.trim();
-    body = filePaths !== null ? (
-      <div className="state"><div className="copy"><p className="headline">{filesLoading ? "正在读取文件…" : "没有匹配的文件动作"}</p>
-        <p className="lede">{filesLoading ? "文件夹只读取第一层" : "请拖入 PNG、JPEG、WebP，或检查插件的自动匹配开关"}</p></div></div>
-    ) : (
+    body = (
       <div className="state">
         <div className="copy">
           <p className="headline">没有找到「{q}」</p>
@@ -424,10 +474,10 @@ export default function App() {
     const cell = (item: SearchItem, index: number, inRecent = false) => (
       <button
         type="button"
-        key={`${item.plugin}:${item.title}:${index}`}
+        key={pinKey(item)}
         className={`grid-item${index === selected ? " selected" : ""}`}
         onClick={() => run(item)}
-        onMouseMove={() => setSelected(index)}
+        onMouseMove={() => { if (!sorting.current?.isSorting()) setSelected(index); }}
         onContextMenu={(e) => {
           setSelected(index);
           showItemMenu(e, item, inRecent);
@@ -468,9 +518,13 @@ export default function App() {
               <>
                 <div className="section-head">
                   <h2>已固定</h2>
-                  <span className="aside">右键或 ⌘D 固定、取消</span>
+                  <span className="aside">拖拽排序 · 右键或 ⌘D 取消固定</span>
                 </div>
-                <div className="grid">{home.pinned.map((it, i) => cell(it, recent.length + i))}</div>
+                <PinnedGrid ref={sorting} items={home.pinned} selected={selected} offset={recent.length} onSelect={setSelected}
+                  onOpen={run} onContextMenu={(event, item) => showItemMenu(event, item, false)}
+                  onReorder={(pinned) => setHome((previous) => ({ ...previous, pinned }))} onReload={setHome}
+                  onReport={(message, failed) => { if (failed) setError(message); else { setError(null); setFlash(message); } }}
+                  renderIcon={(item) => <ItemIcon item={item} large />} />
               </>
             )}
           </>
@@ -489,9 +543,12 @@ export default function App() {
 
   return (
     <WebAppUrls.Provider value={webUrls}>
-      <div className="panel" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
+      <div className={`panel${dragging ? " content-dragging" : ""}`} onPaste={paste}
+        onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+        onDrop={drop}>
         <header className="search-head" data-tauri-drag-region>
-          <SearchIcon />
+          {content ? <ContentChip content={content} clear={() => { clearContent(); inputRef.current?.focus(); }} /> : <SearchIcon />}
           <label htmlFor="q" className="sr-only">
             搜索
           </label>
@@ -501,9 +558,9 @@ export default function App() {
             autoFocus
             spellCheck={false}
             autoComplete="off"
-            placeholder={filePaths !== null ? "已拖入文件 · 选择动作，或输入文字重新搜索" : "搜索应用、收藏和功能"}
+            placeholder={content ? "筛选适用功能" : "搜索应用、收藏和功能"}
             value={query}
-            onChange={(e) => { setFilePaths(null); setQuery(e.target.value); setError(null); }}
+            onChange={(e) => setQuery(e.target.value)}
           />
           <button type="button" className="icon-btn" aria-label="设置" title="设置 ⌘," onClick={openSettings}>
             <SlidersIcon />

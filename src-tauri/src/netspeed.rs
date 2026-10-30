@@ -12,7 +12,6 @@ use std::ffi::CStr;
 use std::mem::size_of;
 use std::ptr;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -21,6 +20,8 @@ use serde::Serialize;
 use tauri::image::Image;
 use tauri::tray::TrayIcon;
 use tauri::{AppHandle, Emitter};
+
+use crate::config::MenubarItem;
 
 /// Cumulative byte counters of one interface.
 #[derive(Debug, Clone)]
@@ -186,6 +187,7 @@ pub struct Renderer {
     /// Every digit takes this width (tabular figures), so values don't shift sideways.
     digit_width: f32,
     text_width: f32,
+    percent_width: f32,
 }
 
 impl Renderer {
@@ -205,12 +207,14 @@ impl Renderer {
             scale,
             digit_width,
             text_width: 0.0,
+            percent_width: 0.0,
         };
         // Fixed column width = widest possible value, so the icon never changes width.
         r.text_width = ["999 KB/s", "9.9 MB/s", "999 MB/s", "9.9 GB/s"]
             .iter()
             .map(|s| r.measure(s))
             .fold(0.0, f32::max);
+        r.percent_width = r.measure("100%");
         Some(r)
     }
 
@@ -230,9 +234,9 @@ impl Renderer {
         Image::new_owned(canvas.rgba, width, HEIGHT)
     }
 
-    /// The AhaTools mark (a 2×2 grid of tiles), for when the speed is switched off:
+    /// The AhaTools mark (a 2×2 grid of tiles), for when all metrics are switched off:
     /// arrows without numbers would still read as "network".
-    pub fn render_idle(&self) -> Image<'static> {
+    pub fn render_idle() -> Image<'static> {
         const SIDE: f32 = 11.0;
         const GAP: f32 = 5.0;
         let width = (2.0 * SIDE + GAP) as u32 + 6;
@@ -241,13 +245,98 @@ impl Renderer {
         for (col, row) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
             let (x, y) = (3.0 + col * (SIDE + GAP), top + row * (SIDE + GAP));
             let (r, b) = (x + SIDE, y + SIDE);
-            segments.extend([[(x, y), (r, y)], [(r, y), (r, b)], [(r, b), (x, b)], [(x, b), (x, y)]]);
+            segments.extend([
+                [(x, y), (r, y)],
+                [(r, y), (r, b)],
+                [(r, b), (x, b)],
+                [(x, b), (x, y)],
+            ]);
         }
         let mut canvas = Canvas {
             width,
             rgba: vec![0; (width * HEIGHT * 4) as usize],
         };
         canvas.stroke(&segments, 2.4);
+        Image::new_owned(canvas.rgba, width, HEIGHT)
+    }
+
+    /// Each selected item has a fixed width, composed into one template image.
+    pub fn render_menubar(
+        &self,
+        items: &[MenubarItem],
+        up: f64,
+        down: f64,
+        cpu: Option<f64>,
+        memory: Option<f64>,
+    ) -> Image<'static> {
+        if items.is_empty() {
+            return Self::render_idle();
+        }
+        let parts: Vec<_> = items
+            .iter()
+            .map(|item| match item {
+                MenubarItem::Netspeed => self.render(up, down),
+                MenubarItem::Cpu => self.render_percent(*item, cpu),
+                MenubarItem::Memory => self.render_percent(*item, memory),
+            })
+            .collect();
+        const ITEM_GAP: u32 = 16;
+        let width =
+            parts.iter().map(|p| p.width()).sum::<u32>() + ITEM_GAP * (parts.len() - 1) as u32;
+        let mut rgba = vec![0; (width * HEIGHT * 4) as usize];
+        let mut left = 0;
+        for part in parts {
+            for y in 0..HEIGHT {
+                let start = ((y * width + left) * 4) as usize;
+                let source = (y * part.width() * 4) as usize;
+                rgba[start..start + (part.width() * 4) as usize]
+                    .copy_from_slice(&part.rgba()[source..source + (part.width() * 4) as usize]);
+            }
+            left += part.width() + ITEM_GAP;
+        }
+        Image::new_owned(rgba, width, HEIGHT)
+    }
+
+    fn render_percent(&self, item: MenubarItem, value: Option<f64>) -> Image<'static> {
+        let width = (32.0 + GAP + self.percent_width).ceil() as u32 + 2;
+        let mut canvas = Canvas {
+            width,
+            rgba: vec![0; (width * HEIGHT * 4) as usize],
+        };
+        let mut segments = vec![];
+        let (left, top, right, bottom) = if item == MenubarItem::Cpu {
+            (8.0, 8.0, 26.0, 28.0)
+        } else {
+            (2.0, 10.0, 32.0, 26.0)
+        };
+        segments.extend([
+            [(left, top), (right, top)],
+            [(right, top), (right, bottom)],
+            [(right, bottom), (left, bottom)],
+            [(left, bottom), (left, top)],
+        ]);
+        if item == MenubarItem::Cpu {
+            for p in [12.0, 22.0] {
+                segments.extend([
+                    [(p, 3.0), (p, 7.0)],
+                    [(p, 29.0), (p, 33.0)],
+                    [(3.0, p), (7.0, p)],
+                    [(27.0, p), (31.0, p)],
+                ]);
+            }
+        } else {
+            for x in [8.0, 16.0, 24.0] {
+                segments.extend([[(x, 14.0), (x, 22.0)], [(x, 27.0), (x, 30.0)]]);
+            }
+        }
+        canvas.stroke(&segments, 2.4);
+        let text = percent_text(value);
+        self.draw(
+            &mut canvas,
+            &text,
+            width as f32 - 2.0 - self.measure(&text),
+            24.0,
+        );
         Image::new_owned(canvas.rgba, width, HEIGHT)
     }
 
@@ -353,11 +442,36 @@ pub struct Snapshot {
 }
 
 static LATEST: Mutex<Option<Snapshot>> = Mutex::new(None);
-/// Show the speed in the menu bar; when off, the icon is the AhaTools mark.
-static VISIBLE: AtomicBool = AtomicBool::new(true);
+/// Selected metrics in display order; an empty list shows the AhaTools mark.
+static ITEMS: Mutex<Vec<MenubarItem>> = Mutex::new(Vec::new());
 
-pub fn set_visible(on: bool) {
-    VISIBLE.store(on, Ordering::Relaxed);
+pub fn configure(items: &[MenubarItem]) {
+    *ITEMS.lock().unwrap() = items.to_vec();
+}
+
+fn percent_text(value: Option<f64>) -> String {
+    value
+        .filter(|v| v.is_finite())
+        .map(|v| format!("{:.0}%", v.clamp(0.0, 100.0)))
+        .unwrap_or_else(|| "—".into())
+}
+
+fn title_fallback(
+    items: &[MenubarItem],
+    up: f64,
+    down: f64,
+    cpu: Option<f64>,
+    memory: Option<f64>,
+) -> String {
+    items
+        .iter()
+        .map(|item| match item {
+            MenubarItem::Netspeed => format!("↑{} ↓{}", format_rate(up), format_rate(down)),
+            MenubarItem::Cpu => format!("CPU {}", percent_text(cpu)),
+            MenubarItem::Memory => format!("RAM {}", percent_text(memory)),
+        })
+        .collect::<Vec<_>>()
+        .join("  ")
 }
 
 #[tauri::command]
@@ -366,12 +480,13 @@ pub fn netspeed_snapshot() -> Snapshot {
 }
 
 /// Samples once a second: redraws the tray icon and emits a `Snapshot`.
-pub fn start(app: AppHandle, tray: TrayIcon, visible: bool) {
-    set_visible(visible);
+pub fn start(app: AppHandle, tray: TrayIcon, items: &[MenubarItem]) {
+    configure(items);
     let renderer = Renderer::new();
     if let Some(r) = &renderer {
         let _ = tray.set_title(None::<&str>);
-        let _ = tray.set_icon_with_as_template(Some(r.render(0.0, 0.0)), true);
+        let _ = tray
+            .set_icon_with_as_template(Some(r.render_menubar(items, 0.0, 0.0, None, None)), true);
     }
     thread::spawn(move || {
         let ports = hardware_ports();
@@ -425,27 +540,31 @@ pub fn start(app: AppHandle, tray: TrayIcon, visible: bool) {
             *LATEST.lock().unwrap() = Some(snapshot.clone());
             let _ = app.emit("netspeed", snapshot);
 
-            let visible = VISIBLE.load(Ordering::Relaxed);
+            let items = ITEMS.lock().unwrap().clone();
+            let system = crate::sysmon::sysmon_snapshot();
+            let cpu = system.cpu.usage.data().copied();
+            let memory = system
+                .memory
+                .data()
+                .map(|m| 100.0 * m.used_bytes as f64 / m.total_bytes as f64);
             match &renderer {
                 // Redrawn every second anyway, so toggling needs no extra bookkeeping.
-                Some(r) if !visible => {
-                    let _ = tray.set_icon_with_as_template(Some(r.render_idle()), true);
-                }
-                None if !visible => {
-                    let _ = tray.set_title(Some("↑↓"));
+                _ if items.is_empty() => {
+                    let _ = tray.set_title(None::<&str>);
+                    let _ = tray.set_icon_with_as_template(Some(Renderer::render_idle()), true);
                 }
                 // Not `set_icon`: tray-icon resets the template flag there, which leaves
                 // black text that vanishes on a dark menu bar.
                 Some(r) => {
-                    let _ = tray.set_icon_with_as_template(Some(r.render(up, down)), true);
+                    let _ = tray.set_icon_with_as_template(
+                        Some(r.render_menubar(&items, up, down, cpu, memory)),
+                        true,
+                    );
                 }
                 // No system font to draw with: fall back to a plain title.
                 None => {
-                    let _ = tray.set_title(Some(format!(
-                        "↑{} ↓{}",
-                        format_rate(up),
-                        format_rate(down)
-                    )));
+                    let _ = tray.set_icon_with_as_template(None::<Image<'_>>, true);
+                    let _ = tray.set_title(Some(title_fallback(&items, up, down, cpu, memory)));
                 }
             }
         }
@@ -491,18 +610,80 @@ mod tests {
             Some("Thunderbolt Bridge")
         );
     }
+
+    #[test]
+    fn all_menubar_combinations_have_stable_width_and_preserve_order() {
+        let r = Renderer::new().expect("SF font available");
+        let choices = [MenubarItem::Netspeed, MenubarItem::Cpu, MenubarItem::Memory];
+        for mask in 0..8 {
+            let items: Vec<_> = choices
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| mask & (1 << i) != 0)
+                .map(|(_, item)| *item)
+                .collect();
+            for order in [items.clone(), items.iter().rev().copied().collect()] {
+                let waiting = r.render_menubar(&order, 0.0, 0.0, None, None);
+                let zero = r.render_menubar(&order, 0.0, 0.0, Some(0.0), Some(0.0));
+                let full =
+                    r.render_menubar(&order, 512.0, 999.0 * 1024.0, Some(100.0), Some(100.0));
+                assert_eq!(
+                    (waiting.width(), waiting.height()),
+                    (full.width(), full.height())
+                );
+                assert_eq!(zero.width(), full.width());
+                assert!(waiting.rgba().iter().skip(3).step_by(4).any(|&a| a > 0));
+                if let Some(first) = order.first() {
+                    let solo = r.render_menubar(&[*first], 0.0, 0.0, None, None);
+                    for y in 0..HEIGHT {
+                        let a = (y * waiting.width() * 4) as usize;
+                        let b = (y * solo.width() * 4) as usize;
+                        assert_eq!(
+                            &waiting.rgba()[a..a + solo.width() as usize * 4],
+                            &solo.rgba()[b..b + solo.width() as usize * 4]
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(percent_text(None), "—");
+        assert_eq!(percent_text(Some(f64::NAN)), "—");
+        assert_eq!(
+            title_fallback(
+                &[MenubarItem::Memory, MenubarItem::Cpu],
+                0.0,
+                0.0,
+                Some(23.0),
+                Some(70.0)
+            ),
+            "RAM 70%  CPU 23%"
+        );
+    }
 }
 
 #[cfg(test)]
 mod preview {
     /// `AHATOOLS_PREVIEW=out.pgm cargo test preview -- --ignored` writes the icon on a dark
-    /// menu bar; add `AHATOOLS_PREVIEW_IDLE=1` for the icon shown with the speed switched off.
+    /// menu bar; add `AHATOOLS_PREVIEW_IDLE=1` for the mark or `AHATOOLS_PREVIEW_SYSTEM=1`
+    /// for network + CPU + memory.
     #[test]
     #[ignore]
     fn dump() {
         let r = super::Renderer::new().unwrap();
         let img = if std::env::var_os("AHATOOLS_PREVIEW_IDLE").is_some() {
-            r.render_idle()
+            super::Renderer::render_idle()
+        } else if std::env::var_os("AHATOOLS_PREVIEW_SYSTEM").is_some() {
+            r.render_menubar(
+                &[
+                    crate::config::MenubarItem::Netspeed,
+                    crate::config::MenubarItem::Cpu,
+                    crate::config::MenubarItem::Memory,
+                ],
+                120.0 * 1024.0,
+                3.4 * 1024.0 * 1024.0,
+                Some(23.0),
+                Some(70.0),
+            )
         } else {
             r.render(120.0 * 1024.0, 3.4 * 1024.0 * 1024.0)
         };

@@ -1,4 +1,4 @@
-import { formatAccelerator, featureAction, FeatureIcon, sameAction } from "@ahatools/sdk";
+import { FeatureIcon, formatAccelerator, featureAction, sameAction } from "@ahatools/sdk";
 import type { SectionProps } from "./Settings";
 
 /** Every feature of every plugin, with its keywords and hotkey. */
@@ -22,7 +22,7 @@ export default function Commands({ cfg, manifests, onOpenPlugin }: SectionProps 
               onClick={clickable ? () => onOpenPlugin(m.id) : undefined}
               style={{ height: "auto", minHeight: 54, padding: "8px 10px" }}
             >
-              <FeatureIcon plugin={m.id} feature={f.code} />
+              <FeatureIcon plugin={m.id} feature={f.code} size={32} />
               <span className="info">
                 <span className="name">{f.explain}</span>
                 <span className="path">

@@ -8,7 +8,20 @@
     {
       "code": "manage",
       "explain": "管理收藏的路径",
-      "cmds": ["收藏", "快捷启动", "launcher", "bookmark"]
+      "cmds": ["收藏", "快捷启动", "launcher", "bookmark"],
+      "match": { "files": ["*"], "maxFiles": 1 }
+    },
+    {
+      "code": "copy-path",
+      "explain": "复制文件路径",
+      "cmds": ["复制路径"],
+      "match": { "files": ["*"] }
+    },
+    {
+      "code": "copy-name",
+      "explain": "提取文件名称",
+      "cmds": ["提取文件名"],
+      "match": { "files": ["*"] }
     }
   ]
 }

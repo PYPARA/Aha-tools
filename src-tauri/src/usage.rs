@@ -32,6 +32,9 @@ fn normalize(mut item: SearchItem) -> SearchItem {
         if item.plugin == "qrcode" && feature == "generate" {
             item.title = "生成二维码".into();
         }
+        if item.plugin == "compress" && feature == "compress" {
+            item.title = "压缩图片".into();
+        }
         // "翻译 · 「hello」" or "翻译 · 插件功能" → the plugin name only.
         item.subtitle = item.subtitle.split(" · ").next().unwrap_or("").to_string();
     }
@@ -105,6 +108,32 @@ pub fn usage_toggle_pin(app: AppHandle, item: SearchItem) -> Result<bool, String
     Ok(pinned)
 }
 
+/// Move by identity, never replace the saved list with a possibly stale client copy.
+fn reorder_pinned(usage: &mut Usage, item: SearchItem, before: Option<SearchItem>) -> Result<(), String> {
+    let item = normalize(item);
+    let before = before.map(normalize);
+    let from = usage.pinned.iter().position(|it| same(it, &item)).ok_or("这个功能已取消固定")?;
+    if let Some(before) = &before {
+        if same(before, &item) { return Ok(()); }
+        if !usage.pinned.iter().any(|it| same(it, before)) { return Err("目标功能已取消固定，请重试".into()); }
+    }
+    let moved = usage.pinned.remove(from);
+    let to = before.as_ref().and_then(|b| usage.pinned.iter().position(|it| same(it, b))).unwrap_or(usage.pinned.len());
+    usage.pinned.insert(to, moved);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn usage_reorder_pinned(app: AppHandle, item: SearchItem, before: Option<SearchItem>) -> Result<Usage, String> {
+    let _guard = LOCK.lock().unwrap();
+    let mut usage: Usage = config::load_json(&app, STORE);
+    reorder_pinned(&mut usage, item, before)?;
+    config::save_json(&app, STORE, &usage)?;
+    usage.recent.retain(still_there);
+    usage.pinned.retain(still_there);
+    Ok(usage)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,11 +167,13 @@ mod tests {
     #[test]
     fn compress_history_never_persists_imported_file_paths() {
         let mut input = feature(Some(r#"["/Users/me/私密照片.png"]"#));
-        input.plugin = "compress".into(); input.title = "压缩图片".into(); input.subtitle = "图片压缩 · 1 张图片".into();
+        input.plugin = "compress".into(); input.title = "压缩图片 · 1 张".into(); input.subtitle = "图片压缩 · 1 张图片".into();
         input.action = ItemAction::Feature { feature: "compress".into(), input: Some(r#"["/Users/me/私密照片.png"]"#.into()) };
         let mut u = Usage::default(); record(&mut u, input.clone()); toggle_pin(&mut u, input);
         let json = serde_json::to_string(&u).unwrap();
         assert!(!json.contains("私密照片")); assert!(!json.contains("/Users/me"));
+        assert_eq!(u.recent[0].title, "压缩图片");
+        assert_eq!(u.pinned[0].title, "压缩图片");
         assert_eq!(u.recent[0].subtitle, "图片压缩");
     }
 
@@ -172,5 +203,36 @@ mod tests {
             assert_eq!(saved.subtitle, "二维码");
         }
         assert!(!serde_json::to_string(&usage).unwrap().contains(text));
+    }
+
+    fn named_feature(name: &str) -> SearchItem {
+        SearchItem { title: name.into(), action: ItemAction::Feature { feature: name.into(), input: None }, ..feature(None) }
+    }
+
+    #[test]
+    fn pinned_moves_in_both_directions_and_survives_serialization() {
+        let a = named_feature("a"); let b = named_feature("b"); let c = named_feature("c");
+        let mut usage = Usage { recent: vec![a.clone()], pinned: vec![a.clone(), b.clone(), c.clone()] };
+        reorder_pinned(&mut usage, c.clone(), Some(a.clone())).unwrap();
+        assert_eq!(usage.pinned.iter().map(|it| it.title.as_str()).collect::<Vec<_>>(), ["c", "a", "b"]);
+        reorder_pinned(&mut usage, c, None).unwrap();
+        let saved: Usage = serde_json::from_str(&serde_json::to_string(&usage).unwrap()).unwrap();
+        assert_eq!(saved.pinned.iter().map(|it| it.title.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(saved.recent.len(), 1);
+    }
+
+    #[test]
+    fn sorting_stale_items_preserves_other_pins_and_rejects_removed_targets() {
+        let a = named_feature("a"); let b = named_feature("b"); let c = named_feature("c");
+        let mut usage = Usage { pinned: vec![a.clone(), b.clone(), c.clone()], ..Usage::default() };
+        let mut with_input = a.clone();
+        with_input.action = ItemAction::Feature { feature: "a".into(), input: Some("粘贴内容".into()) };
+        reorder_pinned(&mut usage, with_input, Some(c.clone())).unwrap();
+        assert_eq!(usage.pinned.iter().map(|it| it.title.as_str()).collect::<Vec<_>>(), ["b", "a", "c"]);
+        let before = serde_json::to_string(&usage).unwrap();
+        assert!(reorder_pinned(&mut usage, named_feature("missing"), None).is_err());
+        assert!(reorder_pinned(&mut usage, a.clone(), Some(named_feature("missing"))).is_err());
+        reorder_pinned(&mut usage, a.clone(), Some(a)).unwrap();
+        assert_eq!(serde_json::to_string(&usage).unwrap(), before);
     }
 }

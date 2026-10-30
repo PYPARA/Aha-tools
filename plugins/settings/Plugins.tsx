@@ -19,7 +19,9 @@ function describeMatch(f: Feature) {
   const parts = [];
   if (m.text) parts.push(m.minLength && m.minLength > 1 ? `任意文字，至少 ${m.minLength} 个字` : "任意文字");
   if (m.regex) parts.push(`符合规则 ${m.regex}`);
-  if (m.files?.length) parts.push(`拖入 ${m.files.map((x) => `.${x}`).join(" ")} 文件`);
+  if (m.image) parts.push("粘贴图片");
+  if (m.files?.length) parts.push(m.files.includes("*") ? "粘贴或拖入文件" : `粘贴或拖入 ${m.files.map((x) => `.${x}`).join(" ")} 文件`);
+  if (m.maxFiles) parts.push(`每次最多 ${m.maxFiles} 个文件`);
   return parts.join("；");
 }
 
@@ -88,9 +90,7 @@ function Matches({ plugin, cfg, save }: SectionProps & { plugin: Manifest }) {
   return (
     <>
       <p className="note tab-note">
-        {plugin.features.some((f) => f.match?.files?.length)
-          ? "把图片或文件夹拖入搜索面板，符合条件时就会显示这个动作，选中后开始处理。"
-          : "不用记关键词：输入或粘贴的内容符合条件时，它会出现在搜索结果的最后，不会挡住应用和常用结果。"}
+        不用记关键词：输入或粘贴的内容符合条件时，它会出现在搜索结果的最后，不会挡住应用和常用结果。
       </p>
       {plugin.features
         .filter((f) => f.match)
@@ -101,7 +101,7 @@ function Matches({ plugin, cfg, save }: SectionProps & { plugin: Manifest }) {
               <span className="row-text">
                 <span className="row-title">{f.explain}</span>
                 <span className="row-desc">条件：{describeMatch(f)}</span>
-              <span className="row-desc">{f.match?.files?.length ? `拖入图片或文件夹后，选择「${f.explain}」开始` : `例如：输入一段符合条件的内容，结果最后出现「${f.explain}」`}</span>
+                <span className="row-desc">{f.match?.image || f.match?.files?.length ? `粘贴或拖入后，在「匹配结果」中显示「${f.explain}」` : `例如：输入一段符合条件的内容，结果最后出现「${f.explain}」`}</span>
               </span>
               <Switch label={`自动匹配「${f.explain}」`} checked={!cfg.disabledMatches.includes(key)} onChange={(on) => toggle(key, on)} />
             </div>

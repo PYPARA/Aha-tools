@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { ChevronIcon, formatAccelerator, invoke, Switch, useAppearance, type Config } from "@ahatools/sdk";
+import SystemMonitor from "./SystemMonitor";
+import { EMPTY_SYSTEM, type SystemSnapshot } from "./sysmon";
 
 interface Snapshot {
   up: number;
@@ -79,44 +80,60 @@ export default function MenuPopover() {
   useAppearance();
   const [net, setNet] = useState<Snapshot>(EMPTY);
   const [hotkey, setHotkey] = useState<HotkeyStatus | null>(null);
-  const [accelerator, setAccelerator] = useState("⌥ Space");
+  const [system, setSystem] = useState<SystemSnapshot>(EMPTY_SYSTEM);
   const [autostart, setAutostart] = useState(false);
   const [cfg, setCfg] = useState<Config | null>(null);
 
-  const refresh = () => {
-    invoke<Snapshot>("netspeed_snapshot").then(setNet);
-    invoke<HotkeyStatus>("hotkey_status").then(setHotkey);
-    invoke<Config>("config_get").then(setCfg);
-    isEnabled()
-      .then(setAutostart)
-      .catch(() => setAutostart(false));
-  };
-
   useEffect(() => {
-    refresh();
+    let alive = true;
+    let visible = true;
+    let request = 0;
+    const updateSystem = (next: SystemSnapshot) => {
+      if (alive && visible) setSystem((previous) => next.sequence >= previous.sequence ? next : previous);
+    };
+    const refresh = () => {
+      visible = true;
+      const currentRequest = ++request;
+      void invoke<Snapshot>("netspeed_snapshot").then((next) => { if (alive) setNet(next); }).catch(() => {});
+      void invoke<SystemSnapshot>("sysmon_snapshot").then((next) => {
+        if (currentRequest === request) updateSystem(next);
+      }).catch(() => {
+        if (alive && visible && currentRequest === request) setSystem((previous) => ({
+          ...previous,
+          cpu: { usage: { state: "unavailable" }, history: [], busiest: { state: "unavailable" } },
+          memory: { state: "unavailable" }, battery: { state: "unavailable" }, disk: { state: "unavailable" },
+        }));
+      });
+      void invoke<HotkeyStatus>("hotkey_status").then((next) => { if (alive) setHotkey(next); }).catch(() => {});
+      void invoke<Config>("config_get").then((next) => { if (alive) setCfg(next); }).catch(() => {});
+      void isEnabled().then((next) => { if (alive) setAutostart(next); }).catch(() => {});
+    };
     const subs = [
-      listen<Snapshot>("netspeed", (e) => setNet(e.payload)),
-      listen<HotkeyStatus>("hotkey-status", (e) => setHotkey(e.payload)),
+      listen<Snapshot>("netspeed", (e) => { if (alive && visible) setNet(e.payload); }),
+      listen<SystemSnapshot>("sysmon", (e) => { request++; updateSystem(e.payload); }),
+      listen<HotkeyStatus>("hotkey-status", (e) => { if (alive) setHotkey(e.payload); }),
       listen("menu-shown", refresh),
-      listen<Config>("config-changed", (e) => setCfg(e.payload)),
+      listen("menu-hidden", () => { visible = false; request++; }),
+      listen<Config>("config-changed", (e) => { if (alive) setCfg(e.payload); }),
     ];
+    // Subscribe before reading the cache so the first sample cannot fall in a gap.
+    void Promise.all(subs).then(() => { if (alive) refresh(); });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") getCurrentWindow().hide();
+      if (e.key === "Escape") void invoke("menu_hide");
       // A menu-bar-only app has no app menu, so ⌘Q needs handling here.
       if (e.metaKey && e.key.toLowerCase() === "q") invoke("quit_app");
       if (e.metaKey && e.key === ",") openSettings();
     };
     window.addEventListener("keydown", onKey);
     return () => {
+      alive = false;
       subs.forEach((s) => s.then((f) => f()));
       window.removeEventListener("keydown", onKey);
     };
   }, []);
 
-  useEffect(() => {
-    const b = cfg?.hotkeys.find((b) => b.enabled && b.action.type === "togglePanel");
-    setAccelerator(b ? formatAccelerator(b.accelerator) : "");
-  }, [cfg]);
+  const panelBinding = cfg?.hotkeys.find((b) => b.enabled && b.action.type === "togglePanel");
+  const accelerator = panelBinding ? formatAccelerator(panelBinding.accelerator) : "";
 
   const tools = cfg
     ? [
@@ -173,6 +190,10 @@ export default function MenuPopover() {
           </span>
         </span>
       </div>
+
+      <hr />
+
+      <SystemMonitor snapshot={system} />
 
       <hr />
 

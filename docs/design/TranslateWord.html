@@ -1,9 +1,4 @@
-<!doctype html>
-<meta charset="utf-8">
-<title>翻译 · 单词释义</title>
-<!-- 设计稿静态版，由 docs/design/gen_boards.py 生成；浅色、深色并排。 -->
-<style>
-body{margin:0}
+<!doctype html><meta charset="utf-8"><title>翻译 · 单词释义</title><style>body{margin:0}
 .t-light{--desk:#E6E3DA;--bg:#FAF9F6;--surface:#FFFFFF;--sunken:#F3F2EC;--hover:rgba(120,113,100,.08);--selected:rgba(120,113,100,.14);--border:rgba(40,36,30,.11);--border-strong:rgba(40,36,30,.22);--text:#1D1C1A;--text-2:#6B6860;--text-3:#A3A096;--ok:#4C7A3D;--warn:#9A5B13;--bad:#A8402F;--on-accent:#FFFFFF;--menubar:rgba(250,249,246,.82);--shadow:0 18px 50px rgba(30,25,15,.18),0 0 0 1px rgba(40,36,30,.11)}
 .t-dark{--desk:#141413;--bg:#262522;--surface:#302F2B;--sunken:#1F1E1C;--hover:rgba(255,250,240,.06);--selected:rgba(255,250,240,.10);--border:rgba(255,250,240,.10);--border-strong:rgba(255,250,240,.20);--text:#EEEDE8;--text-2:#A9A69C;--text-3:#76736B;--ok:#8FC27A;--warn:#E3A85A;--bad:#F08B78;--on-accent:#16202F;--menubar:rgba(38,37,34,.86);--shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(255,250,240,.10)}
 .t-light,.t-dark{--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;--serif:ui-serif,"New York","Songti SC",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--accent-soft:color-mix(in srgb,var(--accent) 12%,transparent);font-family:var(--sans);color:var(--text)}
@@ -55,11 +50,7 @@ input::placeholder,textarea::placeholder{color:var(--text-3)}
 table{border-collapse:collapse;width:100%}
 th{text-align:left;padding:0 10px 8px;font-size:12px;font-weight:500;color:var(--text-2)}
 td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
-</style>
-<div style="width:1920px;display:flex">
-<div class="t-light" style="width: 960px; height: 688px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#3A5A8C">
-<div style="font-size: 12px; color: var(--text-2)">浅色</div>
-<section class="win" style="width: 880px; height: 580px">
+</style><div style="display:flex;width:max-content"><div class="t-light" style="padding:40px;background:var(--desk);--accent:#3A5A8C"><p>浅色</p><section class="win" style="width: 880px; height: 580px">
 <header class="head">
 <button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
 <span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9M8.5 4v2c0 4-2 7-4.5 8.5M6 10c1.5 2 3.5 3.5 6 4.5"></path><path d="M13 20l4-9 4 9M14.5 17h5"></path></svg></span>
@@ -70,39 +61,7 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 <div class="row" style="gap: 14px; align-items: baseline">
 <span style="font-family: var(--serif); font-size: 32px; font-weight: 500">serendipity</span>
 <span class="mono note" style="font-size: 13px">/ˌserənˈdɪpəti/</span>
-<button type="button" class="ib" aria-label="朗读"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10v4h3l4 3V7L8 10zM16 9a4 4 0 0 1 0 6"></path></svg></button>
-<span class="sp"></span><span class="chip">名词</span>
-</div>
-<div class="card" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
-<span style="font-size: 16px; font-weight: 500">意外发现美好事物的运气；机缘巧合</span>
-<span class="note" style="font-size: 13px">指在没有刻意寻找时，偶然发现有价值或令人愉快的东西。</span>
-</div>
-<span class="lbl">例句</span>
-<div class="col" style="gap: 10px">
-<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14px">Finding that café was pure <b style="font-weight: 600">serendipity</b>.</span><span class="note">找到那家咖啡馆纯属机缘巧合。</span></div>
-<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14px">Many discoveries in science came about by <b style="font-weight: 600">serendipity</b>.</span><span class="note">科学上的许多发现都源于偶然。</span></div>
-</div>
-<span class="sp"></span>
-<span class="row"><span class="note">近义：chance · fortune · luck</span><span class="sp"></span><button type="button" class="btn sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>复制释义</button></span>
-</div>
-<footer class="foot"><span>esc 返回搜索</span><span>单词给出音标、释义和例句</span></footer>
-</section>
-</div>
 
-<div class="t-dark" style="width: 960px; height: 688px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#93B1E3">
-<div style="font-size: 12px; color: var(--text-2)">深色</div>
-<section class="win" style="width: 880px; height: 580px">
-<header class="head">
-<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
-<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9M8.5 4v2c0 4-2 7-4.5 8.5M6 10c1.5 2 3.5 3.5 6 4.5"></path><path d="M13 20l4-9 4 9M14.5 17h5"></path></svg></span>
-<span class="ttl"><b>翻译</b><span>翻译 · 只输入一个单词时</span></span>
-<span class="sel">英 → 中<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
-</header>
-<div class="body" style="flex-direction: column; gap: 14px">
-<div class="row" style="gap: 14px; align-items: baseline">
-<span style="font-family: var(--serif); font-size: 32px; font-weight: 500">serendipity</span>
-<span class="mono note" style="font-size: 13px">/ˌserənˈdɪpəti/</span>
-<button type="button" class="ib" aria-label="朗读"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10v4h3l4 3V7L8 10zM16 9a4 4 0 0 1 0 6"></path></svg></button>
 <span class="sp"></span><span class="chip">名词</span>
 </div>
 <div class="card" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
@@ -118,6 +77,31 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 <span class="row"><span class="note">近义：chance · fortune · luck</span><span class="sp"></span><button type="button" class="btn sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>复制释义</button></span>
 </div>
 <footer class="foot"><span>esc 返回搜索</span><span>单词给出音标、释义和例句</span></footer>
-</section>
+</section></div><div class="t-dark" style="padding:40px;background:var(--desk);--accent:#93B1E3"><p>深色</p><section class="win" style="width: 880px; height: 580px">
+<header class="head">
+<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9M8.5 4v2c0 4-2 7-4.5 8.5M6 10c1.5 2 3.5 3.5 6 4.5"></path><path d="M13 20l4-9 4 9M14.5 17h5"></path></svg></span>
+<span class="ttl"><b>翻译</b><span>翻译 · 只输入一个单词时</span></span>
+<span class="sel">英 → 中<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+</header>
+<div class="body" style="flex-direction: column; gap: 14px">
+<div class="row" style="gap: 14px; align-items: baseline">
+<span style="font-family: var(--serif); font-size: 32px; font-weight: 500">serendipity</span>
+<span class="mono note" style="font-size: 13px">/ˌserənˈdɪpəti/</span>
+
+<span class="sp"></span><span class="chip">名词</span>
 </div>
+<div class="card" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 16px; font-weight: 500">意外发现美好事物的运气；机缘巧合</span>
+<span class="note" style="font-size: 13px">指在没有刻意寻找时，偶然发现有价值或令人愉快的东西。</span>
 </div>
+<span class="lbl">例句</span>
+<div class="col" style="gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14px">Finding that café was pure <b style="font-weight: 600">serendipity</b>.</span><span class="note">找到那家咖啡馆纯属机缘巧合。</span></div>
+<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14px">Many discoveries in science came about by <b style="font-weight: 600">serendipity</b>.</span><span class="note">科学上的许多发现都源于偶然。</span></div>
+</div>
+<span class="sp"></span>
+<span class="row"><span class="note">近义：chance · fortune · luck</span><span class="sp"></span><button type="button" class="btn sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>复制释义</button></span>
+</div>
+<footer class="foot"><span>esc 返回搜索</span><span>单词给出音标、释义和例句</span></footer>
+</section></div></div>

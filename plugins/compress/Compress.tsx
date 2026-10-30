@@ -15,7 +15,7 @@ function ItemResult({ item }: { item: CompressionItem }) {
   return <span className={item.status === "failed" ? "bad-text" : ""}>{item.message}</span>;
 }
 
-export default function Compress({ input, setStatus }: PluginViewProps) {
+export default function Compress({ input, content, setStatus }: PluginViewProps) {
   const [state, dispatch] = useReducer(batchReducer, emptyState);
   const [selectedId, setSelectedId] = useState<string>();
   const [quality, setQuality] = useState(80);
@@ -67,8 +67,9 @@ export default function Compress({ input, setStatus }: PluginViewProps) {
         const batches = await invoke<CompressionBatch[]>("compress_list_batches");
         if (disposed) return;
         dispatch({ type: "snapshots", batches });
-        if (input && !inputStarted.current) {
-          const paths = parsePaths(input); inputStarted.current = true;
+        if ((input || content?.type === "files") && !inputStarted.current) {
+          const paths = input ? parsePaths(input) : content?.type === "files" ? content.paths : [];
+          inputStarted.current = true;
           void addPaths(paths, inputBatchId.current);
         }
       } catch (e) { if (!disposed) setNotice({ text: String(e), error: true }); }
@@ -80,7 +81,7 @@ export default function Compress({ input, setStatus }: PluginViewProps) {
       disposed = true; mounted.current = false; stop?.(); clearInterval(timer);
       void dropped.then((off) => off()).catch(() => {});
     };
-  }, [input, addPaths]);
+  }, [input, content, addPaths]);
 
   useEffect(() => {
     setStatus(totals && batch ? `完成 ${totals.finished}/${batch.items.length} · 失败 ${totals.failed} · 跳过 ${totals.skipped}` : "支持 PNG、JPEG、WebP · 全部在本机处理");
