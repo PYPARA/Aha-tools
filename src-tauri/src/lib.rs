@@ -7,6 +7,7 @@ mod plugins;
 mod popover;
 mod relay;
 mod screenshot;
+mod sysmon;
 mod usage;
 mod webapps;
 
@@ -40,7 +41,10 @@ pub fn run() {
             let launcher = Launcher::new(app.handle().clone());
             let mut registry = Registry::new();
             registry.add_provider(launcher::ID, launcher.clone());
-            registry.add_provider(plugins::webapps::ID, std::sync::Arc::new(plugins::webapps::WebApps));
+            registry.add_provider(
+                plugins::webapps::ID,
+                std::sync::Arc::new(plugins::webapps::WebApps),
+            );
             app.manage(registry);
             app.manage(launcher.clone());
             thread::spawn(move || launcher.refresh());
@@ -84,6 +88,8 @@ pub fn run() {
             relay::relay_press_later,
             screenshot::screenshot_take,
             netspeed::netspeed_snapshot,
+            sysmon::sysmon_snapshot,
+            popover::menu_hide,
             popover::menu_open_panel,
             popover::menu_open_feature,
             popover::quit_app,
@@ -116,7 +122,9 @@ fn setup_menu(app: &App) -> tauri::Result<()> {
         .item(&reload)
         .build()?;
     let app_menu = SubmenuBuilder::new(app, "AhaTools").build()?;
-    let menu = MenuBuilder::new(app).items(&[&app_menu, &edit, &window]).build()?;
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit, &window])
+        .build()?;
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
         if event.id() == "reload" {
@@ -151,6 +159,7 @@ fn setup_tray(app: &App, cfg: &config::Config) -> tauri::Result<()> {
         .build(app)?;
 
     // Sample even without the menu-bar display: the popover needs the numbers.
-    netspeed::start(app.handle().clone(), tray, cfg.netspeed);
+    sysmon::start(app.handle().clone(), &cfg.menubar);
+    netspeed::start(app.handle().clone(), tray, &cfg.menubar);
     Ok(())
 }

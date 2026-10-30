@@ -3,7 +3,8 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { Manifest, RgbaImage, SearchItem } from "./sdk";
+import type { Config, Manifest, RgbaImage, SearchItem } from "./sdk";
+import { EMPTY_SYSTEM, type BatteryInfo, type Reading, type SystemSnapshot } from "./sysmon";
 import { generatePixels } from "../plugins/qrcode/qr";
 import { imagePng } from "../plugins/qrcode/image";
 import launcher from "../plugins/launcher/plugin.json";
@@ -91,13 +92,13 @@ function homeItem(item: SearchItem): SearchItem {
 
 const sameItem = (a: SearchItem, b: SearchItem) => a.plugin === b.plugin && JSON.stringify(a.action) === JSON.stringify(b.action);
 
-let config = {
+let config: Config = {
   hotkeys: [
     { accelerator: "Alt+Space", action: { type: "togglePanel" }, enabled: true },
     { accelerator: "Shift+Super+KeyA", action: { type: "screenshot" }, enabled: true },
     { accelerator: "Control+Space", action: { type: "forward", app: "utools" }, enabled: false },
   ],
-  netspeed: true,
+  menubar: ["netspeed"],
   exclusiveHotkeys: true,
   pinyin: true,
   appearance: "system",
@@ -112,7 +113,53 @@ let config = {
   ],
 };
 
-mockWindows("panel");
+type SystemScenario = "normal" | "pressure" | "low-battery" | "no-battery" | "partial-error" | "sampling" | "charged" | "not-charging" | "no-estimate";
+let systemScenario = (params.get("sysmonMock") ?? "normal") as SystemScenario;
+let systemSequence = 0;
+let menuVisible = true;
+let mockAutostart = false;
+const systemActions: string[] = [];
+
+function systemSnapshot(): SystemSnapshot {
+  const sequence = ++systemSequence;
+  if (systemScenario === "sampling") return { ...EMPTY_SYSTEM, sequence };
+  const sampledAt = Date.now();
+  const available = <T,>(data: T): Reading<T> => ({ state: "available", data, sampledAt });
+  const battery: BatteryInfo = systemScenario === "no-battery" ? { status: "absent" } : {
+    status: "present", percent: systemScenario === "low-battery" ? 12 : systemScenario === "charged" ? 100 : 86,
+    state: systemScenario === "low-battery" ? "discharging" : systemScenario === "charged" ? "charged" : systemScenario === "not-charging" ? "notCharging" : "charging",
+    remainingMinutes: systemScenario === "low-battery" ? 35 : ["no-estimate", "not-charging", "charged"].includes(systemScenario) ? null : 25,
+  };
+  return {
+    sequence,
+    cpu: {
+      usage: available(23),
+      history: Array.from({ length: 60 }, (_, i) => ({ timestamp: sampledAt - (59 - i) * 1000, percent: 23 + Math.sin(i / 4) * 14 })),
+      busiest: systemScenario === "partial-error" ? { state: "unavailable" } : available({ name: "Visual Studio Code Helper (Renderer)", percent: 112 }),
+    },
+    memory: available({ usedBytes: (systemScenario === "pressure" ? 15.2 : 11.2) * 1024 ** 3, totalBytes: 16 * 1024 ** 3, pressure: systemScenario === "pressure" ? "critical" : systemScenario === "partial-error" ? "unknown" : "normal" }),
+    battery: systemScenario === "partial-error" ? { state: "unavailable" } : available(battery),
+    disk: systemScenario === "partial-error" ? { state: "unavailable" } : available({ availableBytes: 212 * 1024 ** 3, totalBytes: 494 * 1024 ** 3 }),
+  };
+}
+
+Object.assign(window, {
+  __AHATOOLS_SYSMON_MOCK__: {
+    async scenario(value: SystemScenario) { systemScenario = value; if (menuVisible) await emit("sysmon", systemSnapshot()); },
+    async show() { menuVisible = true; await emit("menu-shown"); },
+    async hide() { menuVisible = false; await emit("menu-hidden"); },
+    get visible() { return menuVisible; },
+    get actions() { return systemActions; },
+    get config() { return structuredClone(config); },
+    get listeners() { return [...listeners.values()]; },
+  },
+});
+if (params.get("view") === "menu") {
+  const timer = window.setInterval(() => { if (menuVisible) void emit("sysmon", systemSnapshot()); }, 1000);
+  window.addEventListener("pagehide", () => clearInterval(timer), { once: true });
+}
+
+mockWindows(params.get("view") === "menu" ? "menu" : "panel");
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (cmd) {
@@ -178,8 +225,25 @@ mockIPC((cmd, args) => {
       const [down, up] = history[59];
       return { up, down, history, rxTotal: 12.4 * 1024 ** 3, txTotal: 1.8 * 1024 ** 3, iface: "en0", ifaceLabel: "Wi-Fi" };
     }
+    case "sysmon_snapshot":
+      return systemSnapshot();
+    case "menu_hide":
+      menuVisible = false;
+      queueMicrotask(() => void emit("menu-hidden"));
+      return null;
+    case "menu_open_panel":
+    case "menu_open_feature":
+    case "quit_app":
+      systemActions.push(cmd);
+      menuVisible = false;
+      queueMicrotask(() => void emit("menu-hidden"));
+      return null;
     case "plugin:autostart|is_enabled":
-      return false;
+      return mockAutostart;
+    case "plugin:autostart|enable":
+    case "plugin:autostart|disable":
+      mockAutostart = cmd.endsWith("|enable");
+      return null;
     case "config_get":
       return config;
     case "config_set":

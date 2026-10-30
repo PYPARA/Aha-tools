@@ -25,7 +25,7 @@ export interface RelayApp {
 
 export interface Config {
   hotkeys: Binding[];
-  netspeed: boolean;
+  menubar: MenubarItem[];
   exclusiveHotkeys: boolean;
   screenshot: { target: string; systemMode: "region" | "toolbar" };
   relayApps: RelayApp[];
@@ -36,6 +36,8 @@ export interface Config {
   webApps: WebApp[];
   [key: string]: unknown;
 }
+
+export type MenubarItem = "netspeed" | "cpu" | "memory";
 
 /** A site opened in its own long-lived window. */
 export interface WebApp {

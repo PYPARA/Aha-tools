@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { HotkeyRecorder, invoke, Switch, withPinned, type Config } from "@ahatools/sdk";
+import { HotkeyRecorder, invoke, Switch, withPinned, type Config, type MenubarItem } from "@ahatools/sdk";
 import Row from "./Row";
 import type { SectionProps } from "./Settings";
 
@@ -9,6 +9,10 @@ interface HotkeyStatus {
   enabled: boolean;
   exclusive: boolean;
 }
+
+const MENUBAR_ITEMS: { id: MenubarItem; name: string }[] = [
+  { id: "netspeed", name: "网速" }, { id: "cpu", name: "CPU" }, { id: "memory", name: "内存" },
+];
 
 export default function General({ cfg, save }: SectionProps) {
   const [mode, setMode] = useState<HotkeyStatus | null>(null);
@@ -67,9 +71,14 @@ export default function General({ cfg, save }: SectionProps) {
       <Row title="拼音搜索" desc="用全拼或首字母搜中文名，例如 wx 找到微信">
         <Switch label="拼音搜索" checked={cfg.pinyin} onChange={(on) => set({ pinyin: on })} />
       </Row>
-      <Row title="菜单栏网速" desc="在菜单栏显示实时上传和下载速度；关闭后只显示图标">
-        <Switch label="菜单栏网速" checked={cfg.netspeed} onChange={(on) => set({ netspeed: on })} />
-      </Row>
+      <section className="menubar-settings" aria-label="菜单栏显示">
+        <h2>菜单栏显示</h2>
+        <p className="note">可多选，新开启的项目排在末尾。都关闭时显示 AhaTools 标志。</p>
+        {MENUBAR_ITEMS.map(({ id, name }) => <Row key={id} title={name} desc={id === "netspeed" ? "实时上传和下载速度" : "实时使用率"}>
+          <Switch label={`菜单栏${name}`} checked={cfg.menubar.includes(id)} onChange={(on) => set({ menubar: on ? [...cfg.menubar.filter((item) => item !== id), id] : cfg.menubar.filter((item) => item !== id) })} />
+        </Row>)}
+        <p className="note menubar-order">{cfg.menubar.length ? `显示顺序：${cfg.menubar.map((id) => MENUBAR_ITEMS.find((item) => item.id === id)?.name).join(" → ")}` : "只显示 AhaTools 标志"}</p>
+      </section>
       <Row title="开机自动启动" desc="登录后在菜单栏运行">
         <Switch label="开机自动启动" checked={autostart} onChange={setAutostartOn} />
       </Row>

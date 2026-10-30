@@ -1349,15 +1349,98 @@ p {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   padding: 14px 12px 8px;
   border-radius: 12px;
   background: var(--bg);
   border: 1px solid var(--border);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
   font-variant-numeric: tabular-nums;
   user-select: none;
   cursor: default;
+}
+.popover > * {
+  flex-shrink: 0;
+}
+.system-monitor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px;
+}
+.monitor-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.monitor-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+.monitor-label {
+  width: 40px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.monitor-number {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.monitor-note {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.monitor-end {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.monitor-process {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cpu-graph {
+  width: 100%;
+  height: 28px;
+}
+.monitor-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--sunken);
+}
+.monitor-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.monitor-bar.tone-ok > span { background: var(--ok); }
+.monitor-bar.tone-warn > span { background: var(--warn); }
+.monitor-bar.tone-bad > span { background: var(--bad); }
+.monitor-note.tone-warn { color: var(--warn); }
+.monitor-note.tone-bad { color: var(--bad); }
+.menubar-settings {
+  margin: 16px 0;
+}
+.menubar-settings h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.menubar-order {
+  padding-top: 8px;
 }
 .pop-head {
   display: flex;

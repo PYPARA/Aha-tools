@@ -10,7 +10,7 @@ use crate::hotkey::Action;
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
     pub hotkeys: Vec<Binding>,
-    pub netspeed: bool,
+    pub menubar: Vec<MenubarItem>,
     /// Swallow AhaTools' hotkeys so other apps bound to the same keys don't fire.
     pub exclusive_hotkeys: bool,
     pub screenshot: Screenshot,
@@ -24,6 +24,51 @@ pub struct Config {
     pub disabled_matches: Vec<String>,
     /// Sites opened in their own long-lived windows (webapps.rs).
     pub web_apps: Vec<WebApp>,
+    /// Preserve unrelated/future fields when migrating and saving the config.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MenubarItem {
+    Netspeed,
+    Cpu,
+    Memory,
+}
+
+fn normalize(config: &mut Config) {
+    let mut seen = vec![];
+    config.menubar.retain(|item| {
+        if seen.contains(item) {
+            false
+        } else {
+            seen.push(*item);
+            true
+        }
+    });
+    config.extra.remove("netspeed");
+}
+
+/// Migrate before applying serde defaults: an explicit empty list must win over netspeed.
+fn decode_config(bytes: &[u8]) -> Result<Config, serde_json::Error> {
+    let mut value: serde_json::Value = serde_json::from_slice(bytes)?;
+    if let Some(object) = value.as_object_mut() {
+        if !object.contains_key("menubar") {
+            let on = object
+                .get("netspeed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            object.insert(
+                "menubar".into(),
+                serde_json::json!(if on { vec!["netspeed"] } else { vec![] }),
+            );
+        }
+        object.remove("netspeed");
+    }
+    let mut config: Config = serde_json::from_value(value)?;
+    normalize(&mut config);
+    Ok(config)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -101,10 +146,17 @@ fn migrate_secret_keys(cfg: &mut Config) -> bool {
     let defaults = default_relay_apps();
     let mut changed = false;
     for app in cfg.relay_apps.iter_mut().filter(|a| !a.ready) {
-        let Some(key) = app.accelerator.strip_prefix(OLD_SECRET_MODS).and_then(|k| k.strip_prefix('+')) else {
+        let Some(key) = app
+            .accelerator
+            .strip_prefix(OLD_SECRET_MODS)
+            .and_then(|k| k.strip_prefix('+'))
+        else {
             continue;
         };
-        if defaults.iter().any(|d| d.id == app.id && d.accelerator.ends_with(&format!("+{key}"))) {
+        if defaults
+            .iter()
+            .any(|d| d.id == app.id && d.accelerator.ends_with(&format!("+{key}")))
+        {
             app.accelerator = format!("{SECRET_MODS}+{key}");
             changed = true;
         }
@@ -162,7 +214,7 @@ impl Default for Config {
                     enabled: false,
                 },
             ],
-            netspeed: true,
+            menubar: vec![MenubarItem::Netspeed],
             exclusive_hotkeys: true,
             screenshot: Screenshot::default(),
             relay_apps: default_relay_apps(),
@@ -170,6 +222,7 @@ impl Default for Config {
             appearance: "system".into(),
             disabled_matches: vec![],
             web_apps: default_web_apps(),
+            extra: Default::default(),
         }
     }
 }
@@ -211,8 +264,17 @@ pub fn load(app: &AppHandle) -> Config {
         // Write defaults once so the file is there to edit by hand.
         let _ = save_json(app, "config", &Config::default());
     }
-    let mut cfg: Config = load_json(app, "config");
-    if migrate_secret_keys(&mut cfg) {
+    let bytes = fs::read(&path).unwrap_or_default();
+    // Preserve an invalid file for recovery rather than overwriting it during migration.
+    let Ok(mut cfg) = decode_config(&bytes) else {
+        return Config::default();
+    };
+    let migrated = serde_json::from_slice::<serde_json::Value>(&bytes)
+        .ok()
+        .is_some_and(|v| {
+            v.get("netspeed").is_some() || v.get("menubar") != Some(&serde_json::json!(cfg.menubar))
+        });
+    if migrate_secret_keys(&mut cfg) || migrated {
         let _ = save_json(app, "config", &cfg);
     }
     cfg
@@ -226,13 +288,20 @@ pub fn config_get(app: AppHandle) -> Config {
 /// Saves the whole config and applies it immediately (no restart). Returns the
 /// hotkeys that failed to register, if any.
 #[tauri::command]
-pub fn config_set(app: AppHandle, config: Config) -> Result<Vec<String>, String> {
+pub fn config_set(app: AppHandle, mut config: Config) -> Result<Vec<String>, String> {
+    normalize(&mut config);
     save_json(&app, "config", &config)?;
     crate::plugins::configure(&config);
-    crate::netspeed::set_visible(config.netspeed);
+    crate::netspeed::configure(&config.menubar);
+    crate::sysmon::configure(&config.menubar);
     crate::webapps::reconfigure(&app, &config.web_apps);
     let errors = crate::hotkey::reconfigure(&app, &config);
-    let keys: Vec<_> = config.hotkeys.iter().filter(|b| b.enabled).map(|b| b.accelerator.as_str()).collect();
+    let keys: Vec<_> = config
+        .hotkeys
+        .iter()
+        .filter(|b| b.enabled)
+        .map(|b| b.accelerator.as_str())
+        .collect();
     eprintln!("[config] saved; hotkeys {keys:?}; errors {errors:?}");
     let _ = app.emit("config-changed", &config);
     Ok(errors)
@@ -251,13 +320,44 @@ mod tests {
     #[test]
     fn old_config_gets_new_defaults() {
         let old = r#"{"hotkeys":[{"accelerator":"Alt+Space","action":{"type":"togglePanel"},"enabled":true}],"netspeed":true,"exclusiveHotkeys":true}"#;
-        let cfg: Config = serde_json::from_str(old).unwrap();
+        let cfg = decode_config(old.as_bytes()).unwrap();
         assert_eq!(cfg.hotkeys.len(), 1);
         assert_eq!(cfg.screenshot.target, "system");
         assert_eq!(cfg.relay_apps, default_relay_apps());
         assert!(cfg.pinyin);
         assert_eq!(cfg.web_apps, default_web_apps());
         assert_eq!(cfg.appearance, "system");
+    }
+
+    #[test]
+    fn menubar_migration_preserves_false_empty_order_and_unrelated_fields() {
+        for (json, expected) in [
+            (r#"{}"#, vec![MenubarItem::Netspeed]),
+            (r#"{"netspeed":true}"#, vec![MenubarItem::Netspeed]),
+            (r#"{"netspeed":false}"#, vec![]),
+            (r#"{"netspeed":true,"menubar":[]}"#, vec![]),
+            (
+                r#"{"netspeed":false,"menubar":["memory","cpu","memory","netspeed"]}"#,
+                vec![MenubarItem::Memory, MenubarItem::Cpu, MenubarItem::Netspeed],
+            ),
+        ] {
+            let config = decode_config(json.as_bytes()).unwrap();
+            assert_eq!(config.menubar, expected);
+            let saved = serde_json::to_value(&config).unwrap();
+            assert!(saved.get("netspeed").is_none());
+            assert_eq!(
+                decode_config(&serde_json::to_vec(&saved).unwrap())
+                    .unwrap()
+                    .menubar,
+                expected
+            );
+        }
+        let config =
+            decode_config(br#"{"netspeed":false,"appearance":"dark","future":{"setting":3}}"#)
+                .unwrap();
+        let value = serde_json::to_value(config).unwrap();
+        assert_eq!(value["appearance"], "dark");
+        assert_eq!(value["future"]["setting"], 3);
     }
 
     #[test]
@@ -269,7 +369,10 @@ mod tests {
         cfg.relay_apps[1].ready = true;
         assert!(migrate_secret_keys(&mut cfg));
         assert_eq!(cfg.relay_apps[0].accelerator, "Control+Super+Digit1");
-        assert_eq!(cfg.relay_apps[1].accelerator, "Control+Alt+Shift+Super+Digit2");
+        assert_eq!(
+            cfg.relay_apps[1].accelerator,
+            "Control+Alt+Shift+Super+Digit2"
+        );
         assert!(!migrate_secret_keys(&mut cfg));
     }
 
