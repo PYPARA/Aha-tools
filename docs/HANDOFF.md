@@ -1,6 +1,6 @@
 # AhaTools 任务清单与接手说明
 
-更新于 2026-10-29。骨架功能、热键路由、第二版界面、网页应用和二维码插件已实现，代码在 `main`（二维码功能提交 `a96e380`，待真机验收）。GitHub 远程 `origin` 已配置，远端还没有 `main` 分支。目前只以 `bun run tauri dev` 调试版运行。先把「计划中的功能」做到基本满意，最后再发布正式版（见文末）。后续功能的设计和实现规格见 [specs.md](specs.md)。
+更新于 2026-10-30。骨架功能、热键路由、第二版界面、网页应用、二维码和 hosts 插件已实现。二维码功能提交 `a96e380`；hosts 功能见 `codex/hosts`，两项均待真机验收。GitHub 远程 `origin` 已配置，远端 `main` 已存在。目前只以 `bun run tauri dev` 调试版运行。先把「计划中的功能」做到基本满意，最后再发布正式版（见文末）。后续功能的设计和实现规格见 [specs.md](specs.md)。
 
 ## 当前状态
 
@@ -22,11 +22,12 @@
 | 插件详情页（关键词 / 自动匹配 / 设置），截图设置在截图插件的「设置」页签 | 完成 | 浏览器预览核对 |
 | 网页应用（内置 DeepSeek，可自己加网站；独立常驻窗口，关掉只是收起；登录和窗口位置保留；新窗口链接用默认浏览器打开；自动使用网站图标） | 完成 | 单元测试搜索；浏览器预览设置页签；真机待确认 |
 | 二维码（实时生成、四档容错、复制图片、保存 1024px PNG；剪贴板 / 拖图单码识别、位置标记、复制文字和打开网址） | 实现完成，待真机验收 | Rust 与 Bun 测试通过；浏览器核对深浅色、880×580 和 600×400、生成→复制→识别及错误恢复；真机项见下文 |
+| hosts 切换（多方案编辑、合并应用、管理员授权、DNS 刷新与移除标记段恢复） | 实现完成，待真机验收 | 19 项 Rust 测试；浏览器核对深浅色、两种尺寸、校验、离页保护和错误恢复；未修改真实系统 hosts，真机项见下文 |
 | 外观（跟随系统 / 浅色 / 深色）、菜单栏网速开关（关闭后显示 AhaTools 标志） | 完成 | 浏览器预览核对；网速开关待真机确认 |
 | 截图热键路由（系统截图 / 微信 / QQ / 钉钉） | 完成 | 浏览器预览核对；代按第三方应用待真机确认 |
 | ⌥Space 等热键转发给 uTools | 完成 | 待真机确认 |
 
-Rust 单元测试 36 个通过，2 个手动预览 / 站点测试按原设置跳过；二维码 Bun 测试 25 个通过，`bun run build` 通过。界面设计稿：[AhaTools 界面设计](https://claude.ai/artifact/MvKZXwUow89G1yPLrWDhgE)（仅本人可见，以「第二版」页面为准）；设计规范见 [design-system.md](design-system.md)，最初的设计需求见 [design-brief.md](design-brief.md)。
+Rust 单元测试 55 个通过（含 hosts 19 个），2 个手动预览 / 站点测试按原设置跳过；二维码 Bun 测试 25 个通过，`bun run build` 通过。界面设计稿：[AhaTools 界面设计](https://claude.ai/artifact/MvKZXwUow89G1yPLrWDhgE)（仅本人可见，以「第二版」页面为准）；设计规范见 [design-system.md](design-system.md)，最初的设计需求见 [design-brief.md](design-brief.md)。
 
 **第二版界面已实现**：搜索面板 760×500，空状态显示最近使用和已固定；进入设置或插件页时窗口放大到 880×580（`set_panel_large`，保持顶边和水平中心不动）；设置侧栏只有通用、全局热键、已安装插件、所有指令、关于；截图是独立插件，它的设置在插件详情的「设置」页签。以后的翻译等插件同样把设置放在自己的「设置」页签（`src/views.ts` 的 `pluginSettings`）。
 
@@ -47,6 +48,26 @@ Rust 单元测试 36 个通过，2 个手动预览 / 站点测试按原设置跳
 - [ ] 从访达拖入 PNG / JPEG / WebP 可识别，识别框位置正确。
 - [ ] 保存 PNG 的原生对话框打开、取消、保存和覆盖已有文件后，面板保持显示并恢复焦点。
 - [ ] 二维码功能绑定热键可用；Esc 返回搜索后 ⌥Space、⌘C 等原有交互正常。
+
+### hosts 插件（2026-10-30）
+
+- 搜索 `hosts` / `host` 打开；多方案可同时启用，按列表顺序合并。新增、复制、重命名、删除及开关改动先保留在内存，点击「应用」或按 ⌘S 成功后保存。复制默认关闭；开关表示下次应用是否包含该方案。
+- 原生 textarea 配行号、错误背景和可点击定位的错误列表。支持 IPv4 / IPv6、别名和行尾注释；启用方案的格式错误，以及同域名同地址族内的不同 IP 冲突会阻止应用，含系统保留区冲突。关闭方案的格式错误可保存；同 IP 重复和双栈允许。
+- 本地 `hosts.json` 保持方案数组结构；损坏或不可读直接报错，不退回空列表。首次应用前创建 `hosts.original`，不再覆盖。查看「系统原始」和「当前生效内容」只读；恢复只移除 AhaTools 标记段、关闭已保存方案并丢弃草稿，不用备份覆盖外部新增内容。
+- Rust `plugins/hosts.rs` 提供 `hosts_load / hosts_validate / hosts_apply / hosts_restore`，纯函数及可替换系统适配层在临时目录测试。SHA-256 版本检查与互斥锁防止过期请求和重复操作；管理员授权后、写入前再次比较快照，同目录暂存文件保留系统文件属性后原子替换。DNS 刷新失败与本地保存失败单独报告；不读取或保存管理员密码。
+- SDK 新增可选 `registerBeforeLeave(handler)`，宿主统一保护返回按钮、Esc、⌘, 和插件切换；未保存时可应用并离开 / 放弃 / 继续编辑。只读弹层优先消费 Esc；收起后再显示保留草稿并刷新系统状态；授权期间用 `withPinned` 保持面板，禁用编辑、离页和重复操作。
+- 浏览器开发预览默认三种方案；`?hostsMock=empty|invalid|conflict|system-conflict|error|markers|cancel|external|write-error|dns-error|save-error|slow` 可切换场景，`window.__AHATOOLS_HOSTS_MOCK__` 可注入外部改动和延迟校验。均不进入正式包。本次因 1420 已被其他进程占用，在 1421 启动该工作区预览，未停止已有服务。
+- Playwright 共 87 项检查通过，核对浅色 / 深色和 880×580 / 600×400，覆盖方案管理、错误定位、⌘S、离页保护、恢复、过期校验、授权取消、部分成功、外部变化及重试；最终页面无控制台错误或警告。测试没有修改真实 `/etc/hosts`；真实授权与 DNS 按下列清单验收。
+
+真机待作者确认：
+
+- [ ] 在 AhaTools 搜索 `hosts` 新建方案，应用时出现管理员授权；取消后系统 hosts 与已保存方案不变，草稿仍在。
+- [ ] 授权期间面板保持显示，完成或取消后恢复焦点；返回、⌘, 和再次触发热键不会打断正在应用的操作。
+- [ ] 应用后 `/etc/hosts` 的 AhaTools 标记段正确，段外原文、所有者和权限保留；`hosts.original` 仅首次创建。
+- [ ] 用 `dscacheutil -q host -a name <测试域名>` 验证系统解析与方案一致；必要时同时检查 IPv4 / IPv6。
+- [ ] 其他工具修改系统 hosts 后，应用不会覆盖未检查的外部内容；再次打开可查看最新状态。
+- [ ] 恢复后 AhaTools 标记段消失、所有方案关闭，系统其他条目保留；再次应用仍正常。
+- [ ] 退出并重新打开 AhaTools，方案与实际应用状态一致，未应用的内存草稿不持久化。
 
 ## 已知问题与技术债
 
@@ -76,13 +97,13 @@ Rust 单元测试 36 个通过，2 个手动预览 / 站点测试按原设置跳
 | 2 | 翻译 | 大模型流式翻译，单词给释义；key 存钥匙串；设置在插件页签 | TranslateText、TranslateWord、TranslateSettings | 未开始 |
 | 3 | 图片压缩 | 先压到临时目录，再选覆盖原图 / 另存 / 复制所有；带批次历史 | Compress | 未开始 |
 | 4 | 超级面板 | 鼠标旁弹出，按上下文（访达选中、选中文字）列动作；我的面板九宫格；自定义命令动作；配套取色、显示桌面、锁屏、截图识字 | SuperPanelHome、SuperPanelFinder、SuperPanelText、SuperPanelSettings | 未开始 |
-| 5 | hosts 切换 | 多方案合并写入标记段，管理员授权，刷新 DNS | Hosts | 未开始 |
+| 5 | hosts 切换 | 多方案合并写入标记段，管理员授权，刷新 DNS | Hosts、HostsStates | 实现完成，待真机验收 |
 | 6 | 系统监控 | 弹出面板加 CPU / 内存 / 电池 / 磁盘；菜单栏可选显示 | SystemMonitor | 未开始 |
 | 7 | 外部插件 | 从插件目录加载 HTML 插件，受限接口，内置 / 外部分组管理 | ExternalPlugins | 未开始 |
 | 8 | 应用图标 | 已选「衬线 A」，出 1024px 正式稿并导出各尺寸 | AppIcon | 已选方向，未出正式稿 |
 | 9 | 小项 | 搜索面板跟随鼠标所在屏幕；「再次打开时」设置 | — | 未开始 |
 
-已完成：截图热键路由、⌥Space 整合（转发给 uTools）、热键设置、拼音搜索、真实应用图标、网页应用、二维码插件（待真机验收）。下一项是翻译。
+已完成：截图热键路由、⌥Space 整合（转发给 uTools）、热键设置、拼音搜索、真实应用图标、网页应用、二维码及 hosts 插件（后两项待真机验收）。其余功能按上表顺序继续，下一项是翻译。
 
 ## 接手指南
 
@@ -113,12 +134,13 @@ src-tauri/src/
   hotkey/         热键路由（mod.rs）、独占拦截和代按（tap.rs）、占用检测（probe.rs）
   relay.rs        转发目标应用：代按暗号键、是否安装 / 运行、系统通知
   screenshot.rs   截图路由：系统截图或转发给选中的应用
-  plugins/        插件注册、搜索汇总和拼音匹配（mod.rs）、快捷启动和应用图标（launcher.rs）、网页应用搜索（webapps.rs）、二维码图片读写（qrcode.rs）
+  plugins/        插件注册、搜索汇总和拼音匹配（mod.rs）、快捷启动和应用图标（launcher.rs）、网页应用搜索（webapps.rs）、二维码图片读写（qrcode.rs）、hosts 校验及授权写入（hosts.rs，测试在 hosts/tests.rs）
   config.rs       配置读写（config_get / config_set 命令，保存后立即生效）
 src/
   App.tsx         搜索面板界面，以及插件页的外框（标题栏、底栏）
   MenuPopover.tsx 菜单栏弹出面板界面
   sdk.ts, ui.tsx  插件可用的接口、图标和组件，统一从 "@ahatools/sdk" 引入
+  hosts.ts        hosts 插件 IPC 类型；hosts-mock.ts 是仅浏览器开发预览加载的假数据
   config.ts       config.json 的类型（与 config.rs 对应）
   views.ts        内置插件的页面、直接执行的功能、图标、「设置」页签的注册表
   styles.css      设计变量和通用组件样式，变量名与 design-system.md 一致
@@ -138,7 +160,7 @@ docs/             本文档、实现规格 specs.md、设计规范、design/ 设
 ### 关键约束和坑
 
 - 所有命名统一用 AhaTools，不用 aha，避免和本机另一个 Aha 应用（bundle id `app.aha.desktop.next`，数据在 `~/Library/Application Support/aha*` 和 `~/.aha-next`）混淆。bundle id 是 `com.ahatools.app`，程序名 `ahatools`，插件接口别名 `@ahatools/sdk`。
-- 数据只存在 `~/Library/Application Support/com.ahatools.app/`（`config.json`、`launcher.json`、`usage.json`、`window.json`、`webapps.json`，以后的外部插件放 `plugins/`）；应用图标缓存在 `~/Library/Caches/com.ahatools.app/icons`；网页缓存在 `~/Library/Caches/com.ahatools.app` 和 `~/Library/WebKit/com.ahatools.app`，由系统自动生成。不要在用户主目录下建隐藏文件夹。改 bundle id 会换数据目录，`config.rs` 里有从旧目录 `com.aha.tools` 一次性迁移的逻辑。
+- 数据只存在 `~/Library/Application Support/com.ahatools.app/`（`config.json`、`launcher.json`、`usage.json`、`window.json`、`webapps.json`、`hosts.json`、`hosts.original`，以后的外部插件放 `plugins/`）；应用图标缓存在 `~/Library/Caches/com.ahatools.app/icons`；网页缓存在 `~/Library/Caches/com.ahatools.app` 和 `~/Library/WebKit/com.ahatools.app`，由系统自动生成。不要在用户主目录下建隐藏文件夹。改 bundle id 会换数据目录，`config.rs` 里有从旧目录 `com.aha.tools` 一次性迁移的逻辑。
 - 菜单栏图标刷新必须用 `set_icon_with_as_template`：`set_icon` 会丢掉模板标记，图标在深色菜单栏上变成黑字看不见。
 - 独占热键用的是事件拦截，需要「辅助功能」权限；没授权时自动退回共享模式，授权后无需重启即可切换。从终端跑 dev 时，权限会算到启动它的终端程序头上。
 - 热键检测只能发现独占注册的热键和系统快捷键，见「已知问题」。

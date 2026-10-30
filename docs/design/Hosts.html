@@ -1,9 +1,4 @@
-<!doctype html>
-<meta charset="utf-8">
-<title>hosts 切换</title>
-<!-- 设计稿静态版，由 docs/design/gen_boards.py 生成；浅色、深色并排。 -->
-<style>
-body{margin:0}
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>hosts 切换</title><style>body{margin:0}
 .t-light{--desk:#E6E3DA;--bg:#FAF9F6;--surface:#FFFFFF;--sunken:#F3F2EC;--hover:rgba(120,113,100,.08);--selected:rgba(120,113,100,.14);--border:rgba(40,36,30,.11);--border-strong:rgba(40,36,30,.22);--text:#1D1C1A;--text-2:#6B6860;--text-3:#A3A096;--ok:#4C7A3D;--warn:#9A5B13;--bad:#A8402F;--on-accent:#FFFFFF;--menubar:rgba(250,249,246,.82);--shadow:0 18px 50px rgba(30,25,15,.18),0 0 0 1px rgba(40,36,30,.11)}
 .t-dark{--desk:#141413;--bg:#262522;--surface:#302F2B;--sunken:#1F1E1C;--hover:rgba(255,250,240,.06);--selected:rgba(255,250,240,.10);--border:rgba(255,250,240,.10);--border-strong:rgba(255,250,240,.20);--text:#EEEDE8;--text-2:#A9A69C;--text-3:#76736B;--ok:#8FC27A;--warn:#E3A85A;--bad:#F08B78;--on-accent:#16202F;--menubar:rgba(38,37,34,.86);--shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(255,250,240,.10)}
 .t-light,.t-dark{--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;--serif:ui-serif,"New York","Songti SC",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--accent-soft:color-mix(in srgb,var(--accent) 12%,transparent);font-family:var(--sans);color:var(--text)}
@@ -55,11 +50,7 @@ input::placeholder,textarea::placeholder{color:var(--text-3)}
 table{border-collapse:collapse;width:100%}
 th{text-align:left;padding:0 10px 8px;font-size:12px;font-weight:500;color:var(--text-2)}
 td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
-</style>
-<div style="width:1920px;display:flex">
-<div class="t-light" style="width: 960px; height: 688px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#3A5A8C">
-<div style="font-size: 12px; color: var(--text-2)">浅色</div>
-<section class="win" style="width: 880px; height: 580px">
+</style><div style="display:flex;width:1920px"><div class="t-light" style="width:960px;min-height:688px;padding:40px;box-sizing:border-box;background:var(--desk);--accent:#3A5A8C"><p style="font-size:12px;margin:0 0 12px;color:var(--text-2)">浅色</p><section class="win" style="width: 880px; height: 580px">
 <header class="head">
 <button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
 <span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span>
@@ -68,14 +59,14 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 </header>
 <div style="flex: 1; min-height: 0; display: flex">
 <div style="width: 220px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; box-sizing: border-box">
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px"><span class="st" style="gap: 1px"><b style="font-size: 13px">系统原始</b><span style="font-size: 11px">只读 · 备份于首次应用前</span></span><span style="color: var(--text-3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></span></div>
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px" style="background: var(--selected)"><span class="st" style="gap: 1px"><b style="font-size: 13px">开发环境</b><span style="font-size: 11px">6 条</span></span><span class="sw sm on"><i></i></span></div>
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px"><span class="st" style="gap: 1px"><b style="font-size: 13px">测试环境</b><span style="font-size: 11px">4 条</span></span><span class="sw sm"><i></i></span></div>
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px"><span class="st" style="gap: 1px"><b style="font-size: 13px">屏蔽广告</b><span style="font-size: 11px">212 条</span></span><span class="sw sm"><i></i></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px;"><span class="st" style="gap: 1px"><b style="font-size: 13px">系统原始</b><span style="font-size: 11px">只读 · 备份于首次应用前</span></span><span style="color: var(--text-3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px; background: var(--selected);"><span class="st" style="gap: 1px"><b style="font-size: 13px">开发环境</b><span style="font-size: 11px">5 条</span></span><span class="sw sm on"><i></i></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px;"><span class="st" style="gap: 1px"><b style="font-size: 13px">测试环境</b><span style="font-size: 11px">4 条</span></span><span class="sw sm"><i></i></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px;"><span class="st" style="gap: 1px"><b style="font-size: 13px">屏蔽广告</b><span style="font-size: 11px">212 条</span></span><span class="sw sm"><i></i></span></div>
 <button type="button" class="btn g" style="justify-content: flex-start; margin-top: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新建方案</button>
 </div>
 <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 22px">
-<span class="row"><input class="inp" style="width: 180px; font-weight: 500" value="开发环境"><span class="dot" style="background: var(--warn)"></span><span class="note">有改动未应用</span><span class="sp"></span><button type="button" class="btn g sm">复制</button><button type="button" class="btn g sm" style="color: var(--bad)">删除</button></span>
+<span class="row"><input class="inp" style="width: 180px; font-weight: 500" value="开发环境"><span class="dot" style="background: var(--warn)"></span><span class="note">有改动未应用 · 应用后保存</span><span class="sp"></span><button type="button" class="btn g sm">复制</button><button type="button" class="btn g sm" style="color: var(--bad)">删除</button></span>
 <pre class="ta mono" style="flex: 1; font-size: 12.5px; line-height: 1.75; white-space: pre; overflow: hidden"># 开发环境
 127.0.0.1   api.local.test
 127.0.0.1   web.local.test
@@ -83,16 +74,11 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 192.168.1.21  nexus.company.lan
 # 临时：联调
 10.0.3.15   pay-sandbox.company.lan</pre>
-<span class="row"><span class="note">每行「IP 空格 域名」，# 开头是注释</span><span class="sp"></span><button type="button" class="btn">查看当前生效内容</button><button type="button" class="btn p">应用</button></span>
+<div class="col" style="gap:8px"><p class="note">每行「IP 空格 主机名」，支持 IPv6、别名和 # 注释</p><span class="row" style="flex-wrap:wrap"><button type="button" class="btn g" style="color:var(--bad)">恢复原始 hosts…</button><span class="sp"></span><button type="button" class="btn">查看当前生效内容</button><button type="button" class="btn p">应用</button></span></div>
 </div>
 </div>
-<footer class="foot"><span>esc 返回搜索 · ⌘S 应用</span><span>应用时系统会要一次管理员密码</span></footer>
-</section>
-</div>
-
-<div class="t-dark" style="width: 960px; height: 688px; box-sizing: border-box; padding: 40px; background: var(--desk); display: flex; flex-direction: column; gap: 12px; --accent:#93B1E3">
-<div style="font-size: 12px; color: var(--text-2)">深色</div>
-<section class="win" style="width: 880px; height: 580px">
+<footer class="foot"><span>esc 返回搜索 · ⌘S 应用</span><span>修改系统时需要管理员授权</span></footer>
+</section></div><div class="t-dark" style="width:960px;min-height:688px;padding:40px;box-sizing:border-box;background:var(--desk);--accent:#93B1E3"><p style="font-size:12px;margin:0 0 12px;color:var(--text-2)">深色</p><section class="win" style="width: 880px; height: 580px">
 <header class="head">
 <button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
 <span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span>
@@ -101,14 +87,14 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 </header>
 <div style="flex: 1; min-height: 0; display: flex">
 <div style="width: 220px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; box-sizing: border-box">
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px"><span class="st" style="gap: 1px"><b style="font-size: 13px">系统原始</b><span style="font-size: 11px">只读 · 备份于首次应用前</span></span><span style="color: var(--text-3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></span></div>
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px" style="background: var(--selected)"><span class="st" style="gap: 1px"><b style="font-size: 13px">开发环境</b><span style="font-size: 11px">6 条</span></span><span class="sw sm on"><i></i></span></div>
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px"><span class="st" style="gap: 1px"><b style="font-size: 13px">测试环境</b><span style="font-size: 11px">4 条</span></span><span class="sw sm"><i></i></span></div>
-<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px"><span class="st" style="gap: 1px"><b style="font-size: 13px">屏蔽广告</b><span style="font-size: 11px">212 条</span></span><span class="sw sm"><i></i></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px;"><span class="st" style="gap: 1px"><b style="font-size: 13px">系统原始</b><span style="font-size: 11px">只读 · 备份于首次应用前</span></span><span style="color: var(--text-3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px; background: var(--selected);"><span class="st" style="gap: 1px"><b style="font-size: 13px">开发环境</b><span style="font-size: 11px">5 条</span></span><span class="sw sm on"><i></i></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px;"><span class="st" style="gap: 1px"><b style="font-size: 13px">测试环境</b><span style="font-size: 11px">4 条</span></span><span class="sw sm"><i></i></span></div>
+<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px;"><span class="st" style="gap: 1px"><b style="font-size: 13px">屏蔽广告</b><span style="font-size: 11px">212 条</span></span><span class="sw sm"><i></i></span></div>
 <button type="button" class="btn g" style="justify-content: flex-start; margin-top: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新建方案</button>
 </div>
 <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 22px">
-<span class="row"><input class="inp" style="width: 180px; font-weight: 500" value="开发环境"><span class="dot" style="background: var(--warn)"></span><span class="note">有改动未应用</span><span class="sp"></span><button type="button" class="btn g sm">复制</button><button type="button" class="btn g sm" style="color: var(--bad)">删除</button></span>
+<span class="row"><input class="inp" style="width: 180px; font-weight: 500" value="开发环境"><span class="dot" style="background: var(--warn)"></span><span class="note">有改动未应用 · 应用后保存</span><span class="sp"></span><button type="button" class="btn g sm">复制</button><button type="button" class="btn g sm" style="color: var(--bad)">删除</button></span>
 <pre class="ta mono" style="flex: 1; font-size: 12.5px; line-height: 1.75; white-space: pre; overflow: hidden"># 开发环境
 127.0.0.1   api.local.test
 127.0.0.1   web.local.test
@@ -116,10 +102,8 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 192.168.1.21  nexus.company.lan
 # 临时：联调
 10.0.3.15   pay-sandbox.company.lan</pre>
-<span class="row"><span class="note">每行「IP 空格 域名」，# 开头是注释</span><span class="sp"></span><button type="button" class="btn">查看当前生效内容</button><button type="button" class="btn p">应用</button></span>
+<div class="col" style="gap:8px"><p class="note">每行「IP 空格 主机名」，支持 IPv6、别名和 # 注释</p><span class="row" style="flex-wrap:wrap"><button type="button" class="btn g" style="color:var(--bad)">恢复原始 hosts…</button><span class="sp"></span><button type="button" class="btn">查看当前生效内容</button><button type="button" class="btn p">应用</button></span></div>
 </div>
 </div>
-<footer class="foot"><span>esc 返回搜索 · ⌘S 应用</span><span>应用时系统会要一次管理员密码</span></footer>
-</section>
-</div>
-</div>
+<footer class="foot"><span>esc 返回搜索 · ⌘S 应用</span><span>修改系统时需要管理员授权</span></footer>
+</section></div></div></html>

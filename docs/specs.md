@@ -199,20 +199,21 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
 
 ## 5. hosts 切换
 
-设计：[Hosts.html](design/Hosts.html)。
+设计：[Hosts.html](design/Hosts.html)、[HostsStates.html](design/HostsStates.html)。2026-10-30 已实现，待真机权限验收。
 
-- **插件**：`plugins/hosts/`，功能 `hosts`「hosts 切换」，`cmds: ["hosts", "host"]`。
-- **数据**：`~/Library/Application Support/com.ahatools.app/hosts.json`：`[{ id, name, content, enabled }]`。另有只读的「系统原始」：首次应用前把当前 `/etc/hosts` 备份到同目录 `hosts.original`。
-- **应用**：
-  - 把 `/etc/hosts` 里 `# --- AhaTools start ---` 到 `# --- AhaTools end ---` 之间换成所有启用方案的内容拼接，标记段外的内容保持不动；
-  - 写到临时文件，再执行：
-    ```sh
-    osascript -e 'do shell script "cp <tmp> /etc/hosts && dscacheutil -flushcache && killall -HUP mDNSResponder" with administrator privileges'
-    ```
-  - 每次应用要一次系统密码。以后可改成特权辅助进程（SMAppService），本轮不做。
-- **校验**：每行「IP 空格 域名」或 `#` 注释；不合法的行在编辑器里标红，有错时不让应用。
-- **其他**：「查看当前生效内容」只读显示 `/etc/hosts`；「恢复原始 hosts」把标记段整个移除。
-- **单元测试**：标记段的插入、替换、移除，原有内容不丢。
+- **插件**：`plugins/hosts/`，功能 `hosts`「hosts 切换」，`cmds: ["hosts", "host"]`。热键复用 `OpenFeature`，只打开页面，不直接应用。
+- **数据**：应用数据目录中的 `hosts.json` 是 `[{ id, name, content, enabled }]`；列表顺序即合并顺序。缺失文件视为空列表，损坏或不可读时报错，不能静默退回空值覆盖。首次应用前创建只读 `hosts.original`，之后不覆盖。
+- **编辑**：新建、改名、编辑、复制、删除、开关变化先留在内存；只有应用成功才保存。复制用新 ID、默认关闭。开关表示下次应用是否包含。有效映射行计数、错误行背景、错误链接定位；原生 textarea 保留选择、复制及撤销行为。
+- **离页**：宿主 `PluginViewProps.registerBeforeLeave(handler)` 提供可选异步保护，覆盖返回按钮、Esc、⌘, 和切换插件事件。未应用时提供「应用并离开 / 放弃改动 / 继续编辑」；失败不离页。收起窗口保留草稿，应用期间拦截离页及重复提交；只读弹层优先消费 Esc。
+- **校验**：IPv4 / IPv6，空格 / Tab，空行，整行和行尾 `#` 注释，一行多个主机名，支持内部短主机名。拒绝非法 IP、缺失主机名、URL / 端口 / 通配符、控制字符和保留标记。域名忽略大小写和末尾点；同域名同地址族的不同 IP 会阻止应用，覆盖方案内部、启用方案之间及系统标记段外的有效条目。相同 IP 重复及双栈允许。关闭方案仅显示格式错误，不阻止应用保存。
+- **接口**：`hosts_load()` 返回方案、当前系统内容、原始备份、版本和应用状态；`hosts_validate(schemes)` 返回问题、来源及行号；`hosts_apply(schemes, revision)` 和 `hosts_restore(revision)` 返回系统写入、本地保存、DNS 刷新的独立结果。实时校验防抖 250ms、丢弃过期结果，应用前 Rust 再校验。
+- **合并**：精确独立行 `# --- AhaTools start ---` / `# --- AhaTools end ---`；无段追加、有段替换、无启用内容移除。保留段外 UTF-8 原始字节和换行，缺末行换行只补必要分隔。标记配对异常、重复或嵌套时拒绝修改。
+- **应用**：版本用系统原文与已保存方案的 SHA-256，应用 / 恢复共用互斥锁。备份、暂存和命令等待放在 `spawn_blocking`。私有临时目录保存系统快照及候选文件，固定 AppleScript 通过参数接收命令，请求系统管理员授权；所有命令为绝对路径，数据与路径严格转义。授权后和替换前用 `cmp` 比较系统快照；系统同目录暂存文件保留所有者、权限和相关属性后原子替换，回读核验。然后原子保存方案列表。
+- **DNS**：同次授权执行 `dscacheutil -flushcache` 和 `killall -HUP mDNSResponder`；内容相同也允许再次应用以重试刷新。取消 / 写入前失败不改系统和已保存方案；DNS 失败仍保存已写入方案并明确提示；系统已写入而本地保存失败时保留草稿并分别报告，授权期间外部修改不覆盖。
+- **查看与恢复**：「系统原始」只读显示首次备份，无备份时显示说明及当前系统原文。「查看当前生效内容」可刷新且不丢草稿。恢复前确认移除标记段、关闭已保存方案并丢弃未应用改动；保留系统其他内容，不用旧备份覆盖；恢复不受方案格式错误阻塞，但要求标记结构正确。
+- **授权文案**：「修改系统时需要管理员授权」，是否再次输入密码由 macOS 决定；密码不经 AhaTools 界面输入或保存。本轮不加特权辅助进程、订阅、导入导出或正式发布。
+- **浏览器假数据**：`?hostsMock=empty|invalid|conflict|system-conflict|error|markers|cancel|external|write-error|dns-error|save-error|slow`；缺省为多方案。浏览器专用 `window.__AHATOOLS_HOSTS_MOCK__` 支持状态读取、切换场景、模拟外部改动和延迟校验，不进入正式包。
+- **验收**：Rust 临时目录测试覆盖纯函数、事务失败分支、实际固定 shell 的非特权副本（不碰系统 hosts）、文件属性与清理。浏览器核对 880×580 / 600×400 深浅色、快捷键、离页保护、恢复和错误重试；授权弹窗、真实 DNS 与重启持久化待作者真机确认。
 
 ## 6. 系统监控
 

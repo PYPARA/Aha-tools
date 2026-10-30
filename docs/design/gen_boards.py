@@ -4,7 +4,7 @@ Each board shows one screen twice, light and dark, using the v2 tokens from
 docs/design-system.md. The canvas itself (claude.ai) is private to the owner, so the static copies next to
 this file (docs/design/*.html) are what implementers look at.
 
-Run: python3 gen_boards.py <canvas project dir> [src/assets/icons]
+Run: python3 gen_boards.py <canvas project dir> [src/assets/icons] [--static]
 The optional second argument also writes the feature icons (direction A) as SVG files.
 """
 import json
@@ -178,6 +178,13 @@ themes: [
 </html>
 '''
     (OUT / f"{name}.dc.html").write_text(html)
+    if "--static" in sys.argv:
+        themes = [("t-light", "浅色", "#3A5A8C"), ("t-dark", "深色", "#93B1E3")]
+        screens = "".join(
+            f'<div class="{cls}" style="width:{pw // 2}px;min-height:{h + 108}px;padding:40px;box-sizing:border-box;background:var(--desk);--accent:{accent}"><p style="font-size:12px;margin:0 0 12px;color:var(--text-2)">{label}</p>{inner}</div>'
+            for cls, label, accent in themes
+        )
+        (OUT / f"{name}.html").write_text(f'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>{title}</title><style>{CSS}</style><div style="display:flex;width:{pw}px">{screens}</div></html>')
     return {"file": f"{name}.dc.html", "title": title, "w": pw, "h": h + 108, "page": page_id}
 
 
@@ -296,12 +303,12 @@ detail = f'''<div class="detail">
 boards.append(board("TranslateSettings", "插件详情 · 翻译设置", 880, 580, settings(plist(PL, "翻译"), detail)))
 
 # ---- hosts 切换 ----
-schemes = [("系统原始", "只读 · 备份于首次应用前", None, True), ("开发环境", "6 条", True, False), ("测试环境", "4 条", False, False), ("屏蔽广告", "212 条", False, False)]
+schemes = [("系统原始", "只读 · 备份于首次应用前", None, True), ("开发环境", "5 条", True, False), ("测试环境", "4 条", False, False), ("屏蔽广告", "212 条", False, False)]
 items = ""
 for name, meta, on, locked in schemes:
-    sel = ' style="background: var(--selected)"' if name == "开发环境" else ""
+    sel = " background: var(--selected);" if name == "开发环境" else ""
     ctrl = f'<span style="color: var(--text-3)">{icon("lock", 14)}</span>' if locked else f'<span class="sw sm{" on" if on else ""}"><i></i></span>'
-    items += f'<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px"{sel}><span class="st" style="gap: 1px"><b style="font-size: 13px">{name}</b><span style="font-size: 11px">{meta}</span></span>{ctrl}</div>\n'
+    items += f'<div class="row" style="height: 50px; padding: 0 10px; border-radius: 8px;{sel}"><span class="st" style="gap: 1px"><b style="font-size: 13px">{name}</b><span style="font-size: 11px">{meta}</span></span>{ctrl}</div>\n'
 hosts = """# 开发环境
 127.0.0.1   api.local.test
 127.0.0.1   web.local.test
@@ -314,12 +321,25 @@ body = f'''<div style="flex: 1; min-height: 0; display: flex">
 {items}<button type="button" class="btn g" style="justify-content: flex-start; margin-top: 6px">{icon("plus", 14)}新建方案</button>
 </div>
 <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 22px">
-<span class="row"><input class="inp" style="width: 180px; font-weight: 500" value="开发环境"><span class="dot" style="background: var(--warn)"></span><span class="note">有改动未应用</span><span class="sp"></span><button type="button" class="btn g sm">复制</button><button type="button" class="btn g sm" style="color: var(--bad)">删除</button></span>
+<span class="row"><input class="inp" style="width: 180px; font-weight: 500" value="开发环境"><span class="dot" style="background: var(--warn)"></span><span class="note">有改动未应用 · 应用后保存</span><span class="sp"></span><button type="button" class="btn g sm">复制</button><button type="button" class="btn g sm" style="color: var(--bad)">删除</button></span>
 <pre class="ta mono" style="flex: 1; font-size: 12.5px; line-height: 1.75; white-space: pre; overflow: hidden">{hosts}</pre>
-<span class="row"><span class="note">每行「IP 空格 域名」，# 开头是注释</span><span class="sp"></span><button type="button" class="btn">查看当前生效内容</button><button type="button" class="btn p">应用</button></span>
+<div class="col" style="gap:8px"><p class="note">每行「IP 空格 主机名」，支持 IPv6、别名和 # 注释</p><span class="row" style="flex-wrap:wrap"><button type="button" class="btn g" style="color:var(--bad)">恢复原始 hosts…</button><span class="sp"></span><button type="button" class="btn">查看当前生效内容</button><button type="button" class="btn p">应用</button></span></div>
 </div>
 </div>'''
-boards.append(board("Hosts", "hosts 切换", 880, 580, page(880, 580, "globe", "hosts 切换", "hosts", '<span class="row"><span class="dot" style="background: var(--ok)"></span><span class="note">已生效：开发环境 · 10:42</span></span>', body, "esc 返回搜索 · ⌘S 应用", "应用时系统会要一次管理员密码")))
+boards.append(board("Hosts", "hosts 切换", 880, 580, page(880, 580, "globe", "hosts 切换", "hosts", '<span class="row"><span class="dot" style="background: var(--ok)"></span><span class="note">已生效：开发环境 · 10:42</span></span>', body, "esc 返回搜索 · ⌘S 应用", "修改系统时需要管理员授权")))
+
+# Hosts interaction states: readonly preview, validation and confirmations.
+host_states = [
+    ("校验错误", "第 2 行：IP 地址不合法；api.local.test 与系统第 8 行冲突。点击错误定位，启用方案有错时禁止应用。", "修改或关闭方案"),
+    ("关闭的方案有错误", "仍可应用其他方案并保存。关闭方案的错误保留提示。", "应用"),
+    ("尚未备份 · 系统原始", "只读显示当前系统 hosts，首次应用前创建备份。查看当前生效内容可刷新，Esc 关闭查看。", "查看当前生效内容"),
+    ("有改动未应用", "返回搜索、打开设置或切换插件前，选择应用并离开、放弃改动或继续编辑。收起窗口保留草稿。", "应用并离开 · 放弃改动 · 继续编辑"),
+    ("恢复原始 hosts？", "移除 AhaTools 标记段，关闭已保存方案并丢弃草稿。系统其他内容保留。", "取消 · 恢复原始 hosts"),
+    ("正在等待授权或应用…", "操作期间禁用编辑、离页与重复提交；授权取消后保留草稿。", "正在应用…"),
+    ("系统已写入，方案保存失败", "保留草稿，重新读取实际系统状态。DNS 刷新失败单独显示，可再次应用重试。", "重新应用"),
+]
+state_cards = "".join(f'<div class="card col" style="padding:16px;gap:8px"><b style="font-weight:500">{title}</b><p class="note">{description}</p><span style="font-size:12px;color:var(--accent)">{action}</span></div>' for title, description, action in host_states)
+boards.append(board("HostsStates", "hosts 切换 · 交互状态", 880, 880, f'<div class="win" style="width:880px;box-sizing:border-box;padding:24px;gap:12px">{state_cards}</div>'))
 
 # ---- 图片压缩 ----
 files = [("banner-home.png", "2.4 MB", "612 KB", "75%", "done"), ("avatar@2x.png", "386 KB", "98 KB", "75%", "done"), ("photo-0921.jpg", "5.8 MB", "1.9 MB", "67%", "done"), ("screenshot-hero.png", "3.1 MB", "", "", "run"), ("icon.svg", "", "", "", "skip"), ("diagram.webp", "880 KB", "", "", "wait")]
@@ -600,7 +620,7 @@ def soft_svg(color, fill, line, size):
             f'<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{line}</g></g></svg></span>')
 
 
-if len(sys.argv) > 2:
+if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
     icon_dir = Path(sys.argv[2])
     icon_dir.mkdir(parents=True, exist_ok=True)
     for key, _, color, fill, line in FEATURE_ICONS:
