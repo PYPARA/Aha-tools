@@ -52,6 +52,15 @@ export default function General({ cfg, save }: SectionProps) {
       <Row title="呼出快捷键" desc="打开搜索面板">
         <HotkeyRecorder value={panelKey} onChange={setPanelKey} placeholder="未设置" />
       </Row>
+      <Row title="再次打开时" desc="决定重新唤出面板后显示的页面">
+        <label className="sr-only" htmlFor="panel-reopen">再次打开时</label>
+        <select id="panel-reopen" className="select" value={cfg.panelReopen ?? "resume"}
+          onChange={(event) => set({ panelReopen: event.target.value as Config["panelReopen"] })}>
+          <option value="resume">回到上次的页面</option>
+          <option value="afterFiveMinutes">超过 5 分钟回到搜索</option>
+          <option value="search">总是回到搜索</option>
+        </select>
+      </Row>
       <Row title="独占热键" desc="AhaTools 的热键只有它自己响应，uTools 等不会同时弹出">
         {mode?.enabled &&
           (mode.exclusive ? (

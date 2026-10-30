@@ -31,13 +31,30 @@ export interface Config {
   relayApps: RelayApp[];
   pinyin: boolean;
   appearance: "system" | "light" | "dark";
+  panelReopen: "resume" | "afterFiveMinutes" | "search";
   /** Content matches switched off, as "<plugin>/<feature>". */
   disabledMatches: string[];
   webApps: WebApp[];
+  translate: TranslateConfig;
   [key: string]: unknown;
 }
 
 export type MenubarItem = "netspeed" | "cpu" | "memory";
+
+export type TranslateProtocol = "openai-chat" | "openai-responses" | "anthropic-messages";
+export type TranslateDirection = "auto" | "en-zh" | "zh-en";
+export interface TranslateProfile {
+  id: string;
+  name: string;
+  protocol: TranslateProtocol;
+  baseUrl: string;
+  model: string;
+}
+export interface TranslateConfig {
+  profiles: TranslateProfile[];
+  activeProfileId: string | null;
+  direction: TranslateDirection;
+}
 
 /** A site opened in its own long-lived window. */
 export interface WebApp {

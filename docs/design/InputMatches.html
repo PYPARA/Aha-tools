@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AhaTools · 图片与文件匹配</title>
+<style>
+  :root{color-scheme:light dark;--bg:#faf9f6;--text:#262522;--muted:#77746e;--border:#e7e4de;--hover:#f0eeea;--selected:#eae7e1;font:13px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--text);background:var(--bg)}
+  @media(prefers-color-scheme:dark){:root{--bg:#242320;--text:#ebe8e1;--muted:#a5a198;--border:#3c3934;--hover:#302e29;--selected:#3b3831}}
+  *{box-sizing:border-box}body{margin:0;width:760px;height:500px;display:flex;flex-direction:column}header{height:72px;display:flex;align-items:center;gap:14px;padding:0 24px;border-bottom:1px solid var(--border)}button{font:inherit;color:inherit;background:none;border:0;border-radius:8px}button:focus-visible,input:focus-visible{outline:2px solid #c2683a;outline-offset:3px}.attachment{max-width:300px;display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);background:var(--hover)}.attachment img{width:30px;height:30px;border-radius:4px;object-fit:cover}.attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}input{width:0;flex:1;border:0;background:none;font:18px -apple-system;color:inherit;outline:none}main{flex:1;overflow:auto;padding:20px 24px}h2{font-size:12px;color:var(--muted);font-weight:600;margin:0 0 12px}.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}.tile{height:88px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;font-size:12px}.tile:hover,.selected{background:var(--selected)}.tile img{width:40px;height:40px}.note{color:var(--muted);font-size:12px}.caption{display:flex;justify-content:space-between;align-items:baseline;margin:25px 0 12px}.caption h2{margin:0}.moving{outline:1px dashed var(--muted);cursor:grabbing;opacity:.65}footer{height:34px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;padding:0 24px;color:var(--muted);font-size:11px}
+</style>
+<header><div class="attachment"><img src="../../src/assets/icons/qrcode-scan.svg" alt=""><span>粘贴的图片 · 1024 × 1024</span><button aria-label="移除图片">×</button></div><input aria-label="筛选适用功能" placeholder="筛选适用功能"></header>
+<main><h2>匹配结果</h2><div class="grid"><button class="tile selected"><img src="../../src/assets/icons/qrcode-scan.svg" alt="">识别二维码</button><button class="tile"><img src="../../src/assets/icons/images-save.svg" alt="">保存图片为 PNG</button><button class="tile"><img src="../../src/assets/icons/images-copy.svg" alt="">复制图片</button></div><p class="note">图片保留在当前面板；移除后回到普通搜索。文件输入还可匹配收藏路径、复制路径和提取文件名称。</p><div class="caption"><h2>已固定 · 拖拽排序状态示意</h2><span class="note">拖拽排序 · 右键或 ⌘D 取消固定</span></div><div class="grid"><button class="tile"><img src="../../src/assets/icons/qrcode.svg" alt="">生成二维码</button><button class="tile moving"><img src="../../src/assets/icons/screenshot.svg" alt="">截图</button><button class="tile"><img src="../../src/assets/icons/hotkeys.svg" alt="">检测热键占用</button></div></main>
+<footer><span>方向键 选择　↵ 打开　esc 移除图片</span><span>3 个匹配功能</span></footer>
+<!-- 固定项拖动反馈：提起的项连续跟随指针，空位显示下一次插入位置。
+     周围格子和松手归位均用 180ms ease-out；减少动态效果时直接归位。 -->
+<style>
+  .caption + .grid{position:relative}
+  .caption + .grid .moving{outline:1px dashed var(--border);background:var(--hover);opacity:1}
+  .caption + .grid .moving > *{visibility:hidden}
+  .caption + .grid .drag-preview{position:absolute;left:80px;top:-20px;width:100px;border:1px solid var(--border);background:var(--bg);pointer-events:none;cursor:grabbing;scale:1.03}
+</style>
+<script>
+  const grid = document.querySelector('.caption + .grid');
+  const preview = grid.querySelector('.moving').cloneNode(true);
+  preview.className = 'tile drag-preview'; preview.setAttribute('aria-hidden', 'true');
+  grid.append(preview);
+</script>
+</html>

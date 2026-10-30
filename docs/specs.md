@@ -12,13 +12,21 @@
 现有代码就是范例，照着抄：网页应用插件（`plugins/webapps/`、`src-tauri/src/webapps.rs`、`src-tauri/src/plugins/webapps.rs`）是最完整的一份。
 
 1. **清单**：`plugins/<id>/plugin.json`：`id`、`name`、`version`、`description`、`features[]`（`code`、`explain`、`cmds` 关键词、可选 `match`）。在 `src-tauri/src/plugins/mod.rs` 的 `BUILTIN_MANIFESTS` 里加 `include_str!`。
-2. **页面**：`plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入；在 `src/views.ts` 的 `views` 里登记 `"<id>/<code>"`，`pluginIcons` 里登记图标（图标写在 `src/ui.tsx`，线条 1.6px）。页面拿到 `PluginViewProps`：`onBack`、`setStatus`（写底栏右侧）、`input`（从搜索框带入的文字，例如 `qr hello` 的 `hello`，或 `match` 命中的整段输入）。标题栏右侧按钮用 `<PageActions>`。
+2. **页面**：`plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入；在 `src/views.ts` 的 `views` 里登记 `"<id>/<code>"`。功能图标按第 0 项生成到 `src/assets/icons/` 后自动登记，由 SDK 的 `FeatureIcon` 显示。页面拿到 `PluginViewProps`：`onBack`、`setStatus`（写底栏右侧）、`input`（从搜索框带入的文字，例如 `qr hello` 的 `hello`，或 `match` 命中的整段输入）、`content`（本次输入的图片快照或文件路径，仅保留在内存）、`openFeature`（携带 `input` / `content` 切换插件页）。标题栏右侧按钮用 `<PageActions>`。
 3. **插件设置**：写 `plugins/<id>/Settings.tsx`（拿到 `cfg`、`save`），登记到 `src/views.ts` 的 `pluginSettings`，会出现在 设置 → 已安装插件 → 该插件 →「设置」页签。
 4. **不需要页面的功能**：登记到 `src/views.ts` 的 `actions`（例：`screenshot/take`）。
 5. **配置**：加到 `src-tauri/src/config.rs` 的 `Config`（结构体整体有 `#[serde(default)]`，旧文件能读）并在 `Default` 里给默认值，同步 `src/config.ts` 的类型；补「旧配置能读」的测试。密钥一律存钥匙串，不进 config.json。
 6. **原生能力**：Rust 模块 + `#[tauri::command]`，在 `src-tauri/src/lib.rs` 的 `generate_handler!` 里注册。耗时命令写成 `async`。调用系统工具优先用 macOS 自带命令（项目里已有 `sips`、`curl`、`screencapture`、`osascript`、`lsappinfo` 的用法）。
 7. **热键**：能被热键触发的功能用 `hotkey::Action::OpenFeature`（插件详情的「设为热键」已经支持），特殊的才新增 `Action` 变体（参考 `OpenWeb`），并在 `plugins/settings/actions.ts` 的 `describeAction` / `actionChoices` 里补文案。
 8. **文案**：中文，短句，说清楚会发生什么；不出现 aha 小写名，统一 AhaTools。
+
+### 已有宿主能力：图片 / 文件联想与固定项排序
+
+设计：[InputMatches.html](design/InputMatches.html)。搜索框显式粘贴图片或访达文件、拖入文件后，以附件条显示输入，按类型展示匹配功能；输入框改为筛选功能。清单 `match.image: true` 接受 RGBA 图片，`match.files` 接受扩展名列表（`*` 代表任意文件），`maxFiles` 限制数量。继续使用插件详情的 `disabledMatches` 开关。
+
+SDK 的 `PluginContent` 是 `{ type: "image", name, image: { width, height, rgba } }` 或 `{ type: "files", paths }`，通过页面 / 动作的 `content` 传递；搜索请求仅传元数据，图片和本次路径不写入历史。使用 Worker 时复制像素缓冲，避免转移后破坏宿主保留的图片。二维码识别只接受一张图片；图片工具提供复制 / 保存 PNG，快捷启动提供复制路径 / 提取名称 / 单文件收藏预填。
+
+固定项使用 `@dnd-kit/react` 的 sortable 和 `@dnd-kit/dom` 的输入 / 反馈插件，提供跟手提起、落点占位、180ms 让位与归位、跨行移动、边缘自动滚动、Esc / 失焦 / 窗口尺寸变化时取消、失败回退。末行空白也接受放到末尾；空格提起、方向键移动、空格或回车放下支持键盘排序，读屏指引为中文，并遵循系统「减少动态效果」。原生文件拖放独立。`usage_reorder_pinned(item, before?)` 在锁内按身份移动已有项目并写入 `usage.json`，保留其他固定项，不允许客户端整份覆盖。AhaTools 的截图路由在调用系统 / 第三方工具期间保留原来窗口，使用独立保护状态，结束后释放并恢复焦点。
 
 ## 0. 功能图标（先做，所有插件共用）
 
@@ -38,7 +46,7 @@
 
 接线：
 
-1. `src/views.ts` 里用 Vite 的 `import.meta.glob("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" })` 生成 `featureIcons: Record<key, url>`。
+1. `src/feature-icons.ts` 里用 Vite 的 `import.meta.glob("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" })` 生成 `featureIcons: Record<key, url>`，`src/views.ts` 重新导出。资源表独立于页面注册，避免 SDK 的共享 UI 与插件页面循环引用。
 2. 加一个 `featureIconKey(plugin, feature?)`：先找 `"<plugin>-<feature>"`（如 `qrcode-scan`），再找 `"<plugin>"`，都没有时用 `external`。
 3. 新组件 `FeatureIcon({ plugin, feature, size })` 渲染 `<img>`（`src/ui.tsx` 里，`aria-hidden`），替换现在用 `pluginIcons` 画灰色方块的地方：
    - `src/App.tsx` 的 `ItemIcon`：功能结果按 `item.action.feature` 选图标；
@@ -74,18 +82,19 @@ python3 docs/design/gen_boards.py <画布目录> src/assets/icons
 
 ## 2. 翻译
 
-设计：[TranslateText.html](design/TranslateText.html)、[TranslateWord.html](design/TranslateWord.html)、[TranslateSettings.html](design/TranslateSettings.html)。
+设计：[TranslateText.html](design/TranslateText.html)、[TranslateWord.html](design/TranslateWord.html)、[TranslateSettings.html](design/TranslateSettings.html)。2026-10-30 更新：采用多套纯自定义配置。
 
-- **插件**：`plugins/translate/`，功能 `translate`「翻译」，`cmds: ["翻译", "fy", "translate"]`，`match: { text: true, minLength: 2 }`（插件详情「自动匹配」页签可关）。
-- **配置**：`config.translate = { provider: "deepseek" | "openai" | "custom", baseUrl, model, direction: "auto" }`。默认 DeepSeek：`https://api.deepseek.com/v1`、`deepseek-chat`。API key 用 `keyring` crate 存钥匙串（service `com.ahatools.app`，account `translate`），提供命令 `translate_set_key(key)` / `translate_has_key()`，前端只显示掩码。
-- **后端**：`src-tauri/src/plugins/translate.rs`，命令 `translate_start(id, text, mode)`。
-  - 用 `reqwest`（`rustls-tls`、`stream`）POST `{baseUrl}/chat/completions`，`stream: true`，解析 SSE 的 `data:` 行。
-  - 每段文字 `emit("translate-chunk", { id, delta })`，结束 `translate-done`，出错 `translate-error`；`translate_stop(id)` 能中止。
-  - 提示词按模式：翻译（自动方向：含中文就译英文，否则译中文）、润色、解释。
-  - 只有一个英文单词时，要求模型输出 JSON：音标、词性、释义、例句（英文 + 中文）、近义词，前端按单词版式显示。
-- **前端**：段落版左原文右译文，译文流式追加，有光标；底部显示模型名和「停止 / 复制译文」。输入停止 400ms 后自动翻译，⌘↵ 立即重新翻译。
-- **设置页签**：服务、接口地址、模型、API Key（更换）、默认方向、「测试连接」（发一个极短请求，显示首字耗时或错误原文）。
-- **验收**：粘贴一段英文，搜索结果末尾出现「翻译」，进入后流式出中文；没填 key 时页面提示去设置，不报错；key 不出现在 config.json 里。
+- 插件 `translate/translate`，关键词「翻译 / fy / translate」，文字自动匹配至少 2 字，可独立关闭。
+- `config.translate = { profiles: [{ id, name, protocol, baseUrl, model }], activeProfileId: null, direction: "auto" }`，默认列表为空。协议为 `openai-chat`、`openai-responses`、`anthropic-messages`。所有服务地址、模型与密钥由用户填写。Base URL 含版本前缀，只追加资源路径，不自动补 `/v1`。
+- 每套密钥存系统钥匙串，service `com.ahatools.app`，account `translate:<id>`；不回传原密钥，不写配置和日志。更换协议或地址需重填密钥。配置与密钥保存 / 删除在后端协调，失败保留可恢复状态。
+- 设置页签：配置增删改、当前配置、协议、地址、掩码密钥、模型手填与获取列表、测试连接（首个非空正文耗时）。模型查询失败仍可手填。首次保存自动启用，删除当前配置选第一套剩余配置。原生钥匙串弹窗用 `withPinned`。
+- 三种流式适配：Chat `/chat/completions`、Responses `/responses`（`store:false`）、Messages `/messages`（`x-api-key`、`anthropic-version:2023-06-01`）。共用 SSE 解帧，处理 UTF-8 跨块、心跳、截断和错误。连接 10 秒、无正文 60 秒、总时限 180 秒；不自动重试或更换配置。
+- `translate_start(id, profileId, text, mode, direction)`、`translate_stop(id)`；`translate-chunk/done/error` 均带请求 ID，只发给调用窗口。取消真正中止 HTTP，每个请求只结束一次。
+- 翻译页左原文右结果，720px 以下上下排列；可直接切换配置并重译。输入停止 400ms 后请求，输入法组词时不发请求，⌘↵ 重译，停止保留部分结果。模式 / 方向 / 配置变化使旧请求失效。面板隐藏继续，离开页面取消。
+- 方向「自动 / 英文→中文 / 中文→英文」；自动含中文译英文，其余译中文。润色保持原语言，解释用中文，这两种模式禁用方向选择。
+- 单个英文词（允许词内连字符 / 撇号）且目标中文时生成 JSON：`phonetic`、`senses[{partOfSpeech,meaning,explanation}]`、`examples[{en,zh}]`、`synonyms`。流式时加载，完成校验再渲染；格式失败显示纯文本。本轮无朗读。
+- ⌘C 有选区复制选区，无选区复制结果。未配置 / 缺密钥提供设置入口，返回恢复内存草稿；原文和结果不写历史。
+- Rust 用本地模拟 HTTP / 密钥存储测试三种协议、模型、取消与失败恢复；Bun 测试请求状态和释义；浏览器 mock 验证深浅色与 880×580 / 600×400；真实接口、钥匙串和剪贴板由作者真机验收。
 
 ## 3. 图片压缩
 
@@ -199,20 +208,21 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
 
 ## 5. hosts 切换
 
-设计：[Hosts.html](design/Hosts.html)。
+设计：[Hosts.html](design/Hosts.html)、[HostsStates.html](design/HostsStates.html)。2026-10-30 已实现，待真机权限验收。
 
-- **插件**：`plugins/hosts/`，功能 `hosts`「hosts 切换」，`cmds: ["hosts", "host"]`。
-- **数据**：`~/Library/Application Support/com.ahatools.app/hosts.json`：`[{ id, name, content, enabled }]`。另有只读的「系统原始」：首次应用前把当前 `/etc/hosts` 备份到同目录 `hosts.original`。
-- **应用**：
-  - 把 `/etc/hosts` 里 `# --- AhaTools start ---` 到 `# --- AhaTools end ---` 之间换成所有启用方案的内容拼接，标记段外的内容保持不动；
-  - 写到临时文件，再执行：
-    ```sh
-    osascript -e 'do shell script "cp <tmp> /etc/hosts && dscacheutil -flushcache && killall -HUP mDNSResponder" with administrator privileges'
-    ```
-  - 每次应用要一次系统密码。以后可改成特权辅助进程（SMAppService），本轮不做。
-- **校验**：每行「IP 空格 域名」或 `#` 注释；不合法的行在编辑器里标红，有错时不让应用。
-- **其他**：「查看当前生效内容」只读显示 `/etc/hosts`；「恢复原始 hosts」把标记段整个移除。
-- **单元测试**：标记段的插入、替换、移除，原有内容不丢。
+- **插件**：`plugins/hosts/`，功能 `hosts`「hosts 切换」，`cmds: ["hosts", "host"]`。热键复用 `OpenFeature`，只打开页面，不直接应用。
+- **数据**：应用数据目录中的 `hosts.json` 是 `[{ id, name, content, enabled }]`；列表顺序即合并顺序。缺失文件视为空列表，损坏或不可读时报错，不能静默退回空值覆盖。首次应用前创建只读 `hosts.original`，之后不覆盖。
+- **编辑**：新建、改名、编辑、复制、删除、开关变化先留在内存；只有应用成功才保存。复制用新 ID、默认关闭。开关表示下次应用是否包含。有效映射行计数、错误行背景、错误链接定位；原生 textarea 保留选择、复制及撤销行为。
+- **离页**：宿主 `PluginViewProps.registerBeforeLeave(handler)` 提供可选异步保护，覆盖返回按钮、Esc、⌘, 和切换插件事件。「再次打开时」要求回搜索同样检查未应用改动，确认期间保持插件尺寸，取消后保留草稿；无改动时照常重置。未应用时提供「应用并离开 / 放弃改动 / 继续编辑」；失败不离页。收起窗口保留草稿，应用期间拦截离页及重复提交；只读弹层优先消费 Esc。
+- **校验**：IPv4 / IPv6，空格 / Tab，空行，整行和行尾 `#` 注释，一行多个主机名，支持内部短主机名。拒绝非法 IP、缺失主机名、URL / 端口 / 通配符、控制字符和保留标记。域名忽略大小写和末尾点；同域名同地址族的不同 IP 会阻止应用，覆盖方案内部、启用方案之间及系统标记段外的有效条目。相同 IP 重复及双栈允许。关闭方案仅显示格式错误，不阻止应用保存。
+- **接口**：`hosts_load()` 返回方案、当前系统内容、原始备份、版本和应用状态；`hosts_validate(schemes)` 返回问题、来源及行号；`hosts_apply(schemes, revision)` 和 `hosts_restore(revision)` 返回系统写入、本地保存、DNS 刷新的独立结果。实时校验防抖 250ms、丢弃过期结果，应用前 Rust 再校验。
+- **合并**：精确独立行 `# --- AhaTools start ---` / `# --- AhaTools end ---`；无段追加、有段替换、无启用内容移除。保留段外 UTF-8 原始字节和换行，缺末行换行只补必要分隔。标记配对异常、重复或嵌套时拒绝修改。
+- **应用**：版本用系统原文与已保存方案的 SHA-256，应用 / 恢复共用互斥锁。备份、暂存和命令等待放在 `spawn_blocking`。私有临时目录保存系统快照及候选文件，固定 AppleScript 通过参数接收命令，请求系统管理员授权；所有命令为绝对路径，数据与路径严格转义。授权后和替换前用 `cmp` 比较系统快照；系统同目录暂存文件保留所有者、权限和相关属性后原子替换，回读核验。然后原子保存方案列表。
+- **DNS**：同次授权执行 `dscacheutil -flushcache` 和 `killall -HUP mDNSResponder`；内容相同也允许再次应用以重试刷新。取消 / 写入前失败不改系统和已保存方案；DNS 失败仍保存已写入方案并明确提示；系统已写入而本地保存失败时保留草稿并分别报告，授权期间外部修改不覆盖。
+- **查看与恢复**：「系统原始」只读显示首次备份，无备份时显示说明及当前系统原文。「查看当前生效内容」可刷新且不丢草稿。恢复前确认移除标记段、关闭已保存方案并丢弃未应用改动；保留系统其他内容，不用旧备份覆盖；恢复不受方案格式错误阻塞，但要求标记结构正确。
+- **授权文案**：「修改系统时需要管理员授权」，是否再次输入密码由 macOS 决定；密码不经 AhaTools 界面输入或保存。本轮不加特权辅助进程、订阅、导入导出或正式发布。
+- **浏览器假数据**：`?hostsMock=empty|invalid|conflict|system-conflict|error|markers|cancel|external|write-error|dns-error|save-error|slow`；缺省为多方案。浏览器专用 `window.__AHATOOLS_HOSTS_MOCK__` 支持状态读取、切换场景、模拟外部改动和延迟校验，不进入正式包。
+- **验收**：Rust 临时目录测试覆盖纯函数、事务失败分支、实际固定 shell 的非特权副本（不碰系统 hosts）、文件属性与清理。浏览器核对 880×580 / 600×400 深浅色、快捷键、离页保护、恢复和错误重试；授权弹窗、真实 DNS 与重启持久化待作者真机确认。
 
 ## 6. 系统监控
 
@@ -241,13 +251,16 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
 
 ## 9. 小项
 
-- **搜索面板跟随鼠标所在屏幕**：`panel::show` 里用 `app.cursor_position()` 找到所在显示器（`app.monitor_from_point`），把面板水平居中、顶边放在该屏幕高度的 22% 处。
+- 设计：[PanelBehavior.html](design/PanelBehavior.html)。本项已实现，真实多屏排列待作者验收。
+- **搜索面板跟随鼠标所在屏幕**：每次唤出时重新定位，把面板水平居中、顶边放在该屏幕高度的 22% 处；位置限制在该屏可用区域内。macOS 使用 `NSEvent::mouseLocation()`、`NSScreen` 和 `NSWindow` 的统一逻辑点坐标，见 `window_position.rs`；不混用当前 Tauri 版本中缩放来源不同的鼠标 / 显示器 / 窗口物理坐标。屏幕断开时回退到距离鼠标最近的屏幕。
 - **再次唤出时的行为**：设置 → 通用加一行「再次打开时」：
   - 「回到上次的页面」（现在的行为，默认）；
   - 「超过 5 分钟回到搜索」；
   - 「总是回到搜索」。
 
-  `panel.rs` 记录隐藏时间，`panel-shown` 事件带上「是否重置」，`App.tsx` 据此 `setActive(null)`。
+  配置 `panelReopen: "resume" | "afterFiveMinutes" | "search"`，默认 `resume`，旧配置自动补默认值。`panel.rs` 从实际隐藏开始计时，重复失焦不会延长计时；`panel-shown` 携带 `{ reset: boolean }`。重置时同步清空当前页面、搜索词和附件，恢复搜索尺寸、首页与焦点。已显示的窗口和直接指定功能的热键不受重置策略影响。保留二维码识别页时重新读取一次剪贴板，重置离开时直接释放页面资源。
+
+- **多屏菜单栏弹窗定位**：点击时选择鼠标所在的 `NSScreen`，用该屏幕的缩放还原托盘图标横坐标，纵向以该屏幕自己的菜单栏底边计算。与搜索面板共用 AppKit 逻辑点坐标和可用区域约束，支持负坐标、上下排列与混合缩放；不使用弹窗上一次所在屏幕的缩放比例。
 
 ## 10. 最后：发布
 

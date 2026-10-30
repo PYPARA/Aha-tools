@@ -11,9 +11,9 @@ interface Entry {
 /** Search text worth pre-filling as a path: "~/x", "/x" or a URL. */
 const looksLikePath = (s: string) => /^(~\/|\/)|:\/\//.test(s);
 
-export default function Manage({ setStatus, input }: PluginViewProps) {
+export default function Manage({ setStatus, input, content }: PluginViewProps) {
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [path, setPath] = useState(input && looksLikePath(input) ? input : "");
+  const [path, setPath] = useState(content?.type === "files" ? content.paths[0] ?? "" : input && looksLikePath(input) ? input : "");
   const [name, setName] = useState(input && !looksLikePath(input) ? input : "");
 
   useEffect(() => {
