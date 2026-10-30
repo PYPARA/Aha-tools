@@ -5,6 +5,16 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { featureIcons, featureIconKey } from "./feature-icons";
+
+/** The SVG includes its coloured tile; it doesn't need the grey .tile wrapper. */
+export function FeatureIcon({ plugin, feature, size = 32 }: { plugin: string; feature?: string; size?: number }) {
+  const key = featureIconKey(plugin, feature);
+  return (
+    <img className="feature-icon" src={featureIcons[key]} width={size} height={size}
+      alt="" aria-hidden="true" draggable={false} />
+  );
+}
 
 function Icon({ size = 16, width = 1.6, children }: { size?: number; width?: number; children: ReactNode }) {
   return (

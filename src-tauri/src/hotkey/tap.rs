@@ -323,14 +323,17 @@ unsafe extern "C" fn callback(
         }
         return event;
     }
+    if unsafe { CGEventGetIntegerValueField(event, FIELD_SOURCE_USER_DATA) } == SYNTHETIC_MARK {
+        return event;
+    }
+    // Cancel an already running screenshot even if exclusive hotkeys were switched off.
+    if etype == KEY_DOWN && unsafe { CGEventGetIntegerValueField(event, FIELD_KEYCODE) } == 0x35 {
+        crate::screenshot::cancel();
+    }
     if !ENABLED.load(Ordering::Relaxed) {
         state.held.clear();
         return event;
     }
-    if unsafe { CGEventGetIntegerValueField(event, FIELD_SOURCE_USER_DATA) } == SYNTHETIC_MARK {
-        return event;
-    }
-
     let keycode = unsafe { CGEventGetIntegerValueField(event, FIELD_KEYCODE) } as u16;
     match etype {
         KEY_DOWN => {

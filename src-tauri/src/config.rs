@@ -6,6 +6,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::hotkey::Action;
 
+pub static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -20,10 +22,62 @@ pub struct Config {
     pub pinyin: bool,
     /// "system", "light" or "dark".
     pub appearance: String,
+    /// What a normal panel invocation does after the panel has been hidden.
+    pub panel_reopen: PanelReopen,
     /// Content matches switched off in a plugin's 自动匹配 tab, as "<plugin>/<feature>".
     pub disabled_matches: Vec<String>,
     /// Sites opened in their own long-lived windows (webapps.rs).
     pub web_apps: Vec<WebApp>,
+    pub translate: TranslateConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TranslateConfig {
+    pub profiles: Vec<TranslateProfile>,
+    pub active_profile_id: Option<String>,
+    pub direction: TranslateDirection,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslateProfile {
+    pub id: String,
+    pub name: String,
+    pub protocol: TranslateProtocol,
+    pub base_url: String,
+    pub model: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub enum TranslateProtocol {
+    #[serde(rename = "openai-chat")]
+    Chat,
+    #[serde(rename = "openai-responses")]
+    Responses,
+    #[serde(rename = "anthropic-messages")]
+    Messages,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+pub enum TranslateDirection {
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "en-zh")]
+    EnZh,
+    #[serde(rename = "zh-en")]
+    ZhEn,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelReopen {
+    AfterFiveMinutes,
+    Search,
+    #[default]
+    #[serde(other)]
+    Resume,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -168,8 +222,10 @@ impl Default for Config {
             relay_apps: default_relay_apps(),
             pinyin: true,
             appearance: "system".into(),
+            panel_reopen: PanelReopen::Resume,
             disabled_matches: vec![],
             web_apps: default_web_apps(),
+            translate: TranslateConfig::default(),
         }
     }
 }
@@ -202,7 +258,13 @@ pub fn load_json<T: DeserializeOwned + Default>(app: &AppHandle, name: &str) -> 
 pub fn save_json<T: Serialize>(app: &AppHandle, name: &str, value: &T) -> Result<(), String> {
     let path = data_dir(app).join(format!("{name}.json"));
     let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
-    fs::write(path, bytes).map_err(|e| e.to_string())
+    // A failed write must not truncate the previous configuration.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
+    let result = fs::write(&tmp, bytes).and_then(|_| fs::rename(&tmp, &path));
+    if result.is_err() { let _ = fs::remove_file(&tmp); }
+    result.map_err(|e| e.to_string())
 }
 
 pub fn load(app: &AppHandle) -> Config {
@@ -227,6 +289,7 @@ pub fn config_get(app: AppHandle) -> Config {
 /// hotkeys that failed to register, if any.
 #[tauri::command]
 pub fn config_set(app: AppHandle, config: Config) -> Result<Vec<String>, String> {
+    let _guard = WRITE_LOCK.lock().unwrap();
     save_json(&app, "config", &config)?;
     crate::plugins::configure(&config);
     crate::netspeed::set_visible(config.netspeed);
@@ -258,6 +321,21 @@ mod tests {
         assert!(cfg.pinyin);
         assert_eq!(cfg.web_apps, default_web_apps());
         assert_eq!(cfg.appearance, "system");
+        assert_eq!(cfg.translate, TranslateConfig::default());
+        assert_eq!(cfg.panel_reopen, PanelReopen::Resume);
+    }
+
+    #[test]
+    fn panel_reopen_round_trips_and_unknown_values_keep_other_settings() {
+        for (value, mode) in [("resume", PanelReopen::Resume), ("search", PanelReopen::Search), ("afterFiveMinutes", PanelReopen::AfterFiveMinutes)] {
+            let cfg: Config = serde_json::from_str(&format!(r#"{{"panelReopen":"{value}","pinyin":false}}"#)).unwrap();
+            assert_eq!(cfg.panel_reopen, mode);
+            assert!(!cfg.pinyin);
+            assert_eq!(serde_json::to_value(&cfg).unwrap()["panelReopen"], value);
+        }
+        let cfg: Config = serde_json::from_str(r#"{"panelReopen":"futureValue","netspeed":false}"#).unwrap();
+        assert_eq!(cfg.panel_reopen, PanelReopen::Resume);
+        assert!(!cfg.netspeed);
     }
 
     #[test]

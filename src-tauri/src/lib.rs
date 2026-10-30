@@ -1,4 +1,5 @@
 mod config;
+mod clipboard;
 mod favicon;
 mod hotkey;
 mod netspeed;
@@ -9,6 +10,7 @@ mod relay;
 mod screenshot;
 mod usage;
 mod webapps;
+mod window_position;
 
 use std::thread;
 
@@ -29,6 +31,7 @@ pub fn run() {
         ))
         .plugin(hotkey::plugin())
         .manage(hotkey::Router::default())
+        .manage(plugins::translate::TranslationState::default())
         .setup(|app| {
             // Menu-bar only: no Dock icon, no app switcher entry.
             #[cfg(target_os = "macos")]
@@ -56,6 +59,7 @@ pub fn run() {
             config::config_get,
             config::config_set,
             config::config_dir,
+            clipboard::clipboard_files,
             panel::hide_panel,
             panel::set_panel_pinned,
             panel::set_panel_large,
@@ -68,6 +72,14 @@ pub fn run() {
             plugins::hosts::hosts_validate,
             plugins::hosts::hosts_apply,
             plugins::hosts::hosts_restore,
+            plugins::translate::translate_save_profile,
+            plugins::translate::translate_delete_profile,
+            plugins::translate::translate_has_key,
+            plugins::translate::translate_select,
+            plugins::translate::translate_list_models,
+            plugins::translate::translate_test_connection,
+            plugins::translate::translate_start,
+            plugins::translate::translate_stop,
             launcher::launcher_saved,
             launcher::launcher_add,
             launcher::launcher_remove,
@@ -76,6 +88,7 @@ pub fn run() {
             usage::usage_record,
             usage::usage_toggle_pin,
             usage::usage_forget,
+            usage::usage_reorder_pinned,
             webapps::webapp_open,
             favicon::webapp_icon,
             hotkey::hotkey_bindings,

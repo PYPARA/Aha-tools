@@ -13,7 +13,8 @@
     {
       "code": "scan",
       "explain": "识别二维码",
-      "cmds": ["识别二维码", "扫码", "scan"]
+      "cmds": ["识别二维码", "扫码", "scan"],
+      "match": { "image": true, "files": ["png", "jpg", "jpeg", "webp"], "maxFiles": 1 }
     }
   ]
 }

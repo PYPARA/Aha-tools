@@ -4,8 +4,9 @@ Each board shows one screen twice, light and dark, using the v2 tokens from
 docs/design-system.md. The canvas itself (claude.ai) is private to the owner, so the static copies next to
 this file (docs/design/*.html) are what implementers look at.
 
-Run: python3 gen_boards.py <canvas project dir> [src/assets/icons] [--static]
+Run: python3 gen_boards.py <canvas project dir> [src/assets/icons]
 The optional second argument also writes the feature icons (direction A) as SVG files.
+Use --static as the second argument to generate standalone HTML without a canvas.
 """
 import json
 import random
@@ -13,6 +14,8 @@ import sys
 from pathlib import Path
 
 OUT = Path(sys.argv[1])
+STATIC_ONLY = "--static" in sys.argv
+OUT.mkdir(parents=True, exist_ok=True)
 
 CSS = """body{margin:0}
 .t-light{--desk:#E6E3DA;--bg:#FAF9F6;--surface:#FFFFFF;--sunken:#F3F2EC;--hover:rgba(120,113,100,.08);--selected:rgba(120,113,100,.14);--border:rgba(40,36,30,.11);--border-strong:rgba(40,36,30,.22);--text:#1D1C1A;--text-2:#6B6860;--text-3:#A3A096;--ok:#4C7A3D;--warn:#9A5B13;--bad:#A8402F;--on-accent:#FFFFFF;--menubar:rgba(250,249,246,.82);--shadow:0 18px 50px rgba(30,25,15,.18),0 0 0 1px rgba(40,36,30,.11)}
@@ -177,14 +180,13 @@ themes: [
 </body>
 </html>
 '''
-    (OUT / f"{name}.dc.html").write_text(html)
-    if "--static" in sys.argv:
-        themes = [("t-light", "浅色", "#3A5A8C"), ("t-dark", "深色", "#93B1E3")]
-        screens = "".join(
-            f'<div class="{cls}" style="width:{pw // 2}px;min-height:{h + 108}px;padding:40px;box-sizing:border-box;background:var(--desk);--accent:{accent}"><p style="font-size:12px;margin:0 0 12px;color:var(--text-2)">{label}</p>{inner}</div>'
-            for cls, label, accent in themes
-        )
-        (OUT / f"{name}.html").write_text(f'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>{title}</title><style>{CSS}</style><div style="display:flex;width:{pw}px">{screens}</div></html>')
+    if STATIC_ONLY:
+        themes = []
+        for cls, label, accent in [("t-light", "浅色", "#3A5A8C"), ("t-dark", "深色", "#93B1E3")]:
+            themes.append(f'<div class="{cls}" style="padding:40px;background:var(--desk);--accent:{accent}"><p>{label}</p>{inner}</div>')
+        (OUT / f"{name}.html").write_text(f'<!doctype html><meta charset="utf-8"><title>{title}</title><style>{CSS}</style><div style="display:flex;width:max-content">' + ''.join(themes) + '</div>')
+    else:
+        (OUT / f"{name}.dc.html").write_text(html)
     return {"file": f"{name}.dc.html", "title": title, "w": pw, "h": h + 108, "page": page_id}
 
 
@@ -209,6 +211,19 @@ def qr_path(n=25, seed=7):
 
 
 boards = []
+
+# ---- 通用 · 再次打开时 ----
+detail = f'''<div class="detail" style="gap: 0">
+<h1 style="font-family: var(--serif); font-size: 22px; font-weight: 500; margin: 0 0 12px">通用</h1>
+<div class="srow" style="min-height: 66px"><span class="st"><b>呼出快捷键</b><span>打开搜索面板</span></span><span class="btn mono">⌥ Space</span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>再次打开时</b><span>决定重新唤出面板后显示的页面</span></span><select class="sel" aria-label="再次打开时" style="font-family: inherit; color: var(--text)"><option>回到上次的页面</option><option>超过 5 分钟回到搜索</option><option>总是回到搜索</option></select></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>独占热键</b><span>AhaTools 的热键只有它自己响应</span></span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>拼音搜索</b><span>用全拼或首字母搜中文名，例如 wx 找到微信</span></span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>菜单栏网速</b><span>在菜单栏显示实时上传和下载速度</span></span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>开机自动启动</b><span>登录后在菜单栏运行</span></span><span class="sw"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>外观</b><span>浅色、深色或跟随系统</span></span><span class="sel">跟随系统{icon("down", 12)}</span></div>
+</div>'''
+boards.append(board("PanelBehavior", "设置 · 再次打开时", 880, 580, settings("", detail, nav_on="通用")))
 QR = qr_path()
 
 # ---- 二维码 · 生成 ----
@@ -255,12 +270,13 @@ boards.append(board("QrScan", "二维码 · 识别", 880, 580, page(880, 580, "s
 src = "Tauri lets you build smaller, faster, and more secure desktop applications with a web frontend. The core is written in Rust, and the UI runs in the system's own webview, so apps stay light."
 dst = "Tauri 让你用网页前端构建更小、更快、更安全的桌面应用。核心用 Rust 编写，界面运行在系统自带的网页视图里，所以应用保持轻量。"
 body = f'''<div class="body" style="flex-direction: column; gap: 12px">
-<span class="row"><span class="sel" style="min-width: 110px">自动检测 · 英文{icon("down", 12, 2)}</span><button type="button" class="ib" aria-label="交换方向">{icon("swap")}</button><span class="sel" style="min-width: 110px">中文{icon("down", 12, 2)}</span><span class="sp"></span><span class="seg"><span class="on">翻译</span><span>润色</span><span>解释</span></span></span>
+<span class="row"><span class="sel">工作配置 {icon("down",12)}</span><button class="btn g">配置服务</button></span>
+<span class="row"><span class="sel" style="min-width: 110px">自动 · 其他译中文{icon("down", 12, 2)}</span><button type="button" class="ib" aria-label="交换方向">{icon("swap")}</button><span class="sel" style="min-width: 110px">中文{icon("down", 12, 2)}</span><span class="sp"></span><span class="seg"><span class="on">翻译</span><span>润色</span><span>解释</span></span></span>
 <div style="flex: 1; min-height: 0; display: flex; gap: 14px">
 <div class="ta" style="flex: 1">{src}</div>
 <div class="ta" style="flex: 1; background: var(--sunken); border-color: transparent">{dst}<span style="display: inline-block; width: 2px; height: 16px; margin-left: 2px; vertical-align: -2px; background: var(--accent)"></span></div>
 </div>
-<span class="row"><span class="note">186 个字符</span><span class="sp"></span><span class="chip">deepseek-chat · 正在输出</span><button type="button" class="btn sm g">停止</button><button type="button" class="btn sm">{icon("copy", 14)}复制译文</button></span>
+<span class="row"><span class="note">186 个字符</span><span class="sp"></span><span class="chip">工作配置 · 自填模型 · 正在输出</span><button type="button" class="btn sm g">停止</button><button type="button" class="btn sm">{icon("copy", 14)}复制译文</button></span>
 </div>'''
 boards.append(board("TranslateText", "翻译 · 段落", 880, 580, page(880, 580, "tr", "翻译", "翻译 · 大模型", '<span class="note">⌘↵ 重新翻译</span>', body, "esc 返回搜索 · ⌘C 复制译文", "粘贴或输入就开始翻译")))
 
@@ -269,7 +285,7 @@ body = f'''<div class="body" style="flex-direction: column; gap: 14px">
 <div class="row" style="gap: 14px; align-items: baseline">
 <span style="font-family: var(--serif); font-size: 32px; font-weight: 500">serendipity</span>
 <span class="mono note" style="font-size: 13px">/ˌserənˈdɪpəti/</span>
-<button type="button" class="ib" aria-label="朗读">{icon("speaker")}</button>
+
 <span class="sp"></span><span class="chip">名词</span>
 </div>
 <div class="card" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
@@ -288,19 +304,25 @@ boards.append(board("TranslateWord", "翻译 · 单词释义", 880, 580, page(88
 
 # ---- 翻译 · 插件设置 ----
 PL = ["截图|截", "二维码|码", "翻译|译", "hosts 切换|H", "图片压缩|压", "网页应用|网", "快捷启动|启", "热键检测|键"]
-detail = f'''<div class="detail">
-<div class="dh"><span class="tile xl">{icon("tr", 22)}</span><span><b>翻译</b><span class="note">用大模型翻译文字，单词附带释义 · 内置 0.1.0</span></span></div>
-<div class="seg" style="align-self: flex-start"><span>关键词</span><span>自动匹配</span><span class="on">设置</span></div>
-<div>
-<div class="srow"><span class="st"><b>服务</b><span>兼容 OpenAI 接口的服务都可以</span></span><span class="sel" style="width: 200px">DeepSeek{icon("down", 12, 2)}</span></div>
-<div class="srow"><span class="st"><b>接口地址</b><span>选「自定义」时可改</span></span><input class="inp mono" style="width: 260px; font-size: 12px" value="https://api.deepseek.com/v1"></div>
-<div class="srow"><span class="st"><b>模型</b></span><input class="inp mono" style="width: 260px; font-size: 12px" value="deepseek-chat"></div>
-<div class="srow"><span class="st"><b>API Key</b><span>{icon("lock", 12)} 存在系统钥匙串里，不写进配置文件</span></span><input class="inp mono" style="width: 200px; font-size: 12px" value="sk-••••••••••••3f9a"><button type="button" class="btn sm g">更换</button></div>
-<div class="srow"><span class="st"><b>默认方向</b><span>中文翻成英文，其他语言翻成中文</span></span><span class="sel" style="width: 200px">自动{icon("down", 12, 2)}</span></div>
-</div>
-<span class="row"><button type="button" class="btn">测试连接</button><span class="dot" style="background: var(--ok)"></span><span class="note">连接正常 · 首字 420 ms</span></span>
-</div>'''
+detail = f'''<div class="detail" style="overflow:auto">
+<div class="dh"><span class="tile xl">{icon("tr",22)}</span><span><b>翻译</b><span class="note">多配置 · 流式翻译与单词释义</span></span></div>
+<div class="seg"><span>关键词</span><span>自动匹配</span><span class="on">设置</span></div>
+<div class="row"><span class="st"><b>服务配置</b><span>不可用时，可在翻译页手动切换备用配置</span></span><button class="btn">新增配置</button></div>
+<div class="strip"><span class="st"><b>工作配置 · 当前</b><span>OpenAI Responses · 自填模型</span></span><button class="btn sm">编辑</button><button class="btn sm g">删除</button></div>
+<div class="strip"><span class="st"><b>备用配置</b><span>Anthropic Messages · 自填模型</span></span><button class="btn sm">使用</button></div>
+<div class="card" style="padding:12px;display:grid;gap:8px">
+<span class="row"><label>名称</label><input class="inp" value="工作配置"></span>
+<span class="row"><label>协议</label><span class="sel">OpenAI Responses</span></span>
+<span class="row"><label>Base URL</label><input class="inp" value="https://gateway.example/v1"></span>
+<span class="row"><label>API Key</label><input class="inp" type="password" value="example"><span class="note">系统钥匙串</span></span>
+<span class="row"><label>模型</label><input class="inp" placeholder="输入模型 ID"><button class="btn sm">获取模型</button></span>
+<span class="row"><button class="btn">测试连接</button><span class="note">首字 420 ms</span><span class="sp"></span><button class="btn p">保存配置</button></span>
+</div></div>'''
 boards.append(board("TranslateSettings", "插件详情 · 翻译设置", 880, 580, settings(plist(PL, "翻译"), detail)))
+
+for name, title, message in [("TranslateEmpty", "翻译 · 未配置", "先添加一套翻译配置，填写接口地址、协议、模型和 API Key。"), ("TranslateError", "翻译 · 服务错误", "连接失败。可以重试，或手动选择备用配置。")]:
+    body = f'<div class="body" style="flex-direction:column"><p>{message}</p><span class="row"><button class="btn">配置服务</button><button class="btn">重新翻译</button></span></div>'
+    boards.append(board(name, title, 880, 580, page(880,580,"tr","翻译","自定义服务","",body,"esc 返回搜索","")))
 
 # ---- hosts 切换 ----
 schemes = [("系统原始", "只读 · 备份于首次应用前", None, True), ("开发环境", "5 条", True, False), ("测试环境", "4 条", False, False), ("屏蔽广告", "212 条", False, False)]
@@ -528,7 +550,7 @@ inner = f'''<div class="row" style="align-items: flex-start; gap: 36px">{desk_wi
 boards.append(board("SuperPanelFinder", "超级面板 · 访达选中文件夹", 1100, 540, inner))
 
 p3 = sp_shell(chip("Safari · 选中 42 个字", "globe"), f'''<div style="margin: 10px 10px 4px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); display: flex; flex-direction: column; gap: 6px">
-<span class="note" style="font-size: 11px">翻译 · deepseek-chat</span>
+<span class="note" style="font-size: 11px">翻译 · 自填模型</span>
 <span style="font-size: 13px; line-height: 1.55">Tauri 让你用网页前端构建更小、更快、更安全的桌面应用。</span>
 <span class="row"><span class="sp"></span><button type="button" class="btn sm g">复制</button><button type="button" class="btn sm g">展开</button></span></div>''' + sp_list([
     ("问 DeepSeek", "ask", "网页应用"), ("生成二维码", "qr", ""), ("在搜索面板中打开", "search", ""), ("复制为纯文本", "copy", ""),
@@ -569,6 +591,9 @@ boards.append(board("SuperPanelSettings", "设置 · 超级面板", 880, 580, sp
 # Glyphs sit on a 24-unit grid: "fill" parts are the soft second tone, "line" parts the
 # 1.8px outline.
 FEATURE_ICONS = [
+    ("images", "图片工具", "#548C9A", '<rect x="3.5" y="4" width="17" height="16" rx="2"></rect>', '<rect x="3.5" y="4" width="17" height="16" rx="2"></rect><circle cx="8.5" cy="9" r="1.5"></circle><path d="M4 17l5-5 3 3 3-4 5 6"></path>'),
+    ("images-save", "保存图片为 PNG", "#548C9A", '<path d="M4 14h16v6H4z"></path>', '<path d="M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5"></path>'),
+    ("images-copy", "复制图片", "#548C9A", '<rect x="8" y="8" width="13" height="13" rx="2"></rect>', '<rect x="8" y="8" width="13" height="13" rx="2"></rect><path d="M15 8V3H3v12h5"></path>'),
     # key, 名称, 底色, 浅色调（fill）, 线条（line）
     ("launcher", "快捷启动", "#D08A3A", '<path d="M7 4h10v16l-5-3.5L7 20z"></path>', '<path d="M7 4h10v16l-5-3.5L7 20z"></path><path d="M12 8.2l.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z"></path>'),
     ("hotkeys", "热键检测", "#5F6F86", '<rect x="3" y="6" width="18" height="12" rx="2.5"></rect>', '<rect x="3" y="6" width="18" height="12" rx="2.5"></rect><path d="M7 10h.01M10.3 10h.01M13.7 10h.01M17 10h.01M8 14.2h8"></path>'),
@@ -620,7 +645,7 @@ def soft_svg(color, fill, line, size):
             f'<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{line}</g></g></svg></span>')
 
 
-if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
+if len(sys.argv) > 2 and not STATIC_ONLY:
     icon_dir = Path(sys.argv[2])
     icon_dir.mkdir(parents=True, exist_ok=True)
     for key, _, color, fill, line in FEATURE_ICONS:
@@ -657,6 +682,9 @@ inner = f'''<div class="col" style="gap: 18px">
 boards.append(board("FeatureIcons", "功能图标 · 两个方向", 1100, 1030, inner))
 
 # ---- canvas.json ----
+if STATIC_ONLY:
+    raise SystemExit(0)
+
 canvas_path = OUT / "canvas.json"
 canvas = json.loads(canvas_path.read_text())
 if not any(p["id"] == "next" for p in canvas["pages"]):
