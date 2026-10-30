@@ -10,7 +10,7 @@ import {
   openPath,
   PageActionsSlot,
   PathIcon,
-  PuzzleIcon,
+  FeatureIcon,
   SearchIcon,
   SlidersIcon,
   useAppearance,
@@ -21,7 +21,7 @@ import {
   type Manifest,
   type SearchItem,
 } from "@ahatools/sdk";
-import { actions, fullPageViews, pluginIcons, views, type Target } from "./views";
+import { actions, fullPageViews, views, type Target } from "./views";
 import "./styles.css";
 
 interface Home {
@@ -45,14 +45,10 @@ function ItemIcon({ item, large }: { item: SearchItem; large?: boolean }) {
   if (item.kind === "app" && item.action.type === "openPath") {
     return <AppIcon path={item.action.path} name={item.title} large={large} />;
   }
-  const Icon = item.kind === "saved" ? null : (pluginIcons[item.plugin] ?? PuzzleIcon);
+  if (item.kind !== "saved") return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={large ? 40 : 32} />;
   return (
     <span className={large ? "tile lg" : "tile"} aria-hidden="true">
-      {Icon ? (
-        <Icon size={large ? 18 : 16} />
-      ) : (
-        <PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} />
-      )}
+      <PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} />
     </span>
   );
 }
@@ -200,7 +196,7 @@ export default function App() {
   }
 
   const back = () => {
-    setActive(null);
+    setActive(activeRef.current?.returnTo ?? null);
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
@@ -261,6 +257,7 @@ export default function App() {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.isComposing) return;
     if (e.metaKey && e.key === ",") {
       e.preventDefault();
       open({ plugin: "settings", feature: "general" });
@@ -323,16 +320,13 @@ export default function App() {
     }
     const m = manifests.find((m) => m.id === active.plugin);
     const f = m?.features.find((f) => f.code === active.feature);
-    const Icon = pluginIcons[active.plugin] ?? PuzzleIcon;
     return (
       <div className="panel">
         <header className="page-head" data-tauri-drag-region>
           <button type="button" className="icon-btn" onClick={back} aria-label="返回搜索">
             <BackIcon size={18} />
           </button>
-          <span className="tile md" aria-hidden="true">
-            <Icon />
-          </span>
+          <FeatureIcon plugin={active.plugin} feature={active.feature} size={30} />
           <span className="page-title" data-tauri-drag-region>
             <strong>{f?.explain ?? active.feature}</strong>
             <span>{m?.name ?? active.plugin}</span>

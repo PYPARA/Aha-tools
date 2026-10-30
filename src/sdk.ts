@@ -2,6 +2,7 @@
 // so this file is the contract external plugins will be written against later.
 
 import { invoke } from "@tauri-apps/api/core";
+import type { Config, TranslateDirection, TranslateProfile, TranslateProtocol } from "./config";
 import { listen } from "@tauri-apps/api/event";
 import { Image } from "@tauri-apps/api/image";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -44,7 +45,7 @@ export interface Manifest {
   features: Feature[];
 }
 
-export type FeatureTarget = { plugin: string; feature: string; input?: string };
+export type FeatureTarget = { plugin: string; feature: string; input?: string; returnTo?: FeatureTarget };
 
 /** Pixels are RGBA, in row-major order. Native image handles never leave the SDK. */
 export interface RgbaImage {
@@ -110,12 +111,63 @@ export const onFileDrop = (handler: (paths: string[]) => void) =>
  * Keeps the panel open while `fn` runs. Use around anything that steals focus,
  * such as a native file dialog, otherwise the panel hides itself on blur.
  */
+let pinCount = 0;
+let pinTransition: Promise<unknown> = Promise.resolve();
 export async function withPinned<T>(fn: () => Promise<T>): Promise<T> {
-  await invoke("set_panel_pinned", { pinned: true });
+  if (pinCount++ === 0) pinTransition = pinTransition.catch(() => {}).then(() => invoke("set_panel_pinned", { pinned: true }));
   try {
+    await pinTransition;
     return await fn();
   } finally {
-    await invoke("set_panel_pinned", { pinned: false });
-    await getCurrentWindow().setFocus();
+    if (--pinCount === 0) {
+      pinTransition = pinTransition.catch(() => {}).then(() => invoke("set_panel_pinned", { pinned: false }));
+      await pinTransition;
+      await getCurrentWindow().setFocus();
+    }
   }
 }
+
+export type TranslateMode = "translate" | "polish" | "explain";
+export interface TranslateDraft {
+  profileId: string;
+  protocol: TranslateProtocol;
+  baseUrl: string;
+  key?: string;
+}
+export interface TranslateModel { id: string; name: string }
+export interface TranslateChunk { id: string; delta: string }
+export interface TranslateDone { id: string; reason: "completed" | "stopped"; word: boolean }
+export interface TranslateError { id: string; message: string }
+
+export const onConfigChanged = (handler: (cfg: Config) => void) =>
+  listen<Config>("config-changed", (e) => handler(e.payload));
+export async function onTranslation(handlers: {
+  chunk: (e: TranslateChunk) => void;
+  done: (e: TranslateDone) => void;
+  error: (e: TranslateError) => void;
+}) {
+  const unlisten: (() => void)[] = [];
+  try {
+    unlisten.push(await listen<TranslateChunk>("translate-chunk", (e) => handlers.chunk(e.payload)));
+    unlisten.push(await listen<TranslateDone>("translate-done", (e) => handlers.done(e.payload)));
+    unlisten.push(await listen<TranslateError>("translate-error", (e) => handlers.error(e.payload)));
+    return () => unlisten.forEach((f) => f());
+  } catch (e) { unlisten.forEach((f) => f()); throw e; }
+}
+export const translateStart = (args: { id: string; profileId: string; text: string; mode: TranslateMode; direction: TranslateDirection }) =>
+  withPinned(() => invoke<void>("translate_start", args));
+export const translateStop = (id: string) => invoke<void>("translate_stop", { id });
+export const translateSelect = (changes: { profileId?: string; direction?: TranslateDirection }) =>
+  invoke<Config>("translate_select", changes);
+export const translateHasKey = (profileId: string) => withPinned(() => invoke<boolean>("translate_has_key", { profileId }));
+export const translateSaveProfile = (profile: TranslateProfile, key?: string) =>
+  withPinned(() => invoke<Config>("translate_save_profile", { profile, key: key || null }));
+export const translateDeleteProfile = (profileId: string) =>
+  withPinned(() => invoke<Config>("translate_delete_profile", { profileId }));
+export const translateListModels = (draft: TranslateDraft) =>
+  withPinned(() => invoke<TranslateModel[]>("translate_list_models", { draft }));
+export const translateTestConnection = (draft: TranslateDraft, model: string) =>
+  withPinned(() => invoke<{ firstTokenMs: number }>("translate_test_connection", { draft, model }));
+
+export const pluginSettingsTarget = (plugin: string, returnTo: FeatureTarget): FeatureTarget =>
+  ({ plugin: "settings", feature: "general", input: `plugins/${plugin}/settings`, returnTo });

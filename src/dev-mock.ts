@@ -3,7 +3,7 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { Manifest, RgbaImage, SearchItem } from "./sdk";
+import type { Config, Manifest, RgbaImage, SearchItem, TranslateProfile, TranslateMode, TranslateDirection } from "./sdk";
 import { generatePixels } from "../plugins/qrcode/qr";
 import { imagePng } from "../plugins/qrcode/image";
 import launcher from "../plugins/launcher/plugin.json";
@@ -12,8 +12,10 @@ import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
 import webapps from "../plugins/webapps/plugin.json";
 import qrcode from "../plugins/qrcode/plugin.json";
+import translate from "../plugins/translate/plugin.json";
+import { isWord } from "../plugins/translate/core";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, translate, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
@@ -91,7 +93,7 @@ function homeItem(item: SearchItem): SearchItem {
 
 const sameItem = (a: SearchItem, b: SearchItem) => a.plugin === b.plugin && JSON.stringify(a.action) === JSON.stringify(b.action);
 
-let config = {
+let config: Config = {
   hotkeys: [
     { accelerator: "Alt+Space", action: { type: "togglePanel" }, enabled: true },
     { accelerator: "Shift+Super+KeyA", action: { type: "screenshot" }, enabled: true },
@@ -102,6 +104,15 @@ let config = {
   pinyin: true,
   appearance: "system",
   disabledMatches: [] as string[],
+  translate: {
+    profiles: params.get("translateMock") && params.get("translateMock") !== "empty" ? [
+      { id: "work", name: "工作配置", protocol: "openai-chat", baseUrl: "https://gateway.example/v1", model: "custom-chat" },
+      { id: "backup", name: "备用配置", protocol: "openai-responses", baseUrl: "https://backup.example/api", model: "custom-response" },
+      { id: "messages", name: "Messages 配置", protocol: "anthropic-messages", baseUrl: "http://localhost:9876/v1", model: "custom-messages" },
+    ] : [],
+    activeProfileId: params.get("translateMock") && params.get("translateMock") !== "empty" ? "work" : null,
+    direction: "auto",
+  },
   webApps: [{ id: "deepseek", name: "DeepSeek", url: "https://chat.deepseek.com", keywords: ["ds"] }],
   screenshot: { target: "wechat", systemMode: "region" },
   relayApps: [
@@ -113,6 +124,20 @@ let config = {
 };
 
 mockWindows("panel");
+const translationKeys = new Set(params.get("translateMock") === "missing-key" ? [] : ["work", "backup", "messages"]);
+const translationJobs = new Map<string, ReturnType<typeof setTimeout>>();
+const translationCalls: { id: string; profileId: string; text: string; mode: string; direction: string }[] = [];
+let translationStops = 0;
+let panelPinned = false;
+Object.assign(window, { __AHATOOLS_TRANSLATE_MOCK__: {
+  get calls() { return translationCalls; }, get jobs() { return translationJobs.size; },
+  get stops() { return translationStops; },
+  get listeners() { return Array.from(listeners.values()).filter((name) => name.startsWith("translate-")).length; }, get pinned() { return panelPinned; },
+  setScenario(value: string) { params.set("translateMock", value); },
+  get config() { return structuredClone(config.translate); },
+  keyPresent(id: string) { return translationKeys.has(id); },
+} });
+
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (cmd) {
@@ -130,6 +155,64 @@ mockIPC((cmd, args) => {
         if (event === a.event) internals.runCallback(id, { event, id, payload: a.payload });
       }
       return null;
+    }
+    case "set_panel_pinned": panelPinned = Boolean(a.pinned); return null;
+    case "translate_select":
+      if (a.profileId) config.translate.activeProfileId = String(a.profileId);
+      if (a.direction) config.translate.direction = a.direction as TranslateDirection;
+      queueMicrotask(() => void emit("config-changed", config)); return config;
+    case "translate_has_key":
+      if (params.get("translateMock") === "key-error") throw new Error("无法读取系统钥匙串，请允许 AhaTools 访问后重试");
+      return translationKeys.has(String(a.profileId));
+    case "translate_save_profile": {
+      if (params.get("translateMock") === "save-error") throw new Error("配置保存失败，原配置已保留");
+      const profile = a.profile as TranslateProfile;
+      const old = config.translate.profiles.find((p) => p.id === profile.id);
+      if ((!old || old.baseUrl !== profile.baseUrl || old.protocol !== profile.protocol) && !a.key) throw new Error("请重新填写 API Key");
+      config.translate.profiles = old ? config.translate.profiles.map((p) => p.id === profile.id ? profile : p) : [...config.translate.profiles, profile];
+      if (a.key) translationKeys.add(profile.id);
+      config.translate.activeProfileId ??= profile.id;
+      queueMicrotask(() => void emit("config-changed", config));
+      return config;
+    }
+    case "translate_delete_profile": {
+      const id = String(a.profileId);
+      config.translate.profiles = config.translate.profiles.filter((p) => p.id !== id); translationKeys.delete(id);
+      if (config.translate.activeProfileId === id) config.translate.activeProfileId = config.translate.profiles[0]?.id ?? null;
+      queueMicrotask(() => void emit("config-changed", config)); return config;
+    }
+    case "translate_list_models":
+      if (params.get("translateMock") === "model-slow") return new Promise((resolve) => setTimeout(() => resolve([{ id:"stale-model", name:"过期模型" }]), 600));
+      if (params.get("translateMock") === "model-error") throw new Error("HTTP 404：此服务不提供模型列表");
+      return [{ id: "custom-model-a", name: "自定义模型 A" }, { id: "custom-model-b", name: "自定义模型 B" }];
+    case "translate_test_connection":
+      if (params.get("translateMock") === "test-slow") return new Promise((resolve) => setTimeout(() => resolve({ firstTokenMs:999 }), 600));
+      if (params.get("translateMock") === "error") throw new Error("HTTP 401：密钥无效");
+      return { firstTokenMs: 420 };
+    case "translate_stop": {
+      const id = String(a.id); const timer = translationJobs.get(id);
+      if (timer) { clearTimeout(timer); translationJobs.delete(id); translationStops++; void emit("translate-done", { id, reason: "stopped", word: false }); }
+      return null;
+    }
+    case "translate_start": {
+      const id = String(a.id); const text = String(a.text);
+      const profileId = String(a.profileId);
+      if (!translationKeys.has(profileId)) throw new Error("请先设置这套配置的 API Key");
+      const mode = a.mode as TranslateMode; const direction = a.direction as TranslateDirection;
+      translationCalls.push({ id, profileId, text, mode, direction });
+      const word = isWord(text, mode, direction);
+      const output = word ? params.get("translateMock") === "invalid-word" ? "机缘巧合；意外的美好发现" : JSON.stringify({
+        phonetic: "/ˌserənˈdɪpəti/", senses: [{ partOfSpeech: "名词", meaning: "机缘巧合；意外发现美好事物的运气", explanation: "指没有刻意寻找时，偶然发现有价值的事物。" }],
+        examples: [{ en: "Finding that café was pure serendipity.", zh: "找到那家咖啡馆纯属机缘巧合。" }, { en: "Many discoveries happen by serendipity.", zh: "许多发现都源于偶然。" }], synonyms: ["chance", "fortune", "luck"],
+      }) : mode === "polish" ? "Tauri helps you build small, fast desktop applications with a web frontend." : mode === "explain" ? "这段文字介绍了 Tauri：它使用 Rust 处理核心逻辑，并用系统自带的网页视图呈现界面。" : direction === "zh-en" || direction === "auto" && /\p{Script=Han}/u.test(text) ? "AhaTools makes everyday work easier. It is a lightweight toolbox for macOS." : "Tauri 让你用网页前端构建更小、更快的桌面应用。核心使用 Rust，界面运行在系统自带的网页视图中，让应用保持轻量。";
+      const chars = Array.from(output); let n = 0;
+      const tick = () => {
+        if (params.get("translateMock") === "error" && n >= 8) { translationJobs.delete(id); void emit("translate-error", { id, message: "HTTP 503：服务暂时不可用" }); return; }
+        if (n >= chars.length) { translationJobs.delete(id); void emit("translate-done", { id, reason:"completed", word }); return; }
+        void emit("translate-chunk", { id, delta: chars.slice(n, n += 8).join("") });
+        translationJobs.set(id, setTimeout(tick, params.get("translateMock") === "slow" ? 250 : 20));
+      };
+      translationJobs.set(id, setTimeout(tick, 60)); return null;
     }
     case "list_plugins":
       return manifests;

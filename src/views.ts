@@ -3,13 +3,7 @@
 
 import type { ComponentType } from "react";
 import {
-  BookmarkIcon,
-  GearIcon,
-  GlobeIcon,
   invoke,
-  KeyboardIcon,
-  QrCodeIcon,
-  ScreenshotIcon,
   type PluginSettingsProps,
   type PluginViewProps,
   type FeatureTarget,
@@ -22,6 +16,8 @@ import Settings from "../plugins/settings/Settings";
 import WebAppsSettings from "../plugins/webapps/Settings";
 import QrGenerate from "../plugins/qrcode/Generate";
 import QrScan from "../plugins/qrcode/Scan";
+import Translate from "../plugins/translate/Translate";
+import TranslateSettings from "../plugins/translate/Settings";
 
 export const views: Record<string, ComponentType<PluginViewProps>> = {
   "launcher/manage": LauncherManage,
@@ -29,6 +25,7 @@ export const views: Record<string, ComponentType<PluginViewProps>> = {
   "settings/general": Settings,
   "qrcode/generate": QrGenerate,
   "qrcode/scan": QrScan,
+  "translate/translate": Translate,
 };
 
 /** Views that draw the whole window themselves (no page header or footer). */
@@ -44,17 +41,9 @@ export const actions: Record<string, (ctx: { input?: string; open: (t: Target) =
   "webapps/manage": ({ open }) => open({ plugin: "settings", feature: "general", input: "plugins/webapps/settings" }),
 };
 
-export const pluginIcons: Record<string, ComponentType<{ size?: number }>> = {
-  launcher: BookmarkIcon,
-  hotkeys: KeyboardIcon,
-  screenshot: ScreenshotIcon,
-  webapps: GlobeIcon,
-  settings: GearIcon,
-  qrcode: QrCodeIcon,
-};
-
 /** Each plugin's 设置 tab in the plugin detail page. */
 export const pluginSettings: Record<string, ComponentType<PluginSettingsProps>> = {
   screenshot: ScreenshotSettings,
   webapps: WebAppsSettings,
+  translate: TranslateSettings,
 };

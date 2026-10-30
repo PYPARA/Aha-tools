@@ -34,7 +34,23 @@ export interface Config {
   /** Content matches switched off, as "<plugin>/<feature>". */
   disabledMatches: string[];
   webApps: WebApp[];
+  translate: TranslateConfig;
   [key: string]: unknown;
+}
+
+export type TranslateProtocol = "openai-chat" | "openai-responses" | "anthropic-messages";
+export type TranslateDirection = "auto" | "en-zh" | "zh-en";
+export interface TranslateProfile {
+  id: string;
+  name: string;
+  protocol: TranslateProtocol;
+  baseUrl: string;
+  model: string;
+}
+export interface TranslateConfig {
+  profiles: TranslateProfile[];
+  activeProfileId: string | null;
+  direction: TranslateDirection;
 }
 
 /** A site opened in its own long-lived window. */

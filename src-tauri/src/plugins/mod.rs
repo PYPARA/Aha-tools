@@ -9,6 +9,7 @@
 
 pub mod launcher;
 pub mod qrcode;
+pub mod translate;
 pub mod webapps;
 
 use std::collections::HashMap;
@@ -28,6 +29,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/screenshot/plugin.json"),
     include_str!("../../../plugins/webapps/plugin.json"),
     include_str!("../../../plugins/qrcode/plugin.json"),
+    include_str!("../../../plugins/translate/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
 ];
 
@@ -397,6 +399,23 @@ mod tests {
     }
 
     #[test]
+    fn builtin_translate_matches_keywords_and_text_and_can_be_disabled() {
+        let r = Registry::new();
+        for cmd in ["翻译", "fy", "translate"] {
+            assert!(r.search_with_disabled(cmd, &[]).iter().any(|i| i.plugin == "translate"));
+        }
+        let named = r.search_with_disabled("fy hello", &[]);
+        assert_eq!(named[0].plugin, "translate");
+        assert_eq!(input_of(&named[0]), Some("hello"));
+        let query = "hello world from a language tool";
+        let matched = r.search_with_disabled(query, &[]);
+        assert!(matched.iter().any(|i| i.plugin == "translate" && i.score == CONTENT_MATCH_SCORE && input_of(i) == Some(query)));
+        assert!(!r.search_with_disabled("x", &[]).iter().any(|i| i.plugin == "translate"));
+        assert!(!r.search_with_disabled(query, &["translate/translate".into()]).iter().any(|i| i.plugin == "translate"));
+        assert_eq!(r.search_with_disabled("fy hello", &["translate/translate".into()])[0].plugin, "translate");
+    }
+
+    #[test]
     fn regex_match() {
         let r = registry_with(
             r#"{"code":"x","explain":"x","cmds":["zzz"],"match":{"regex":"^\\d+$"}}"#,
@@ -435,7 +454,7 @@ mod tests {
         assert_eq!(qr.score, CONTENT_MATCH_SCORE);
         assert_eq!(input_of(qr), Some(query));
         assert_eq!(qr.title, "为「https://example.com/你好…」生成二维码");
-        assert_eq!(items.last().unwrap().plugin, "qrcode");
+        assert!(items.iter().filter(|it| it.score < 0).all(|it| it.score == CONTENT_MATCH_SCORE));
 
         let disabled = ["qrcode/generate".into()];
         assert!(!r.search_with_disabled(query, &disabled).iter().any(|it| it.plugin == "qrcode"));
