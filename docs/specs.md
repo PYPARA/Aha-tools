@@ -111,6 +111,10 @@ python3 docs/design/gen_boards.py <画布目录> src/assets/icons
 
 ## 4. 超级面板（参考 uTools）
 
+**首版已实现（2026-10-30）**：本轮调整以此段为准。翻译和图片压缩不作为前置，其入口及流式翻译预览等插件完成后再接入；默认七项不含翻译。选中文字备用方案保存 / 恢复所有可读取的剪贴板项目和格式，无法完整保存时跳过。OCR 成功自动复制，并通过 `viewOnly` 打开可选择文字的结果页。自定义命令占位符仅允许独立、未加引号的参数，禁止嵌入脚本；默认 Claude Code 示例改用 Terminal + AppleScript 参数，不再使用嵌套命令字符串。多选只在父目录相同时提供唯一 `dir`，新建文件仅用于单个目录。长按右键独立于独占热键，移动超过 6pt 恢复右键拖动。详见 HANDOFF 的实现及真机验收记录。
+
+补充静态设计：[OcrResult.html](design/OcrResult.html)、[SuperPanelCommand.html](design/SuperPanelCommand.html)、[SuperPanelUnavailable.html](design/SuperPanelUnavailable.html)。
+
 设计：[SuperPanelHome.html](design/SuperPanelHome.html)、[SuperPanelFinder.html](design/SuperPanelFinder.html)、[SuperPanelText.html](design/SuperPanelText.html)、[SuperPanelSettings.html](design/SuperPanelSettings.html)。
 
 **是什么**：在鼠标旁边弹出的小面板（300×460），按当前上下文列出能做的事：
@@ -148,7 +152,7 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
   - 第一次会弹「AhaTools 想要控制访达」的授权框，要在文档里提示；被拒绝时退回「我的面板」。
 - **选中文字**（非访达）：
   1. 先用辅助功能接口读焦点元素的 `kAXSelectedTextAttribute`（`AXUIElementCreateSystemWide` → `kAXFocusedUIElementAttribute` → 选中文字），不碰剪贴板；
-  2. 读不到再模拟 ⌘C（`tap::post_shortcut`）：记下剪贴板的 changeCount，等 150ms；有变化就读文字，然后把原来的文字内容写回去。原来是图片时无法恢复，这一点写进已知问题。
+  2. 读不到再模拟 ⌘C（`tap::post_shortcut`）：等待触发键释放，完整保存剪贴板各项目和格式并记下 changeCount；无法安全保存则跳过。代按后最多等 150ms，有变化才读文字，并在计数仍匹配时恢复完整快照；检测到其他写入时保留较新内容。
 - **网址**：文字是网址时 `kind` 仍为 Text，动作里多「在浏览器中打开」。
 
 ### 动作
@@ -166,7 +170,7 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
     - 网址：在浏览器中打开。
 - **自定义动作**（设置里增删）：`config.superPanel.actions: [{ id, name, command, when: ["file" | "folder" | "image" | "text"], enabled }]`。
   - 执行：`/bin/sh -c <command>`，不开终端。
-  - 占位符：`{path}` 选中项（多个用空格隔开）、`{dir}`、`{text}`、`{name}`。**替换时每个值都要做 shell 单引号转义**（`'` → `'\''`），否则文件名里的特殊字符会执行命令。
+  - 占位符必须是独立、未加引号的参数，不可放在引号、命令替换、here-document 内。占位符：`{path}` 选中项（多个用空格隔开）、`{dir}`、`{text}`、`{name}`。**替换时每个值都要做 shell 单引号转义**（`'` → `'\''`），否则文件名里的特殊字符会执行命令。
   - 默认带两条示例，都默认关闭：
     - 「用 VS Code 打开」`code {path}`；
     - 「用 Claude Code 打开」：在终端里执行 `cd {dir} && claude`。

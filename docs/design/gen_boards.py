@@ -535,12 +535,18 @@ detail = f'''<div class="detail" style="gap: 14px">
 <span class="row" style="margin-top: 4px"><span class="lbl">自定义动作</span><span class="sp"></span><button type="button" class="btn sm">{icon("plus", 13)}新建动作</button></span>
 <div class="card">
 <div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px; border-bottom: 1px solid var(--border)"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 VS Code 打开</b><span class="mono" style="font-size: 11px">code {{path}}</span></span><span class="chip">文件 · 文件夹</span><span class="sw sm on"><i></i></span></div>
-<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px">open -a Ghostty --args -e "cd {{dir}} &amp;&amp; claude"</span></span><span class="chip">文件夹</span><span class="sw sm on"><i></i></span></div>
+<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px">osascript -e 'on run argv' -e 'tell application &quot;Terminal&quot; to do script (&quot;cd &quot; &amp; quoted form of (item 1 of argv) &amp; &quot; &amp;&amp; claude&quot;)' -e 'end run' {{dir}}</span></span><span class="chip">文件夹</span><span class="sw sm on"><i></i></span></div>
 </div>
-<p class="note">命令里可用 <span class="mono">{{path}}</span> 选中项、<span class="mono">{{dir}}</span> 所在文件夹、<span class="mono">{{text}}</span> 选中文字；用系统 shell 执行，不弹终端。</p>
+<p class="note">占位符须单独作为参数，不要加引号。可用 <span class="mono">{{path}}</span> 选中项、<span class="mono">{{dir}}</span> 所在文件夹、<span class="mono">{{text}}</span> 选中文字；用系统 shell 执行，不弹终端。</p>
 </div>'''
 sp_settings = settings("", detail, nav_on="超级面板").replace('<span class="i">所有指令</span>', '<span class="i">所有指令</span>').replace('<span class="i">全局热键</span>', '<span class="i">全局热键</span>\n<span class="i on">超级面板</span>', 1)
 boards.append(board("SuperPanelSettings", "设置 · 超级面板", 880, 580, sp_settings))
+
+# ---- 超级面板首版补充 ----
+boards.append(board("SuperPanelCommand", "超级面板 · 编辑动作", 880, 580, settings("", '''<div class="detail" style="gap:16px"><h1 style="font-family:var(--serif);font-weight:500">编辑动作</h1><label>名称<input value="用 VS Code 打开"></label><label>命令<textarea class="mono" style="height:120px">code {path}</textarea></label><p class="note">占位符单独作为参数，不要加引号。支持 {path}、{dir}、{text}、{name}。</p><div class="row">适用于：文件 · 文件夹 · 图片</div><div class="row"><button class="btn a">保存动作</button><button class="btn">取消</button></div><p class="note">命令后台执行；需要长期运行时，请让命令打开终端。</p></div>''', nav_on="超级面板")))
+boards.append(board("OcrResult", "截图识字 · 结果", 880, 580, page(880, 580, "ocr", "截图识字", "系统动作", "", '''<div class="body"><div class="col" style="width:100%;gap:16px"><div class="row"><span class="note">已复制识别文字 · 全程在本机完成</span><span class="sp"></span><button class="btn">重新截图</button><button class="btn a">复制全部</button></div><textarea style="flex:1;resize:none;padding:16px;font-size:14px;line-height:1.8">AhaTools 让常用工具触手可及。
+Build something useful.</textarea></div></div>''', "Esc 返回搜索 · ⌘C 复制文字", "本机识别")))
+boards.append(board("SuperPanelUnavailable", "超级面板 · 暂无依赖插件", 1100, 540, desk_with(sp_shell(chip("我的面板", "star"), sp_grid([("截图","shot"),("二维码","qr"),("取色","drop"),("截图识字","ocr"),("DeepSeek","D"),("显示桌面","desk"),("锁屏","lock2"),("添加","plus")])))))
 
 # ---- 功能图标 ----
 # Two directions on one board. A (default, written to src/assets/icons): a luminous

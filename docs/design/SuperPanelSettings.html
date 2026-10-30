@@ -83,9 +83,9 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 <span class="row" style="margin-top: 4px"><span class="lbl">自定义动作</span><span class="sp"></span><button type="button" class="btn sm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新建动作</button></span>
 <div class="card">
 <div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px; border-bottom: 1px solid var(--border)"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 VS Code 打开</b><span class="mono" style="font-size: 11px">code {path}</span></span><span class="chip">文件 · 文件夹</span><span class="sw sm on"><i></i></span></div>
-<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px">open -a Ghostty --args -e "cd {dir} &amp;&amp; claude"</span></span><span class="chip">文件夹</span><span class="sw sm on"><i></i></span></div>
+<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px">osascript -e 'on run argv' -e 'tell application &quot;Terminal&quot; to do script (&quot;cd &quot; &amp; quoted form of (item 1 of argv) &amp; &quot; &amp;&amp; claude&quot;)' -e 'end run' {dir}</span></span><span class="chip">文件夹</span><span class="sw sm on"><i></i></span></div>
 </div>
-<p class="note">命令里可用 <span class="mono">{path}</span> 选中项、<span class="mono">{dir}</span> 所在文件夹、<span class="mono">{text}</span> 选中文字；用系统 shell 执行，不弹终端。</p>
+<p class="note">占位符须单独作为参数，不要加引号。可用 <span class="mono">{path}</span> 选中项、<span class="mono">{dir}</span> 所在文件夹、<span class="mono">{text}</span> 选中文字；用系统 shell 执行，不弹终端。</p>
 </div>
 </section>
 </div>
@@ -116,9 +116,9 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 <span class="row" style="margin-top: 4px"><span class="lbl">自定义动作</span><span class="sp"></span><button type="button" class="btn sm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新建动作</button></span>
 <div class="card">
 <div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px; border-bottom: 1px solid var(--border)"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 VS Code 打开</b><span class="mono" style="font-size: 11px">code {path}</span></span><span class="chip">文件 · 文件夹</span><span class="sw sm on"><i></i></span></div>
-<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px">open -a Ghostty --args -e "cd {dir} &amp;&amp; claude"</span></span><span class="chip">文件夹</span><span class="sw sm on"><i></i></span></div>
+<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px">osascript -e 'on run argv' -e 'tell application &quot;Terminal&quot; to do script (&quot;cd &quot; &amp; quoted form of (item 1 of argv) &amp; &quot; &amp;&amp; claude&quot;)' -e 'end run' {dir}</span></span><span class="chip">文件夹</span><span class="sw sm on"><i></i></span></div>
 </div>
-<p class="note">命令里可用 <span class="mono">{path}</span> 选中项、<span class="mono">{dir}</span> 所在文件夹、<span class="mono">{text}</span> 选中文字；用系统 shell 执行，不弹终端。</p>
+<p class="note">占位符须单独作为参数，不要加引号。可用 <span class="mono">{path}</span> 选中项、<span class="mono">{dir}</span> 所在文件夹、<span class="mono">{text}</span> 选中文字；用系统 shell 执行，不弹终端。</p>
 </div>
 </section>
 </div>
