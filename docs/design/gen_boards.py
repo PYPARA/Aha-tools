@@ -211,6 +211,19 @@ def qr_path(n=25, seed=7):
 
 
 boards = []
+
+# ---- 通用 · 再次打开时 ----
+detail = f'''<div class="detail" style="gap: 0">
+<h1 style="font-family: var(--serif); font-size: 22px; font-weight: 500; margin: 0 0 12px">通用</h1>
+<div class="srow" style="min-height: 66px"><span class="st"><b>呼出快捷键</b><span>打开搜索面板</span></span><span class="btn mono">⌥ Space</span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>再次打开时</b><span>决定重新唤出面板后显示的页面</span></span><select class="sel" aria-label="再次打开时" style="font-family: inherit; color: var(--text)"><option>回到上次的页面</option><option>超过 5 分钟回到搜索</option><option>总是回到搜索</option></select></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>独占热键</b><span>AhaTools 的热键只有它自己响应</span></span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>拼音搜索</b><span>用全拼或首字母搜中文名，例如 wx 找到微信</span></span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>菜单栏网速</b><span>在菜单栏显示实时上传和下载速度</span></span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>开机自动启动</b><span>登录后在菜单栏运行</span></span><span class="sw"><i></i></span></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>外观</b><span>浅色、深色或跟随系统</span></span><span class="sel">跟随系统{icon("down", 12)}</span></div>
+</div>'''
+boards.append(board("PanelBehavior", "设置 · 再次打开时", 880, 580, settings("", detail, nav_on="通用")))
 QR = qr_path()
 
 # ---- 二维码 · 生成 ----
@@ -565,6 +578,9 @@ boards.append(board("SuperPanelSettings", "设置 · 超级面板", 880, 580, sp
 # Glyphs sit on a 24-unit grid: "fill" parts are the soft second tone, "line" parts the
 # 1.8px outline.
 FEATURE_ICONS = [
+    ("images", "图片工具", "#548C9A", '<rect x="3.5" y="4" width="17" height="16" rx="2"></rect>', '<rect x="3.5" y="4" width="17" height="16" rx="2"></rect><circle cx="8.5" cy="9" r="1.5"></circle><path d="M4 17l5-5 3 3 3-4 5 6"></path>'),
+    ("images-save", "保存图片为 PNG", "#548C9A", '<path d="M4 14h16v6H4z"></path>', '<path d="M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5"></path>'),
+    ("images-copy", "复制图片", "#548C9A", '<rect x="8" y="8" width="13" height="13" rx="2"></rect>', '<rect x="8" y="8" width="13" height="13" rx="2"></rect><path d="M15 8V3H3v12h5"></path>'),
     # key, 名称, 底色, 浅色调（fill）, 线条（line）
     ("launcher", "快捷启动", "#D08A3A", '<path d="M7 4h10v16l-5-3.5L7 20z"></path>', '<path d="M7 4h10v16l-5-3.5L7 20z"></path><path d="M12 8.2l.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z"></path>'),
     ("hotkeys", "热键检测", "#5F6F86", '<rect x="3" y="6" width="18" height="12" rx="2.5"></rect>', '<rect x="3" y="6" width="18" height="12" rx="2.5"></rect><path d="M7 10h.01M10.3 10h.01M13.7 10h.01M17 10h.01M8 14.2h8"></path>'),

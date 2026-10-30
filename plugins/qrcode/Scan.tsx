@@ -16,7 +16,7 @@ interface Snapshot {
   result?: ScanResult;
 }
 
-export default function Scan({ setStatus, openFeature }: PluginViewProps) {
+export default function Scan({ setStatus, openFeature, content }: PluginViewProps) {
   const [state, setState] = useState<Snapshot>({ phase: "loading", source: "剪贴板", message: "正在读取剪贴板…" });
   const [notice, setNotice] = useState({ text: "", error: false });
   const [dragging, setDragging] = useState(false);
@@ -99,9 +99,11 @@ export default function Scan({ setStatus, openFeature }: PluginViewProps) {
   }, [read, rejectFiles]);
 
   useEffect(() => {
-    void reread();
+    if (content?.type === "files") readPaths(content.paths);
+    else if (content?.type === "image") void read(content.name, async () => ({ ...content.image, rgba: content.image.rgba.slice() }));
+    else void reread();
     let disposed = false;
-    const subscriptions = [onPanelShown(() => void reread()), onFileDrop(readPaths)];
+    const subscriptions = [onPanelShown((event) => { if (!event?.reset) void reread(); }), onFileDrop(readPaths)];
     for (const subscription of subscriptions) {
       subscription.catch(() => {
         if (!disposed) setNotice({ text: "无法监听图片拖放，请重新打开识别页面", error: true });
@@ -111,7 +113,7 @@ export default function Scan({ setStatus, openFeature }: PluginViewProps) {
       disposed = true;
       subscriptions.forEach((s) => { void s.then((off) => off()).catch(() => {}); });
     };
-  }, [reread, readPaths]);
+  }, [reread, readPaths, read, content]);
 
   const result = state.result;
   const url = result ? httpUrl(result.text) : null;

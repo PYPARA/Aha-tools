@@ -70,7 +70,7 @@ pub fn dispatch(app: &AppHandle, action: &Action) {
     match action {
         Action::TogglePanel => panel::toggle(app),
         Action::OpenFeature { plugin, feature } => {
-            panel::show(app);
+            panel::show_feature(app);
             let _ = app.emit(
                 "open-feature",
                 serde_json::json!({ "plugin": plugin, "feature": feature }),

@@ -30,6 +30,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/webapps/plugin.json"),
     include_str!("../../../plugins/qrcode/plugin.json"),
     include_str!("../../../plugins/translate/plugin.json"),
+    include_str!("../../../plugins/images/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
 ];
 
@@ -125,6 +126,9 @@ pub struct Feature {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Match {
+    /// Raw clipboard images, without a path on disk.
+    #[serde(default)]
+    pub image: bool,
     /// Any text of at least `min_length` characters.
     #[serde(default)]
     pub text: bool,
@@ -136,9 +140,21 @@ pub struct Match {
     /// Dropped files with these extensions (lowercase, no dot). Handled by the panel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_files: Option<usize>,
 }
 
 impl Match {
+    fn accepts_content(&self, content: &MatchContent) -> bool {
+        match content {
+            MatchContent::Image => self.image,
+            MatchContent::Files { paths } => !paths.is_empty() && self.max_files.is_none_or(|max| paths.len() <= max) && paths.iter().all(|path| {
+                self.files.iter().any(|extension| extension == "*" || std::path::Path::new(path)
+                    .extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case(extension)))
+            }),
+        }
+    }
+
     fn accepts(&self, query: &str) -> bool {
         if query.chars().count() < self.min_length.max(1) {
             return false;
@@ -151,6 +167,14 @@ impl Match {
             .and_then(|r| Regex::new(r).ok())
             .is_some_and(|re| re.is_match(query))
     }
+}
+
+/// Only metadata crosses search IPC. Raw pixels stay in the panel until a feature runs.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum MatchContent {
+    Image,
+    Files { paths: Vec<String> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -297,6 +321,31 @@ impl Registry {
         items.truncate(MAX_RESULTS);
         items
     }
+
+    fn content_results(&self, content: &MatchContent, query: &str, disabled: &[String]) -> Vec<SearchItem> {
+        let matcher = SkimMatcherV2::default().ignore_case();
+        let query = query.trim();
+        let mut items = vec![];
+        for manifest in &self.manifests {
+            for feature in &manifest.features {
+                if disabled.contains(&format!("{}/{}", manifest.id, feature.code)) ||
+                    !feature.matches.as_ref().is_some_and(|m| m.accepts_content(content)) { continue; }
+                let score = if query.is_empty() { 0 } else {
+                    let Some(score) = feature.cmds.iter().map(String::as_str)
+                        .chain([feature.explain.as_str(), manifest.name.as_str()])
+                        .filter_map(|name| match_text(&matcher, name, query)).max() else { continue };
+                    score
+                };
+                items.push(SearchItem {
+                    title: feature.explain.clone(), subtitle: manifest.name.clone(), score,
+                    plugin: manifest.id.clone(), kind: ItemKind::Feature, icon: None,
+                    action: ItemAction::Feature { feature: feature.code.clone(), input: None },
+                });
+            }
+        }
+        items.sort_by(|a, b| b.score.cmp(&a.score));
+        items
+    }
 }
 
 pub fn on_panel_shown<R: Runtime>(app: &AppHandle<R>) {
@@ -325,8 +374,12 @@ pub fn list_plugins(registry: State<Registry>) -> Vec<Manifest> {
 }
 
 #[tauri::command]
-pub fn search(registry: State<Registry>, query: String) -> Vec<SearchItem> {
-    registry.search(&query)
+pub fn search(registry: State<Registry>, query: String, content: Option<MatchContent>) -> Vec<SearchItem> {
+    if let Some(content) = content {
+        registry.content_results(&content, &query, &OPTIONS.read().unwrap().disabled_matches)
+    } else {
+        registry.search(&query)
+    }
 }
 
 /// "~/x" → "$HOME/x"; anything else unchanged.
@@ -461,5 +514,41 @@ mod tests {
         let named = r.search_with_disabled("qr hello", &disabled);
         assert_eq!(input_of(&named[0]), Some("hello"));
         assert!(r.search_with_disabled("", &[]).is_empty());
+    }
+
+    #[test]
+    fn pasted_image_matches_real_features_and_respects_switches_and_filter() {
+        let registry = Registry::new();
+        let content = MatchContent::Image;
+        let items = registry.content_results(&content, "", &[]);
+        assert_eq!(items.iter().map(|it| it.title.as_str()).collect::<Vec<_>>(), ["识别二维码", "保存图片为 PNG", "复制图片"]);
+        assert!(items.iter().all(|it| input_of(it).is_none()));
+        let disabled = ["qrcode/scan".into()];
+        assert_eq!(registry.content_results(&content, "", &disabled).len(), 2);
+        assert!(registry.content_results(&content, "scan", &disabled).is_empty());
+        assert_eq!(registry.content_results(&content, "scan", &[])[0].title, "识别二维码");
+        assert!(registry.content_results(&content, "微信", &[]).is_empty());
+        assert!(registry.search_with_disabled("scan", &disabled).iter().any(|it| it.title == "识别二维码"));
+    }
+
+    #[test]
+    fn file_matching_uses_every_extension_and_never_treats_paths_as_image_pixels() {
+        let registry = Registry::new();
+        for extension in ["PNG", "jpg", "Jpeg", "WebP"] {
+            let content = MatchContent::Files { paths: vec![format!("/tmp/含 空格.{extension}")] };
+            let titles = registry.content_results(&content, "", &[]).into_iter().map(|it| it.title).collect::<Vec<_>>();
+            assert!(titles.contains(&"识别二维码".into()));
+            assert!(titles.contains(&"管理收藏的路径".into()));
+            assert!(titles.contains(&"复制文件路径".into()));
+            assert!(titles.contains(&"提取文件名称".into()));
+            assert!(!titles.contains(&"保存图片为 PNG".into()));
+        }
+        let mixed = MatchContent::Files { paths: vec!["/tmp/a.png".into(), "/tmp/b.pdf".into()] };
+        let items = registry.content_results(&mixed, "", &[]);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| item.plugin == "launcher"));
+        let multiple = MatchContent::Files { paths: vec!["/tmp/a.png".into(), "/tmp/b.png".into()] };
+        assert!(!registry.content_results(&multiple, "", &[]).iter().any(|item| item.plugin == "qrcode"));
+        assert!(registry.content_results(&MatchContent::Files { paths: vec![] }, "", &[]).is_empty());
     }
 }

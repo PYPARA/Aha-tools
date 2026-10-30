@@ -22,6 +22,8 @@ pub struct Config {
     pub pinyin: bool,
     /// "system", "light" or "dark".
     pub appearance: String,
+    /// What a normal panel invocation does after the panel has been hidden.
+    pub panel_reopen: PanelReopen,
     /// Content matches switched off in a plugin's 自动匹配 tab, as "<plugin>/<feature>".
     pub disabled_matches: Vec<String>,
     /// Sites opened in their own long-lived windows (webapps.rs).
@@ -66,6 +68,16 @@ pub enum TranslateDirection {
     EnZh,
     #[serde(rename = "zh-en")]
     ZhEn,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelReopen {
+    AfterFiveMinutes,
+    Search,
+    #[default]
+    #[serde(other)]
+    Resume,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -210,6 +222,7 @@ impl Default for Config {
             relay_apps: default_relay_apps(),
             pinyin: true,
             appearance: "system".into(),
+            panel_reopen: PanelReopen::Resume,
             disabled_matches: vec![],
             web_apps: default_web_apps(),
             translate: TranslateConfig::default(),
@@ -309,6 +322,20 @@ mod tests {
         assert_eq!(cfg.web_apps, default_web_apps());
         assert_eq!(cfg.appearance, "system");
         assert_eq!(cfg.translate, TranslateConfig::default());
+        assert_eq!(cfg.panel_reopen, PanelReopen::Resume);
+    }
+
+    #[test]
+    fn panel_reopen_round_trips_and_unknown_values_keep_other_settings() {
+        for (value, mode) in [("resume", PanelReopen::Resume), ("search", PanelReopen::Search), ("afterFiveMinutes", PanelReopen::AfterFiveMinutes)] {
+            let cfg: Config = serde_json::from_str(&format!(r#"{{"panelReopen":"{value}","pinyin":false}}"#)).unwrap();
+            assert_eq!(cfg.panel_reopen, mode);
+            assert!(!cfg.pinyin);
+            assert_eq!(serde_json::to_value(&cfg).unwrap()["panelReopen"], value);
+        }
+        let cfg: Config = serde_json::from_str(r#"{"panelReopen":"futureValue","netspeed":false}"#).unwrap();
+        assert_eq!(cfg.panel_reopen, PanelReopen::Resume);
+        assert!(!cfg.netspeed);
     }
 
     #[test]
