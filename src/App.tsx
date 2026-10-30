@@ -4,13 +4,14 @@ import { Menu } from "@tauri-apps/api/menu";
 import {
   AppIcon,
   BackIcon,
+  FeatureIcon,
   formatAccelerator,
   hidePanel,
   invoke,
+  onFileDrop,
   openPath,
   PageActionsSlot,
   PathIcon,
-  PuzzleIcon,
   SearchIcon,
   SlidersIcon,
   useAppearance,
@@ -21,7 +22,7 @@ import {
   type Manifest,
   type SearchItem,
 } from "@ahatools/sdk";
-import { actions, fullPageViews, pluginIcons, views, type Target } from "./views";
+import { actions, fullPageViews, views, type Target } from "./views";
 import "./styles.css";
 
 interface Home {
@@ -45,14 +46,10 @@ function ItemIcon({ item, large }: { item: SearchItem; large?: boolean }) {
   if (item.kind === "app" && item.action.type === "openPath") {
     return <AppIcon path={item.action.path} name={item.title} large={large} />;
   }
-  const Icon = item.kind === "saved" ? null : (pluginIcons[item.plugin] ?? PuzzleIcon);
+  if (item.kind !== "saved") return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={large ? 40 : 32} />;
   return (
     <span className={large ? "tile lg" : "tile"} aria-hidden="true">
-      {Icon ? (
-        <Icon size={large ? 18 : 16} />
-      ) : (
-        <PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} />
-      )}
+      <PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} />
     </span>
   );
 }
@@ -84,6 +81,8 @@ function moveInGrid(sections: number[], index: number, key: string) {
 export default function App() {
   useAppearance();
   const [query, setQuery] = useState("");
+  const [filePaths, setFilePaths] = useState<string[] | null>(null);
+  const [filesLoading, setFilesLoading] = useState(false);
   const [searchRevision, setSearchRevision] = useState(0);
   const [items, setItems] = useState<SearchItem[]>([]);
   const [selected, setSelected] = useState(0);
@@ -141,16 +140,31 @@ export default function App() {
 
   useEffect(() => {
     let stale = false;
-    invoke<SearchItem[]>("search", { query }).then((r) => {
+    const files = filePaths !== null;
+    setFilesLoading(files);
+    invoke<SearchItem[]>(files ? "search_files" : "search", files ? { paths: filePaths } : { query }).then((r) => {
       if (!stale) {
         setItems(r);
         setSelected(0);
+        setFilesLoading(false);
       }
+    }).catch((e) => {
+      if (!stale) { setItems([]); setFilesLoading(false); setError(String(e)); }
     });
     return () => {
       stale = true;
     };
-  }, [query, searchRevision]);
+  }, [query, searchRevision, filePaths]);
+
+  useEffect(() => {
+    let disposed = false;
+    const sub = onFileDrop((paths) => {
+      if (disposed || activeRef.current || paths.length === 0) return;
+      setError(null); setQuery(""); setItems([]); setFilePaths(paths); setSelected(0);
+    });
+    void sub.catch(() => { if (!disposed) setError("无法监听文件拖放，请重新打开面板"); });
+    return () => { disposed = true; void sub.then((off) => off()).catch(() => {}); };
+  }, []);
 
   // Search is compact; plugin and settings pages get the larger window.
   useEffect(() => {
@@ -163,7 +177,7 @@ export default function App() {
     return () => clearTimeout(t);
   }, [flash]);
 
-  const hasQuery = query.trim() !== "";
+  const hasQuery = query.trim() !== "" || filePaths !== null;
   const pinnedKeys = useMemo(() => new Set(home.pinned.map(pinKey)), [home.pinned]);
 
   /** Shown when nothing has been used yet: every plugin feature. */
@@ -207,6 +221,7 @@ export default function App() {
   const run = async (item: SearchItem | undefined) => {
     if (!item) return;
     setError(null);
+    setFilePaths(null);
     invoke("usage_record", { item });
     if (item.action.type === "openWeb") {
       setQuery("");
@@ -269,6 +284,7 @@ export default function App() {
     if (e.key === "Escape") {
       e.preventDefault();
       if (active) back();
+      else if (filePaths !== null) setFilePaths(null);
       else if (query) setQuery("");
       else hidePanel();
       return;
@@ -323,16 +339,13 @@ export default function App() {
     }
     const m = manifests.find((m) => m.id === active.plugin);
     const f = m?.features.find((f) => f.code === active.feature);
-    const Icon = pluginIcons[active.plugin] ?? PuzzleIcon;
     return (
       <div className="panel">
         <header className="page-head" data-tauri-drag-region>
           <button type="button" className="icon-btn" onClick={back} aria-label="返回搜索">
             <BackIcon size={18} />
           </button>
-          <span className="tile md" aria-hidden="true">
-            <Icon />
-          </span>
+          <FeatureIcon plugin={active.plugin} feature={active.feature} size={30} />
           <span className="page-title" data-tauri-drag-region>
             <strong>{f?.explain ?? active.feature}</strong>
             <span>{m?.name ?? active.plugin}</span>
@@ -388,10 +401,13 @@ export default function App() {
         <span>右键 固定</span>
       </>
     );
-    right = `${items.length} 个结果 · 拼音首字母也能搜`;
+    right = filePaths !== null ? `${items.length} 个文件动作 · ↵ 开始` : `${items.length} 个结果 · 拼音首字母也能搜`;
   } else if (hasQuery) {
     const q = query.trim();
-    body = (
+    body = filePaths !== null ? (
+      <div className="state"><div className="copy"><p className="headline">{filesLoading ? "正在读取文件…" : "没有匹配的文件动作"}</p>
+        <p className="lede">{filesLoading ? "文件夹只读取第一层" : "请拖入 PNG、JPEG、WebP，或检查插件的自动匹配开关"}</p></div></div>
+    ) : (
       <div className="state">
         <div className="copy">
           <p className="headline">没有找到「{q}」</p>
@@ -473,7 +489,7 @@ export default function App() {
 
   return (
     <WebAppUrls.Provider value={webUrls}>
-      <div className="panel">
+      <div className="panel" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
         <header className="search-head" data-tauri-drag-region>
           <SearchIcon />
           <label htmlFor="q" className="sr-only">
@@ -485,9 +501,9 @@ export default function App() {
             autoFocus
             spellCheck={false}
             autoComplete="off"
-            placeholder="搜索应用、收藏和功能"
+            placeholder={filePaths !== null ? "已拖入文件 · 选择动作，或输入文字重新搜索" : "搜索应用、收藏和功能"}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => { setFilePaths(null); setQuery(e.target.value); setError(null); }}
           />
           <button type="button" className="icon-btn" aria-label="设置" title="设置 ⌘," onClick={openSettings}>
             <SlidersIcon />

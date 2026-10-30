@@ -26,6 +26,15 @@ function Icon({ size = 16, width = 1.6, children }: { size?: number; width?: num
 
 type P = { size?: number };
 
+const featureIcons = import.meta.glob<string>("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" });
+export function featureIconKey(plugin: string, feature?: string) {
+  if (feature && featureIcons[`./assets/icons/${plugin}-${feature}.svg`]) return `${plugin}-${feature}`;
+  return featureIcons[`./assets/icons/${plugin}.svg`] ? plugin : "external";
+}
+export function FeatureIcon({ plugin, feature, size = 32 }: { plugin: string; feature?: string; size?: number }) {
+  return <img className="feature-icon" src={featureIcons[`./assets/icons/${featureIconKey(plugin, feature)}.svg`]} width={size} height={size} alt="" aria-hidden="true" />;
+}
+
 export const SearchIcon = ({ size = 20 }: P) => (
   <Icon size={size}>
     <circle cx="11" cy="11" r="7" />

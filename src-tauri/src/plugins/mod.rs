@@ -8,6 +8,7 @@
 //! will use the same manifest format.
 
 pub mod launcher;
+pub mod compress;
 pub mod qrcode;
 pub mod webapps;
 
@@ -28,6 +29,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/screenshot/plugin.json"),
     include_str!("../../../plugins/webapps/plugin.json"),
     include_str!("../../../plugins/qrcode/plugin.json"),
+    include_str!("../../../plugins/compress/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
 ];
 
@@ -327,6 +329,29 @@ pub fn search(registry: State<Registry>, query: String) -> Vec<SearchItem> {
     registry.search(&query)
 }
 
+fn match_files(registry: &Registry, paths: &[String], disabled: &[String]) -> Vec<SearchItem> {
+    let expanded = compress::expand_paths(paths);
+    registry.manifests.iter().flat_map(|manifest| manifest.features.iter().filter_map(|feature| {
+        let extensions = &feature.matches.as_ref()?.files;
+        if extensions.is_empty() || disabled.contains(&format!("{}/{}", manifest.id, feature.code)) { return None; }
+        let count = expanded.iter().filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.iter().any(|x| x.eq_ignore_ascii_case(e)))).count();
+        if count == 0 { return None; }
+        Some(SearchItem {
+            title: feature.explain.clone(), subtitle: format!("{} · {count} 张图片", manifest.name), score: 0,
+            plugin: manifest.id.clone(), kind: ItemKind::Feature, icon: None,
+            action: ItemAction::Feature { feature: feature.code.clone(), input: Some(serde_json::to_string(&expanded).unwrap()) },
+        })
+    })).collect()
+}
+
+#[tauri::command]
+pub async fn search_files(registry: State<'_, Registry>, paths: Vec<String>) -> Result<Vec<SearchItem>, String> {
+    let manifests = registry.manifests.clone();
+    let disabled = OPTIONS.read().unwrap().disabled_matches.clone();
+    tauri::async_runtime::spawn_blocking(move || match_files(&Registry { manifests, providers: HashMap::new() }, &paths, &disabled))
+        .await.map_err(|e| format!("无法读取拖入的文件：{e}"))
+}
+
 /// "~/x" → "$HOME/x"; anything else unchanged.
 pub fn expand_home(path: &str) -> String {
     match (path.strip_prefix("~/"), std::env::var("HOME")) {
@@ -364,6 +389,27 @@ mod tests {
         match &item.action {
             ItemAction::Feature { input, .. } => input.as_deref(),
             _ => None,
+        }
+    }
+
+    #[test]
+    fn file_matches_expand_directories_and_respect_disabled_without_losing_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.PNG"), b"image").unwrap();
+        std::fs::write(dir.path().join("b.jpg"), b"image").unwrap();
+        std::fs::write(dir.path().join("skip.svg"), b"svg").unwrap();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        std::fs::write(dir.path().join("nested/skip.png"), b"nested").unwrap();
+        let r = Registry::new();
+        let paths = vec![dir.path().to_string_lossy().into_owned(), dir.path().join("a.PNG").to_string_lossy().into_owned()];
+        let items = match_files(&r, &paths, &[]);
+        assert_eq!(items.len(), 1); assert_eq!(items[0].plugin, "compress");
+        assert!(items[0].subtitle.contains("2 张图片"));
+        let input: Vec<String> = serde_json::from_str(input_of(&items[0]).unwrap()).unwrap();
+        assert_eq!(input.len(), 2);
+        assert!(match_files(&r, &paths, &["compress/compress".into()]).is_empty());
+        for cmd in ["压缩", "图片压缩", "compress", "tinypng"] {
+            assert!(r.search_with_disabled(cmd, &["compress/compress".into()]).iter().any(|i| i.plugin == "compress"));
         }
     }
 

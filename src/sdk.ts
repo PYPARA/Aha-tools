@@ -1,12 +1,12 @@
 // Host API for plugin views. Plugins import from "@ahatools/sdk", never from "src/*" directly,
 // so this file is the contract external plugins will be written against later.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Image } from "@tauri-apps/api/image";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readImage, writeImage, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { save, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
+import { confirm, open, save, type OpenDialogOptions, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 
 export { invoke };
 export * from "./ui";
@@ -98,6 +98,10 @@ export async function writeClipboardImage({ width, height, rgba }: RgbaImage): P
 }
 
 export const saveFileDialog = (options: SaveDialogOptions) => save(options);
+export const openFileDialog = (options: OpenDialogOptions) => open(options);
+export const confirmAction = (message: string) => confirm(message, { title: "AhaTools", kind: "warning", okLabel: "覆盖原图", cancelLabel: "取消" });
+export const onHostEvent = <T,>(event: string, handler: (payload: T) => void) => listen<T>(event, (e) => handler(e.payload));
+export const isNative = isTauri;
 
 export const onPanelShown = (handler: () => void) => listen("panel-shown", handler);
 

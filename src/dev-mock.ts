@@ -12,11 +12,65 @@ import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
 import webapps from "../plugins/webapps/plugin.json";
 import qrcode from "../plugins/qrcode/plugin.json";
+import compress from "../plugins/compress/plugin.json";
+import type { CompressionBatch, CompressionItem, ExportAction, ExportResult } from "../plugins/compress/model";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
+const compressionBatches: CompressionBatch[] = [];
+const compressionCopies: string[][] = [];
+const compressionExports: { batchId: string; action: string; itemIds: string[] }[] = [];
+const compressionQueue: CompressionBatch[] = [];
+let compressionWorking = false;
+let compressionScenario = params.get("compressMock") ?? "empty";
+const compressionFixtures = ["/预览/banner-home.png", "/预览/avatar@2x.png", "/预览/photo-0921.jpg", "/预览/最小 tiny.webp", "/预览/icon.svg", "/预览/broken.png"];
+const expandMockPaths = (paths: string[]) => [...new Set(paths.flatMap((p) => p.endsWith("/图片") ? compressionFixtures : [p]))];
+const mockImage = (path: string) => /\.(png|jpe?g|webp)$/i.test(path);
+
+function compressionStart(batchId: string, paths: string[], quality: number, toWebp: boolean): CompressionBatch {
+  const existing = compressionBatches.find((b) => b.batchId === batchId);
+  if (existing) return structuredClone(existing);
+  if (compressionScenario === "error") throw new Error("无法创建压缩缓存：磁盘空间不足");
+  const batch: CompressionBatch = {
+    batchId, createdAt: Date.now(), quality, toWebp,
+    items: expandMockPaths(paths).map((path, index): CompressionItem => ({
+      itemId: String(index), path, name: path.split("/").pop() ?? "图片", before: mockImage(path) ? 2480000 + index * 100000 : 0, after: null,
+      status: "waiting", version: 0, message: "等待中", outputName: null, canOverwrite: false,
+    })),
+  };
+  compressionBatches.push(batch); compressionQueue.push(batch);
+  setTimeout(() => void drainCompression(), 0);
+  return structuredClone(batch);
+}
+async function drainCompression() {
+  if (compressionWorking) return;
+  compressionWorking = true;
+  while (compressionQueue.length) {
+    const batch = compressionQueue.shift()!;
+    const names = new Set<string>();
+    for (const item of batch.items) {
+      item.status = "running"; item.message = "正在压缩…"; item.version++;
+      await emit("compress-progress", { batchId: batch.batchId, ...item });
+      await new Promise((r) => setTimeout(r, compressionScenario === "slow" ? 1200 : 100));
+      item.status = !mockImage(item.path) || item.name.includes("animated") ? "skipped" : item.name.includes("broken") ? "failed" : item.name.includes("tiny") ? "unchanged" : "compressed";
+      item.message = item.status === "skipped" ? "不支持此格式，已跳过" : item.status === "failed" ? "图片文件已损坏" : item.status === "unchanged" ? "已是最小，保留原图；拍摄信息未移除" : "已压缩，拍摄信息已移除";
+      if (item.status === "compressed" || item.status === "unchanged") {
+        item.after = item.status === "unchanged" ? item.before : Math.round(item.before * batch.quality / 250);
+        const ext = item.status === "compressed" && batch.toWebp ? "webp" : item.name.split(".").pop()!;
+        const stem = item.name.replace(/\.[^.]+$/, "");
+        let name = `${stem}.${ext}`;
+        for (let n = 2; names.has(name); n++) name = `${stem}.${n}.${ext}`;
+        names.add(name); item.outputName = name;
+        item.canOverwrite = item.status === "compressed" && (!batch.toWebp || /\.webp$/i.test(item.name));
+      }
+      item.version++;
+      await emit("compress-progress", { batchId: batch.batchId, ...item });
+    }
+  }
+  compressionWorking = false;
+}
 let scenario = (params.get("qrMock") ?? "url") as QrScenario;
 let clipboardPixels: RgbaImage | undefined;
 let clipboardText = "";
@@ -31,6 +85,14 @@ const fixtureImage = () => scenario === "no-code"
 
 // Preview-only controls for repeatable browser checks; not included in production.
 Object.assign(window, {
+  __AHATOOLS_COMPRESS_MOCK__: {
+    drop(paths = compressionFixtures) { return emit("tauri://drag-drop", { paths, position: { x: 100, y: 100 } }); },
+    get batches() { return structuredClone(compressionBatches); },
+    get copied() { return compressionCopies; },
+    get exports() { return compressionExports; },
+    setScenario(value: string) { compressionScenario = value; },
+    get listenerCount() { return [...listeners.values()].filter((e) => e === "compress-progress").length; },
+  },
   __AHATOOLS_QR_MOCK__: {
     setClipboard(value: QrScenario) { scenario = value; clipboardPixels = undefined; },
     get text() { return clipboardText; },
@@ -133,6 +195,35 @@ mockIPC((cmd, args) => {
     }
     case "list_plugins":
       return manifests;
+    case "search_files": {
+      if (config.disabledMatches.includes("compress/compress")) return [];
+      const paths = expandMockPaths(a.paths as string[]);
+      const count = paths.filter(mockImage).length;
+      return count ? [{ ...feature("compress", "compress", "压缩图片", `图片压缩 · ${count} 张图片`), action: { type: "feature", feature: "compress", input: JSON.stringify(paths) } }] : [];
+    }
+    case "compress_start":
+      return compressionStart(String(a.batchId), a.paths as string[], Number(a.quality), Boolean(a.toWebp));
+    case "compress_reprocess": {
+      const old = compressionBatches.find((b) => b.batchId === a.sourceBatchId);
+      if (!old) throw new Error("原批次不存在");
+      return compressionStart(String(a.batchId), old.items.map((i) => i.path), Number(a.quality), Boolean(a.toWebp));
+    }
+    case "compress_list_batches":
+      if ((compressionScenario === "mixed" || compressionScenario === "slow") && !compressionBatches.length) compressionStart("preview", compressionFixtures, 80, false);
+      return structuredClone(compressionBatches);
+    case "compress_export": {
+      const batchId = String(a.batchId), action = a.action as ExportAction, itemIds = a.itemIds as string[];
+      compressionExports.push({ batchId, action, itemIds });
+      const batch = compressionBatches.find((b) => b.batchId === batchId)!;
+      const items = batch.items.filter((i) => itemIds.includes(i.itemId));
+      if (action === "copy" && params.get("compressExport") !== "error") compressionCopies.push(items.map((i) => `/缓存/${batchId}/${i.outputName}`));
+      return items.map((i): ExportResult => ({ itemId: i.itemId, path: params.get("compressExport") === "error" ? null : `/预览/${i.outputName}`, error: params.get("compressExport") === "error" ? "没有写入权限" : null }));
+    }
+    case "plugin:dialog|open":
+      if (params.get("compressOpen") === "error") throw new Error("无法打开文件选择框");
+      return params.get("compressOpen") === "cancel" ? null : compressionFixtures;
+    case "plugin:dialog|message":
+      return params.get("compressConfirm") === "cancel" ? "取消" : "覆盖原图";
     case "search": {
       const original = String(a.query ?? "").trim();
       const q = original.toLowerCase();

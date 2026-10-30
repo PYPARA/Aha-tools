@@ -1,5 +1,4 @@
-import { formatAccelerator, featureAction, PuzzleIcon, sameAction } from "@ahatools/sdk";
-import { pluginIcons } from "../../src/views";
+import { formatAccelerator, featureAction, FeatureIcon, sameAction } from "@ahatools/sdk";
 import type { SectionProps } from "./Settings";
 
 /** Every feature of every plugin, with its keywords and hotkey. */
@@ -15,7 +14,6 @@ export default function Commands({ cfg, manifests, onOpenPlugin }: SectionProps 
       </div>
       <ul className="list">
         {rows.map(({ m, f }) => {
-          const Icon = pluginIcons[m.id] ?? PuzzleIcon;
           const b = cfg.hotkeys.find((b) => b.enabled && sameAction(b.action, featureAction(m.id, f.code)));
           const clickable = m.id !== "settings";
           return (
@@ -24,9 +22,7 @@ export default function Commands({ cfg, manifests, onOpenPlugin }: SectionProps 
               onClick={clickable ? () => onOpenPlugin(m.id) : undefined}
               style={{ height: "auto", minHeight: 54, padding: "8px 10px" }}
             >
-              <span className="tile" aria-hidden="true">
-                <Icon />
-              </span>
+              <FeatureIcon plugin={m.id} feature={f.code} />
               <span className="info">
                 <span className="name">{f.explain}</span>
                 <span className="path">

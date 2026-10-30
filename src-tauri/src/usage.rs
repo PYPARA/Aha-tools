@@ -136,6 +136,17 @@ mod tests {
     }
 
     #[test]
+    fn compress_history_never_persists_imported_file_paths() {
+        let mut input = feature(Some(r#"["/Users/me/私密照片.png"]"#));
+        input.plugin = "compress".into(); input.title = "压缩图片".into(); input.subtitle = "图片压缩 · 1 张图片".into();
+        input.action = ItemAction::Feature { feature: "compress".into(), input: Some(r#"["/Users/me/私密照片.png"]"#.into()) };
+        let mut u = Usage::default(); record(&mut u, input.clone()); toggle_pin(&mut u, input);
+        let json = serde_json::to_string(&u).unwrap();
+        assert!(!json.contains("私密照片")); assert!(!json.contains("/Users/me"));
+        assert_eq!(u.recent[0].subtitle, "图片压缩");
+    }
+
+    #[test]
     fn pin_toggles() {
         let mut u = Usage::default();
         assert!(toggle_pin(&mut u, feature(Some("x"))));

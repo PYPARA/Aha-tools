@@ -209,6 +209,7 @@ p {
 .icon-btn:hover {
   background: var(--hover);
 }
+.icon-btn:disabled { opacity: .4; cursor: default; }
 .icon-btn.sm {
   width: 28px;
   height: 28px;
@@ -1034,6 +1035,48 @@ p {
 .table td.muted {
   font-size: 12px;
   color: var(--text-2);
+}
+
+.feature-icon { display: block; flex-shrink: 0; }
+.compress-view { display: flex; flex-direction: column; gap: 12px; min-height: 100%; padding: 20px 24px; }
+.compress-intro { flex-shrink: 0; }
+.compress-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.compress-history { display: flex; align-items: center; overflow-x: auto; gap: 4px; max-width: 100%; padding: 4px; border-radius: 6px; background: var(--sunken); }
+.compress-history button { flex-shrink: 0; border: 0; background: transparent; color: var(--text-2); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.compress-history button:hover { background: var(--hover); }
+.compress-history button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.compress-options { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12px; color: var(--text-2); }
+.compress-options input[type=range] { width: 112px; accent-color: var(--accent); }
+.compress-options output { width: 24px; text-align: right; }
+.compress-webp { display: flex; gap: 8px; align-items: center; margin-left: 8px; white-space: nowrap; }
+.compress-table-wrap { overflow-x: auto; flex: 1; }
+.compress-table { min-width: 560px; }
+.compress-table th { padding-left: 8px; padding-right: 8px; }
+.compress-table td { padding: 12px 8px; height: 52px; vertical-align: middle; }
+.compress-table th:nth-child(2), .compress-table th:nth-child(3) { width: 80px; }
+.compress-table th:nth-child(4) { width: 160px; }
+.compress-table th:last-child { width: 32px; }
+.compress-filename { display: flex; gap: 8px; align-items: center; }
+.compress-filename svg { flex-shrink: 0; color: var(--text-2); }
+.compress-filename > span { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compress-output { display: block; margin-left: 24px; overflow-wrap: anywhere; }
+.compress-result { color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
+.compress-result .note { display: block; margin-top: 4px; }
+.compress-summary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--text-2); }
+.compress-drop { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px; min-height: 48px; border: 1px dashed var(--border-strong); border-radius: 10px; padding: 4px 8px; }
+.compress-dragging .compress-drop { border-color: var(--accent); background: var(--hover); }
+.compress-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px 0; color: var(--text-2); text-align: center; }
+.compress-empty h2 { font-family: var(--serif); color: var(--text); font-weight: 500; font-size: 22px; }
+.compress-progress { display: block; width: 112px; height: 4px; overflow: hidden; background: var(--border); border-radius: 4px; }
+.compress-progress i { display: block; width: 40%; height: 100%; background: var(--accent); border-radius: inherit; animation: compress-progress 1.2s ease-in-out infinite alternate; }
+@keyframes compress-progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .compress-progress i { animation: none; transform: translateX(70%); } }
+@media (max-width: 720px) {
+  .page-head { height: auto; min-height: 64px; flex-wrap: wrap; padding: 12px 16px; }
+  .page-actions { flex-wrap: wrap; justify-content: flex-end; width: 100%; }
+  .compress-view { padding: 16px; }
+  .compress-options { margin-left: 0; }
+  .compress-history { width: 100%; }
 }
 
 /* ---- Settings (full window) ---- */

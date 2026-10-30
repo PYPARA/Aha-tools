@@ -46,6 +46,7 @@ pub fn run() {
             thread::spawn(move || launcher.refresh());
 
             panel::init(app.handle());
+            plugins::compress::init(app.handle());
             popover::init(app.handle())?;
             setup_tray(app, &cfg)?;
             setup_menu(app)?;
@@ -61,6 +62,11 @@ pub fn run() {
             panel::set_panel_large,
             plugins::list_plugins,
             plugins::search,
+            plugins::search_files,
+            plugins::compress::compress_start,
+            plugins::compress::compress_reprocess,
+            plugins::compress::compress_list_batches,
+            plugins::compress::compress_export,
             plugins::open_path,
             plugins::qrcode::qr_read_image,
             plugins::qrcode::qr_save_png,
