@@ -11,6 +11,7 @@ import { save, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 export { invoke };
 export * from "./ui";
 export * from "./config";
+export * from "./hosts";
 
 export type ItemAction =
   | { type: "openPath"; path: string }
@@ -63,6 +64,8 @@ export interface PluginViewProps {
   input?: string;
   /** Open another feature, including its title and optional input. */
   openFeature: (target: FeatureTarget) => void;
+  /** Guard navigation, not window hiding. Return false to keep editing. Cleanup unregisters it. */
+  registerBeforeLeave?: (handler: () => Promise<boolean>) => () => void;
 }
 
 export const hidePanel = () => invoke("hide_panel");

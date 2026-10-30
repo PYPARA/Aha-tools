@@ -1,7 +1,7 @@
 // Built-in plugins wired into the panel: views keyed by "<plugin id>/<feature code>" from
 // each plugin.json, features that run without a page, icons, and 设置 tabs.
 
-import type { ComponentType } from "react";
+import { createElement, type ComponentType } from "react";
 import {
   BookmarkIcon,
   GearIcon,
@@ -22,6 +22,12 @@ import Settings from "../plugins/settings/Settings";
 import WebAppsSettings from "../plugins/webapps/Settings";
 import QrGenerate from "../plugins/qrcode/Generate";
 import QrScan from "../plugins/qrcode/Scan";
+import Hosts from "../plugins/hosts/Hosts";
+import hostsIcon from "./assets/icons/hosts.svg?url";
+
+function HostsIcon({ size = 18 }: { size?: number }) {
+  return createElement("img", { src: hostsIcon, width: size, height: size, alt: "" });
+}
 
 export const views: Record<string, ComponentType<PluginViewProps>> = {
   "launcher/manage": LauncherManage,
@@ -29,6 +35,7 @@ export const views: Record<string, ComponentType<PluginViewProps>> = {
   "settings/general": Settings,
   "qrcode/generate": QrGenerate,
   "qrcode/scan": QrScan,
+  "hosts/hosts": Hosts,
 };
 
 /** Views that draw the whole window themselves (no page header or footer). */
@@ -51,6 +58,7 @@ export const pluginIcons: Record<string, ComponentType<{ size?: number }>> = {
   webapps: GlobeIcon,
   settings: GearIcon,
   qrcode: QrCodeIcon,
+  hosts: HostsIcon,
 };
 
 /** Each plugin's 设置 tab in the plugin detail page. */

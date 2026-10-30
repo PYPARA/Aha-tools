@@ -1,0 +1,7 @@
+{
+  "id": "hosts",
+  "name": "hosts 切换",
+  "version": "0.1.0",
+  "description": "管理本地 hosts 方案，合并应用并刷新 DNS",
+  "features": [{ "code": "hosts", "explain": "hosts 切换", "cmds": ["hosts", "host"] }]
+}

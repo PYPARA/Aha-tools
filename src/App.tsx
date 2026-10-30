@@ -100,6 +100,26 @@ export default function App() {
   const listRef = useRef<HTMLUListElement>(null);
   const activeRef = useRef<Target | null>(null);
   activeRef.current = active;
+  const beforeLeave = useRef<(() => Promise<boolean>) | null>(null);
+  const navigating = useRef(false);
+  const registerBeforeLeave = useCallback((handler: () => Promise<boolean>) => {
+    beforeLeave.current = handler;
+    return () => { if (beforeLeave.current === handler) beforeLeave.current = null; };
+  }, []);
+  const navigate = useCallback(async (next: () => void) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    try {
+      if (beforeLeave.current && !(await beforeLeave.current())) return;
+      beforeLeave.current = null;
+      navigating.current = false;
+      next();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      navigating.current = false;
+    }
+  }, []);
 
   const [webUrls, setWebUrls] = useState<Map<string, string>>(new Map());
   const loadHome = () => invoke<Home>("usage_home").then(setHome);
@@ -194,14 +214,19 @@ export default function App() {
   }, [selected, hasQuery]);
 
   function open(target: Target) {
-    setStatus("");
-    setError(null);
-    setActive(target);
+    if (JSON.stringify(activeRef.current) === JSON.stringify(target)) return;
+    void navigate(() => {
+      setStatus("");
+      setError(null);
+      setActive(target);
+    });
   }
 
   const back = () => {
-    setActive(null);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    void navigate(() => {
+      setActive(null);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    });
   };
 
   const run = async (item: SearchItem | undefined) => {
@@ -261,6 +286,7 @@ export default function App() {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.isComposing) return;
     if (e.metaKey && e.key === ",") {
       e.preventDefault();
       open({ plugin: "settings", feature: "general" });
@@ -312,7 +338,8 @@ export default function App() {
     const key = `${active.plugin}/${active.feature}`;
     const View = views[key];
     const viewEl = View ? (
-      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} openFeature={open} />
+      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} openFeature={open}
+        registerBeforeLeave={registerBeforeLeave} />
     ) : (
       <div className="state">
         <span className="note">插件页面不存在：{key}</span>
@@ -339,7 +366,7 @@ export default function App() {
           </span>
           <span className="page-actions" ref={setActionsSlot} />
         </header>
-        <main className="panel-body">
+        <main className={`panel-body${key === "hosts/hosts" ? " hosts-body" : ""}`}>
           <PageActionsSlot.Provider value={actionsSlot}>{viewEl}</PageActionsSlot.Provider>
         </main>
         <footer className="foot">

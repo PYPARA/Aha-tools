@@ -12,8 +12,10 @@ import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
 import webapps from "../plugins/webapps/plugin.json";
 import qrcode from "../plugins/qrcode/plugin.json";
+import hosts from "../plugins/hosts/plugin.json";
+import { hostsMockInvoke, setHostsPinned } from "./hosts-mock";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, hosts, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
@@ -115,6 +117,8 @@ let config = {
 mockWindows("panel");
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
+  if (cmd.startsWith("hosts_")) return hostsMockInvoke(cmd, a);
+  if (cmd === "set_panel_pinned") { setHostsPinned(Boolean(a.pinned)); return null; }
   switch (cmd) {
     // The installed event API unlistens with eventId; mockIPC's built-in event
     // helper still expects id. Keep listener cleanup accurate in StrictMode.

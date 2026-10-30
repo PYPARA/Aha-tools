@@ -7,6 +7,7 @@
 //! Built-in plugins are compiled in. External plugins (loaded from disk at runtime)
 //! will use the same manifest format.
 
+pub mod hosts;
 pub mod launcher;
 pub mod qrcode;
 pub mod webapps;
@@ -28,6 +29,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/screenshot/plugin.json"),
     include_str!("../../../plugins/webapps/plugin.json"),
     include_str!("../../../plugins/qrcode/plugin.json"),
+    include_str!("../../../plugins/hosts/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
 ];
 
