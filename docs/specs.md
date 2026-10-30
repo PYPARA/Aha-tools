@@ -12,13 +12,21 @@
 现有代码就是范例，照着抄：网页应用插件（`plugins/webapps/`、`src-tauri/src/webapps.rs`、`src-tauri/src/plugins/webapps.rs`）是最完整的一份。
 
 1. **清单**：`plugins/<id>/plugin.json`：`id`、`name`、`version`、`description`、`features[]`（`code`、`explain`、`cmds` 关键词、可选 `match`）。在 `src-tauri/src/plugins/mod.rs` 的 `BUILTIN_MANIFESTS` 里加 `include_str!`。
-2. **页面**：`plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入；在 `src/views.ts` 的 `views` 里登记 `"<id>/<code>"`，`pluginIcons` 里登记图标（图标写在 `src/ui.tsx`，线条 1.6px）。页面拿到 `PluginViewProps`：`onBack`、`setStatus`（写底栏右侧）、`input`（从搜索框带入的文字，例如 `qr hello` 的 `hello`，或 `match` 命中的整段输入）。标题栏右侧按钮用 `<PageActions>`。
+2. **页面**：`plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入；在 `src/views.ts` 的 `views` 里登记 `"<id>/<code>"`。功能图标按第 0 项生成到 `src/assets/icons/` 后自动登记，由 SDK 的 `FeatureIcon` 显示。页面拿到 `PluginViewProps`：`onBack`、`setStatus`（写底栏右侧）、`input`（从搜索框带入的文字，例如 `qr hello` 的 `hello`，或 `match` 命中的整段输入）、`content`（本次输入的图片快照或文件路径，仅保留在内存）、`openFeature`（携带 `input` / `content` 切换插件页）。标题栏右侧按钮用 `<PageActions>`。
 3. **插件设置**：写 `plugins/<id>/Settings.tsx`（拿到 `cfg`、`save`），登记到 `src/views.ts` 的 `pluginSettings`，会出现在 设置 → 已安装插件 → 该插件 →「设置」页签。
 4. **不需要页面的功能**：登记到 `src/views.ts` 的 `actions`（例：`screenshot/take`）。
 5. **配置**：加到 `src-tauri/src/config.rs` 的 `Config`（结构体整体有 `#[serde(default)]`，旧文件能读）并在 `Default` 里给默认值，同步 `src/config.ts` 的类型；补「旧配置能读」的测试。密钥一律存钥匙串，不进 config.json。
 6. **原生能力**：Rust 模块 + `#[tauri::command]`，在 `src-tauri/src/lib.rs` 的 `generate_handler!` 里注册。耗时命令写成 `async`。调用系统工具优先用 macOS 自带命令（项目里已有 `sips`、`curl`、`screencapture`、`osascript`、`lsappinfo` 的用法）。
 7. **热键**：能被热键触发的功能用 `hotkey::Action::OpenFeature`（插件详情的「设为热键」已经支持），特殊的才新增 `Action` 变体（参考 `OpenWeb`），并在 `plugins/settings/actions.ts` 的 `describeAction` / `actionChoices` 里补文案。
 8. **文案**：中文，短句，说清楚会发生什么；不出现 aha 小写名，统一 AhaTools。
+
+### 已有宿主能力：图片 / 文件联想与固定项排序
+
+设计：[InputMatches.html](design/InputMatches.html)。搜索框显式粘贴图片或访达文件、拖入文件后，以附件条显示输入，按类型展示匹配功能；输入框改为筛选功能。清单 `match.image: true` 接受 RGBA 图片，`match.files` 接受扩展名列表（`*` 代表任意文件），`maxFiles` 限制数量。继续使用插件详情的 `disabledMatches` 开关。
+
+SDK 的 `PluginContent` 是 `{ type: "image", name, image: { width, height, rgba } }` 或 `{ type: "files", paths }`，通过页面 / 动作的 `content` 传递；搜索请求仅传元数据，图片和本次路径不写入历史。使用 Worker 时复制像素缓冲，避免转移后破坏宿主保留的图片。二维码识别只接受一张图片；图片工具提供复制 / 保存 PNG，快捷启动提供复制路径 / 提取名称 / 单文件收藏预填。
+
+固定项使用 `@dnd-kit/react` 的 sortable 和 `@dnd-kit/dom` 的输入 / 反馈插件，提供跟手提起、落点占位、180ms 让位与归位、跨行移动、边缘自动滚动、Esc / 失焦 / 窗口尺寸变化时取消、失败回退。末行空白也接受放到末尾；空格提起、方向键移动、空格或回车放下支持键盘排序，读屏指引为中文，并遵循系统「减少动态效果」。原生文件拖放独立。`usage_reorder_pinned(item, before?)` 在锁内按身份移动已有项目并写入 `usage.json`，保留其他固定项，不允许客户端整份覆盖。AhaTools 的截图路由在调用系统 / 第三方工具期间保留原来窗口，使用独立保护状态，结束后释放并恢复焦点。
 
 ## 0. 功能图标（先做，所有插件共用）
 
@@ -38,7 +46,7 @@
 
 接线：
 
-1. `src/views.ts` 里用 Vite 的 `import.meta.glob("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" })` 生成 `featureIcons: Record<key, url>`。
+1. `src/feature-icons.ts` 里用 Vite 的 `import.meta.glob("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" })` 生成 `featureIcons: Record<key, url>`，`src/views.ts` 重新导出。资源表独立于页面注册，避免 SDK 的共享 UI 与插件页面循环引用。
 2. 加一个 `featureIconKey(plugin, feature?)`：先找 `"<plugin>-<feature>"`（如 `qrcode-scan`），再找 `"<plugin>"`，都没有时用 `external`。
 3. 新组件 `FeatureIcon({ plugin, feature, size })` 渲染 `<img>`（`src/ui.tsx` 里，`aria-hidden`），替换现在用 `pluginIcons` 画灰色方块的地方：
    - `src/App.tsx` 的 `ItemIcon`：功能结果按 `item.action.feature` 选图标；
@@ -243,13 +251,16 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
 
 ## 9. 小项
 
-- **搜索面板跟随鼠标所在屏幕**：`panel::show` 里用 `app.cursor_position()` 找到所在显示器（`app.monitor_from_point`），把面板水平居中、顶边放在该屏幕高度的 22% 处。
+- 设计：[PanelBehavior.html](design/PanelBehavior.html)。本项已实现，真实多屏排列待作者验收。
+- **搜索面板跟随鼠标所在屏幕**：每次唤出时重新定位，把面板水平居中、顶边放在该屏幕高度的 22% 处；位置限制在该屏可用区域内。macOS 使用 `NSEvent::mouseLocation()`、`NSScreen` 和 `NSWindow` 的统一逻辑点坐标，见 `window_position.rs`；不混用当前 Tauri 版本中缩放来源不同的鼠标 / 显示器 / 窗口物理坐标。屏幕断开时回退到距离鼠标最近的屏幕。
 - **再次唤出时的行为**：设置 → 通用加一行「再次打开时」：
   - 「回到上次的页面」（现在的行为，默认）；
   - 「超过 5 分钟回到搜索」；
   - 「总是回到搜索」。
 
-  `panel.rs` 记录隐藏时间，`panel-shown` 事件带上「是否重置」，`App.tsx` 据此 `setActive(null)`。
+  配置 `panelReopen: "resume" | "afterFiveMinutes" | "search"`，默认 `resume`，旧配置自动补默认值。`panel.rs` 从实际隐藏开始计时，重复失焦不会延长计时；`panel-shown` 携带 `{ reset: boolean }`。重置时同步清空当前页面、搜索词和附件，恢复搜索尺寸、首页与焦点。已显示的窗口和直接指定功能的热键不受重置策略影响。保留二维码识别页时重新读取一次剪贴板，重置离开时直接释放页面资源。
+
+- **多屏菜单栏弹窗定位**：点击时选择鼠标所在的 `NSScreen`，用该屏幕的缩放还原托盘图标横坐标，纵向以该屏幕自己的菜单栏底边计算。与搜索面板共用 AppKit 逻辑点坐标和可用区域约束，支持负坐标、上下排列与混合缩放；不使用弹窗上一次所在屏幕的缩放比例。
 
 ## 10. 最后：发布
 
