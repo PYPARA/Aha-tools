@@ -216,16 +216,14 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
 
 ## 6. 系统监控
 
-设计：[SystemMonitor.html](design/SystemMonitor.html)。
+设计：[SystemMonitor.html](design/SystemMonitor.html)。2026-10-30 已实现，按作者确认的方案保留原有网速曲线、累计流量和全部快捷入口；原生交互待真机验收，详见 HANDOFF 的清单。
 
-- **数据**（`src-tauri/src/sysmon.rs`）：
-  - CPU：`host_processor_info` 两次采样的差；最忙的应用用 `ps -Ao pcpu,comm -r | head -2`；
-  - 内存：`host_statistics64` 的 active + wired + compressed，加上 `sysctl hw.memsize`；内存压力用 `sysctl kern.memorystatus_vm_pressure_level`；
-  - 电池：`pmset -g batt` 解析百分比、是否在充电、剩余时间；
-  - 磁盘：`statfs("/")`。
-- **采样**：只在弹出面板显示时每秒采样一次（面板 `menu-shown` 开始，隐藏时停）。菜单栏选择显示 CPU 或内存时才常驻采样。
-- **菜单栏**：`config.menubar = ["netspeed", "cpu", "memory"]`（顺序即显示顺序），替代现有的 `netspeed: bool`，要写迁移：旧值 true 对应 `["netspeed"]`，false 对应 `[]`。绘制扩展 `netspeed.rs` 的 Renderer：CPU 显示「芯片图标 + 23%」。都不选时显示四格标志（`render_idle`）。
-- **弹出面板**：网速下面加 CPU（曲线 + 最忙应用）、内存条、电池条、磁盘可用，调整 `popover.rs` 的 `HEIGHT`。
+- **采集**：`sysmon.rs` 使用 `host_processor_info` 的相邻计数差计算整机 CPU（0–100%），直接执行 `ps -Ao pcpu,comm -r` 取最忙进程；内存为 active + wired + compressor 物理页乘实际页大小，总量 `hw.memsize`，压力用系统值；电池解析 `pmset -g batt`；磁盘使用 `statfs("/")` 的 `f_bavail × f_bsize`。Mach 缓冲区和 host 端口每次释放。
+- **按需采样**：单一后台线程，弹窗打开时每秒全量采集；隐藏时只采菜单栏已选 CPU / 内存，无选中项时用条件变量等待。进程 / 电池 / 磁盘不常驻查询；现有网速循环不变。CPU 初次建立基线，停采或样本间隔超过 3 秒时重建并清空 60 秒曲线。
+- **接口**：`sysmon_snapshot` 只读缓存，`sysmon` 事件仅发给显示中的 `menu` 窗口；每项区分 sampling / available / unavailable，电池额外区分 absent。快照包含递增 sequence、毫秒时间戳、字节容量和带时间戳的 CPU 曲线。`menu_hide` / `menu-hidden` 统一隐藏生命周期，过期结果不再发布。
+- **配置和菜单栏**：`menubar: ("netspeed" | "cpu" | "memory")[]` 的数组顺序即显示顺序，新开启项追加末尾，去重；旧 `netspeed` true → `["netspeed"]`，false → `[]`，已有新字段（包括空数组）优先，迁移保存时去掉旧字段并保留其他配置。新安装默认只显示网速。CPU 和内存采用「图标 + 整数百分比」固定列宽，与双行网速组合成一个模板图像；全空显示四格标志，字体不可用时文字回退。
+- **弹窗**：300×720，限制在所在屏幕工作区，较矮时可滚动；网速下依次是 CPU 曲线 / 最忙进程、内存条 / 压力、电池条 / 状态 / 可用的时间估计、磁盘可用 / 总量。采样中、无内置电池及单项不可用都有明确中文状态；长进程名省略并可查看完整名称。
+- **验证**：Rust 覆盖配置迁移、差分 / 回绕 / 基线重置、需求切换和旧结果丢弃、格式解析及组合绘制；Bun 覆盖采样中 / 失败 / 无电池、时间文案和显示转义；浏览器开发假数据覆盖浅深色、短窗口、设置顺序、隐藏与错误恢复。只读原生验收可运行 `cargo test sysmon::tests::native_preview -- --ignored --nocapture`。
 
 ## 7. 外部插件
 

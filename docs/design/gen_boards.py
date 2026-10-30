@@ -6,6 +6,7 @@ this file (docs/design/*.html) are what implementers look at.
 
 Run: python3 gen_boards.py <canvas project dir> [src/assets/icons]
 The optional second argument also writes the feature icons (direction A) as SVG files.
+Use --static as the second argument to generate standalone light/dark HTML without a canvas.
 """
 import json
 import random
@@ -13,6 +14,8 @@ import sys
 from pathlib import Path
 
 OUT = Path(sys.argv[1])
+STATIC = "--static" in sys.argv
+OUT.mkdir(parents=True, exist_ok=True)
 
 CSS = """body{margin:0}
 .t-light{--desk:#E6E3DA;--bg:#FAF9F6;--surface:#FFFFFF;--sunken:#F3F2EC;--hover:rgba(120,113,100,.08);--selected:rgba(120,113,100,.14);--border:rgba(40,36,30,.11);--border-strong:rgba(40,36,30,.22);--text:#1D1C1A;--text-2:#6B6860;--text-3:#A3A096;--ok:#4C7A3D;--warn:#9A5B13;--bad:#A8402F;--on-accent:#FFFFFF;--menubar:rgba(250,249,246,.82);--shadow:0 18px 50px rgba(30,25,15,.18),0 0 0 1px rgba(40,36,30,.11)}
@@ -138,6 +141,11 @@ def plist(items, on):
 
 def board(name, title, w, h, inner, preview_w=None, page_id="next"):
     pw = preview_w or (w + 80) * 2
+    if STATIC:
+        themes = [("t-light", "浅色", "#3A5A8C"), ("t-dark", "深色", "#93B1E3")]
+        panels = "\n".join(f'<div class="{cls}" style="width:{pw // 2}px;height:{h + 108}px;box-sizing:border-box;padding:40px;background:var(--desk);display:flex;flex-direction:column;gap:12px;--accent:{accent}"><div style="font-size:12px;color:var(--text-2)">{label}</div>{inner}</div>' for cls, label, accent in themes)
+        (OUT / f"{name}.html").write_text(f'<!doctype html>\n<html lang="zh-CN"><meta charset="utf-8"><title>{title}</title>\n<!-- 由 docs/design/gen_boards.py --static 生成 -->\n<style>{CSS}</style><div style="width:{pw}px;display:flex">{panels}</div></html>\n')
+        return {"file": f"{name}.html"}
     html = f'''<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -350,12 +358,16 @@ def spark(seed, top):
     return pts
 
 
-pop = f'''<div class="win" role="dialog" aria-label="AhaTools 菜单" style="width: 300px; border-radius: 12px; padding: 14px 12px 8px; gap: 14px; box-sizing: border-box">
+pop = f'''<div class="win" role="dialog" aria-label="AhaTools 菜单" style="width: 300px; height: 720px; border-radius: 12px; padding: 14px 12px 8px; gap: 16px; box-sizing: border-box; overflow-y: auto">
 <div class="row" style="padding: 0 4px; align-items: baseline"><span class="lbl">网速</span><span class="sp"></span><span class="note" style="font-size: 11px">Wi‑Fi · en0</span></div>
 <div class="row" style="padding: 0 4px; gap: 18px"><span style="font-size: 18px; font-weight: 500">↓ 3.4<span class="note"> MB/s</span></span><span style="font-size: 18px; font-weight: 500">↑ 120<span class="note"> KB/s</span></span></div>
-<div style="height: 1px; background: var(--border); margin: 0 -12px"></div>
-<div class="col" style="gap: 12px; padding: 0 4px">
-<div class="col" style="gap: 6px"><span class="row"><span class="lbl" style="width: 40px">CPU</span><span style="font-weight: 500">23%</span><span class="sp"></span><span class="note" style="font-size: 11px">最忙：Cursor 11%</span></span>
+<div class="col" style="gap: 8px; padding: 0 4px">
+<svg width="268" height="44" viewBox="0 0 268 44" aria-label="最近 60 秒网速曲线"><path d="M0 38 L22 30 L44 34 L66 20 L88 25 L110 18 L132 26 L154 14 L176 22 L198 10 L220 17 L242 12 L268 20" stroke="var(--accent)" fill="none" stroke-width="1.5"/><path d="M0 42 L66 39 L132 40 L198 38 L268 41" stroke="var(--text-2)" fill="none" stroke-dasharray="3 3"/></svg>
+<span class="note" style="font-size: 10px">最近 60 秒　开机以来 ↓ 12.4 GB · ↑ 1.8 GB</span>
+</div>
+<div style="height: 1px; flex-shrink: 0; background: var(--border); margin: 0 -12px"></div>
+<div class="col" style="gap: 16px; padding: 0 4px">
+<div class="col" style="gap: 6px"><span class="row"><span class="lbl" style="width: 40px">CPU</span><span style="font-weight: 500">23%</span><span class="sp"></span></span><span class="note" style="font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">最忙进程：Cursor 11%</span>
 <svg width="268" height="28" viewBox="0 0 268 28" fill="none" aria-hidden="true"><path d="M0 20 {spark(3, 18)} L268 28 L0 28Z" fill="var(--accent)" opacity=".10"></path><path d="M0 20 {spark(3, 18)}" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"></path></svg></div>
 <div class="col" style="gap: 6px"><span class="row"><span class="lbl" style="width: 40px">内存</span><span style="font-weight: 500">11.2</span><span class="note">/ 16 GB</span><span class="sp"></span><span class="note" style="font-size: 11px">压力正常</span></span><span class="bar"><i style="width: 70%"></i></span></div>
 <div class="col" style="gap: 6px"><span class="row"><span class="lbl" style="width: 40px">电池</span><span style="font-weight: 500">86%</span><span class="sp"></span><span class="note" style="font-size: 11px">充电中 · 约 25 分钟充满</span></span><span class="bar"><i style="width: 86%; background: var(--ok)"></i></span></div>
@@ -365,7 +377,13 @@ pop = f'''<div class="win" role="dialog" aria-label="AhaTools 菜单" style="wid
 <div class="col" style="gap: 1px">
 <span class="row" style="height: 30px; padding: 0 8px">打开搜索面板<span class="sp"></span><span class="mono" style="font-size: 11px; color: var(--text-3)">⌥ Space</span></span>
 <span class="row" style="height: 30px; padding: 0 8px">截图工具<span class="sp"></span><span class="note">QQ</span>{icon("chev", 12, 2)}</span>
+<span class="row" style="height: 30px; padding: 0 8px">独占热键<span class="sp"></span><span class="note" style="color: var(--ok)">已生效</span><span class="sw sm on"><i></i></span></span>
+</div>
+<div style="height: 1px; flex-shrink: 0; background: var(--border); margin: 0 -12px"></div>
+<div class="col" style="gap: 1px">
 <span class="row" style="height: 30px; padding: 0 8px; border-radius: 6px; background: var(--hover)">设置…<span class="sp"></span><span class="mono" style="font-size: 11px; color: var(--text-3)">⌘ ,</span></span>
+<span class="row" style="height: 30px; padding: 0 8px">开机自动启动<span class="sp"></span><span class="sw sm"><i></i></span></span>
+<span class="row" style="height: 30px; padding: 0 8px">退出 AhaTools<span class="sp"></span><span class="mono note">⌘ Q</span></span>
 </div>
 </div>'''
 side = f'''<div class="col" style="gap: 16px; width: 360px">
@@ -373,17 +391,17 @@ side = f'''<div class="col" style="gap: 16px; width: 360px">
 <div class="row" style="height: 40px; padding: 0 14px; border-radius: 10px; background: var(--menubar); box-shadow: 0 0 0 1px var(--border); justify-content: flex-end; gap: 16px; font-size: 12px; font-weight: 500">
 <span class="row" style="gap: 6px"><span class="mono" style="font-size: 10px; line-height: 11px; display: flex; flex-direction: column; align-items: flex-end"><span>120 KB/s</span><span>3.4 MB/s</span></span></span>
 <span class="row" style="gap: 4px">{icon("cpu", 14)}23%</span>
-<span>10月29日 周三 11:20</span>
+<span>10月30日 周五 11:20</span>
 </div>
-<p class="note">设置 → 通用 → 菜单栏显示：网速（默认）、CPU、内存可以多选，按选中的顺序并排。都不选时只显示 AhaTools 标志。</p>
+<p class="note">设置 → 通用 → 菜单栏显示：网速（默认）、CPU、内存可以多选，新开启的项目排在末尾。CPU 和内存显示使用率。都不选时只显示 AhaTools 标志。</p>
 <div class="card" style="padding: 4px 16px">
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">网速</b></span><span class="sw on"><i></i></span></div>
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">CPU</b></span><span class="sw on"><i></i></span></div>
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">内存</b></span><span class="sw"><i></i></span></div>
 </div>
-<p class="note">弹出面板里的 CPU、内存、电池、磁盘一直显示，只在面板打开时每秒采样，不常驻耗电。</p>
+<p class="note">弹出面板打开时每秒刷新全部指标。收起后只采集菜单栏已选的 CPU 或内存；未选时停止系统采样。空间不足时弹窗可滚动。</p>
 </div>'''
-boards.append(board("SystemMonitor", "菜单栏 · 系统监控", 760, 640, f'<div class="row" style="align-items: flex-start; gap: 40px">{pop}{side}</div>'))
+boards.append(board("SystemMonitor", "菜单栏 · 系统监控", 760, 780, f'<div class="row" style="align-items: flex-start; gap: 40px">{pop}{side}</div>'))
 
 # ---- 外部插件 ----
 PLX = ["#内置", "截图|截", "二维码|码", "翻译|译", "网页应用|网", "#外部", "JSON 格式化|J", "时间戳|T"]
@@ -600,7 +618,7 @@ def soft_svg(color, fill, line, size):
             f'<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{line}</g></g></svg></span>')
 
 
-if len(sys.argv) > 2:
+if len(sys.argv) > 2 and not STATIC:
     icon_dir = Path(sys.argv[2])
     icon_dir.mkdir(parents=True, exist_ok=True)
     for key, _, color, fill, line in FEATURE_ICONS:
@@ -637,6 +655,10 @@ inner = f'''<div class="col" style="gap: 18px">
 boards.append(board("FeatureIcons", "功能图标 · 两个方向", 1100, 1030, inner))
 
 # ---- canvas.json ----
+if STATIC:
+    print("\n".join(b["file"] for b in boards))
+    sys.exit(0)
+
 canvas_path = OUT / "canvas.json"
 canvas = json.loads(canvas_path.read_text())
 if not any(p["id"] == "next" for p in canvas["pages"]):
