@@ -1,0 +1,12 @@
+{
+  "id": "compress",
+  "name": "图片压缩",
+  "version": "0.1.0",
+  "description": "在本机批量压缩图片，原图不动，再选择覆盖、另存或复制",
+  "features": [{
+    "code": "compress",
+    "explain": "压缩图片",
+    "cmds": ["压缩", "图片压缩", "compress", "tinypng"],
+    "match": { "files": ["png", "jpg", "jpeg", "webp"] }
+  }]
+}

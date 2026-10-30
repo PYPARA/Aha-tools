@@ -3,7 +3,8 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { Manifest, RgbaImage, SearchItem } from "./sdk";
+import type { Config, Manifest, RgbaImage, SearchItem, TranslateProfile, TranslateMode, TranslateDirection } from "./sdk";
+import { EMPTY_SYSTEM, type BatteryInfo, type Reading, type SystemSnapshot } from "./sysmon";
 import { generatePixels } from "../plugins/qrcode/qr";
 import { imagePng } from "../plugins/qrcode/image";
 import launcher from "../plugins/launcher/plugin.json";
@@ -15,13 +16,78 @@ import qrcode from "../plugins/qrcode/plugin.json";
 import system from "../plugins/system/plugin.json";
 import superpanel from "../plugins/superpanel/plugin.json";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, system, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
+import compress from "../plugins/compress/plugin.json";
+import type { CompressionBatch, CompressionItem, ExportAction, ExportResult } from "../plugins/compress/model";
+import hosts from "../plugins/hosts/plugin.json";
+import { hostsMockInvoke, setHostsPinned } from "./hosts-mock";
+import translate from "../plugins/translate/plugin.json";
+import { isWord } from "../plugins/translate/core";
+
+import imageTools from "../plugins/images/plugin.json";
+
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, imageTools, translate, hosts, system, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
+const compressionBatches: CompressionBatch[] = [];
+const compressionCopies: string[][] = [];
+const compressionExports: { batchId: string; action: string; itemIds: string[] }[] = [];
+const compressionQueue: CompressionBatch[] = [];
+let compressionWorking = false;
+let compressionScenario = params.get("compressMock") ?? "empty";
+const compressionFixtures = ["/预览/banner-home.png", "/预览/avatar@2x.png", "/预览/photo-0921.jpg", "/预览/最小 tiny.webp", "/预览/icon.svg", "/预览/broken.png"];
+const mockImage = (path: string) => /\.(png|jpe?g|webp)$/i.test(path);
+const expandMockPaths = (paths: string[]) => [...new Set(paths.flatMap((p) => p.endsWith("/图片") ? compressionFixtures.filter(mockImage) : [p]))];
+
+function compressionStart(batchId: string, paths: string[], quality: number, toWebp: boolean): CompressionBatch {
+  const existing = compressionBatches.find((b) => b.batchId === batchId);
+  if (existing) return structuredClone(existing);
+  if (compressionScenario === "error") throw new Error("无法创建压缩缓存：磁盘空间不足");
+  const batch: CompressionBatch = {
+    batchId, createdAt: Date.now(), quality, toWebp,
+    items: expandMockPaths(paths).map((path, index): CompressionItem => ({
+      itemId: String(index), path, name: path.split("/").pop() ?? "图片", before: mockImage(path) ? 2480000 + index * 100000 : 0, after: null,
+      status: "waiting", version: 0, message: "等待中", outputName: null, canOverwrite: false,
+    })),
+  };
+  compressionBatches.push(batch); compressionQueue.push(batch);
+  setTimeout(() => void drainCompression(), 0);
+  return structuredClone(batch);
+}
+async function drainCompression() {
+  if (compressionWorking) return;
+  compressionWorking = true;
+  while (compressionQueue.length) {
+    const batch = compressionQueue.shift()!;
+    const names = new Set<string>();
+    for (const item of batch.items) {
+      item.status = "running"; item.message = "正在压缩…"; item.version++;
+      await emit("compress-progress", { batchId: batch.batchId, ...item });
+      await new Promise((r) => setTimeout(r, compressionScenario === "slow" ? 1200 : 100));
+      item.status = !mockImage(item.path) || item.name.includes("animated") ? "skipped" : item.name.includes("broken") ? "failed" : item.name.includes("tiny") ? "unchanged" : "compressed";
+      item.message = item.status === "skipped" ? "不支持此格式，已跳过" : item.status === "failed" ? "图片文件已损坏" : item.status === "unchanged" ? "已是最小，保留原图；拍摄信息未移除" : "已压缩，拍摄信息已移除";
+      if (item.status === "compressed" || item.status === "unchanged") {
+        item.after = item.status === "unchanged" ? item.before : Math.round(item.before * batch.quality / 250);
+        const ext = item.status === "compressed" && batch.toWebp ? "webp" : item.name.split(".").pop()!;
+        const stem = item.name.replace(/\.[^.]+$/, "");
+        let name = `${stem}.${ext}`;
+        for (let n = 2; names.has(name); n++) name = `${stem}.${n}.${ext}`;
+        names.add(name); item.outputName = name;
+        item.canOverwrite = item.status === "compressed" && (!batch.toWebp || /\.webp$/i.test(item.name));
+      }
+      item.version++;
+      await emit("compress-progress", { batchId: batch.batchId, ...item });
+    }
+  }
+  compressionWorking = false;
+}
 let scenario = (params.get("qrMock") ?? "url") as QrScenario;
 let clipboardPixels: RgbaImage | undefined;
 let clipboardText = "";
+let clipboardFiles: string[] = [];
+let clipboardReadDelay = 0;
+let clipboardReads = 0;
+let pinWrites = 0;
 let nextImage = 1;
 const images = new Map<number, RgbaImage>();
 const savedImages: { path: string; bytes: number[] }[] = [];
@@ -33,13 +99,40 @@ const fixtureImage = () => scenario === "no-code"
 
 // Preview-only controls for repeatable browser checks; not included in production.
 Object.assign(window, {
+  __AHATOOLS_COMPRESS_MOCK__: {
+    drop(paths = compressionFixtures) { return emit("tauri://drag-drop", { paths, position: { x: 100, y: 100 } }); },
+    get batches() { return structuredClone(compressionBatches); },
+    get copied() { return compressionCopies; },
+    get exports() { return compressionExports; },
+    setScenario(value: string) { compressionScenario = value; },
+    get listenerCount() { return [...listeners.values()].filter((e) => e === "compress-progress").length; },
+  },
   __AHATOOLS_QR_MOCK__: {
-    setClipboard(value: QrScenario) { scenario = value; clipboardPixels = undefined; },
+    setClipboard(value: QrScenario) { scenario = value; clipboardPixels = undefined; clipboardFiles = []; },
+    setFiles(paths: string[]) { clipboardFiles = paths; },
+    setReadDelay(milliseconds: number) { clipboardReadDelay = milliseconds; },
     get text() { return clipboardText; },
     get activeImages() { return images.size; },
+    get clipboardReads() { return clipboardReads; },
     get saved() { return savedImages; },
+    get pinned() { return usage.pinned.map((item) => item.title); },
+    get pinWrites() { return pinWrites; },
     drop(paths: string[]) { return emit("tauri://drag-drop", { paths, position: { x: 100, y: 100 } }); },
-    showPanel() { return emit("panel-shown"); },
+    showPanel() { return showMockPanel(); },
+  },
+  __AHATOOLS_PANEL_MOCK__: {
+    get config() { return config; },
+    get large() { return panelLarge; },
+    hide() { hideMockPanel(); },
+    show() { return showMockPanel(); },
+    reopen(hiddenForMs = 0) {
+      hideMockPanel();
+      panelHiddenAt = performance.now() - hiddenForMs;
+      return showMockPanel();
+    },
+    openFeature(plugin: string, feature: string, input?: string) {
+      return showMockPanel({ plugin, feature, input });
+    },
   },
 });
 
@@ -70,14 +163,28 @@ const usage = {
     app("微信", "/Applications/WeChat.app"),
     feature("screenshot", "take", "截图", "截图"),
     app("访达", "/System/Library/CoreServices/Finder.app"),
+    feature("qrcode", "generate", "生成二维码", "二维码"),
+    feature("qrcode", "scan", "识别二维码", "二维码"),
     feature("hotkeys", "probe", "检测热键占用", "热键检测"),
-    app("Cursor", "/Applications/Cursor.app"),
     feature("launcher", "manage", "管理收藏的路径", "快捷启动"),
+    feature("webapps", "manage", "管理网页应用", "网页应用"),
+    app("Cursor", "/Applications/Cursor.app"),
     app("系统设置", "/System/Applications/System Settings.app"),
     app("备忘录", "/System/Applications/Notes.app"),
   ],
-  pinned: [app("Ghostty", "/Applications/Ghostty.app"), app("微信", "/Applications/WeChat.app"), feature("screenshot", "take", "截图", "截图")],
+  pinned: [app("Ghostty", "/Applications/Ghostty.app"), app("微信", "/Applications/WeChat.app"), feature("screenshot", "take", "截图", "截图"),
+    feature("qrcode", "generate", "生成二维码", "二维码"), feature("qrcode", "scan", "识别二维码", "二维码"),
+    feature("hotkeys", "probe", "检测热键占用", "热键检测"), feature("launcher", "manage", "管理收藏的路径", "快捷启动"),
+    feature("webapps", "manage", "管理网页应用", "网页应用"), feature("images", "save", "保存图片为 PNG", "图片工具")],
 };
+try { usage.pinned = JSON.parse(localStorage.getItem("ahatools.mock.pinned") ?? "null") ?? usage.pinned; } catch { /* Preview data can be reset by clearing localStorage. */ }
+if (params.get("pinsMock") === "many") {
+  usage.pinned = Array.from({ length: 35 }, (_, i): SearchItem => ({
+    title: `项目 ${i + 1}`, subtitle: `/预览/项目 ${i + 1}`, score: 0, plugin: "launcher", kind: "saved", icon: "folder",
+    action: { type: "openPath", path: `/预览/项目 ${i + 1}` },
+  }));
+}
+if (params.get("pinsMock") === "only") usage.recent = [];
 
 function homeItem(item: SearchItem): SearchItem {
   if (item.action.type !== "feature") return { ...item, score: 0 };
@@ -93,7 +200,7 @@ function homeItem(item: SearchItem): SearchItem {
 
 const sameItem = (a: SearchItem, b: SearchItem) => a.plugin === b.plugin && JSON.stringify(a.action) === JSON.stringify(b.action);
 
-let config = {
+let config: Config = {
   hotkeys: [
     { accelerator: "Alt+Shift+Space", action: { type: "superPanel" }, enabled: true },
     { accelerator: "Alt+Space", action: { type: "togglePanel" }, enabled: true },
@@ -110,11 +217,21 @@ let config = {
       { id: "claude-code", name: "用 Claude Code 打开", command: "/usr/bin/osascript -e 'on run argv' -e 'tell application \"Terminal\" to do script (\"cd \" & quoted form of (item 1 of argv) & \" && claude\")' -e 'end run' {dir}", when: ["folder"], enabled: false },
     ],
   },
-  netspeed: true,
+  menubar: ["netspeed"],
   exclusiveHotkeys: true,
   pinyin: true,
   appearance: "system",
+  panelReopen: "resume",
   disabledMatches: [] as string[],
+  translate: {
+    profiles: params.get("translateMock") && params.get("translateMock") !== "empty" ? [
+      { id: "work", name: "工作配置", protocol: "openai-chat", baseUrl: "https://gateway.example/v1", model: "custom-chat" },
+      { id: "backup", name: "备用配置", protocol: "openai-responses", baseUrl: "https://backup.example/api", model: "custom-response" },
+      { id: "messages", name: "Messages 配置", protocol: "anthropic-messages", baseUrl: "http://localhost:9876/v1", model: "custom-messages" },
+    ] : [],
+    activeProfileId: params.get("translateMock") && params.get("translateMock") !== "empty" ? "work" : null,
+    direction: "auto",
+  },
   webApps: [{ id: "deepseek", name: "DeepSeek", url: "https://chat.deepseek.com", keywords: ["ds"] }],
   screenshot: { target: "wechat", systemMode: "region" },
   relayApps: [
@@ -141,6 +258,10 @@ function navigate(plugin: string, feature: string, input?: string, viewOnly = fa
   pendingRequest = { id: ++requestId, plugin, feature, input, viewOnly };
   void emit("open-feature", pendingRequest);
 }
+function navigateQuery(query: string) {
+  pendingRequest = { id: ++requestId, plugin: "", feature: "", query };
+  void emit("panel-query", pendingRequest);
+}
 function superState() {
   const paths = superScenario === "folder" ? ["/Users/me/Documents/设计稿"] : superScenario === "image" ? ["/Users/me/Documents/二维码.png"] : superScenario === "multi" ? ["/Users/me/Documents/图.png", "/Users/me/Documents/备注.txt"] : superScenario === "file" ? ["/Users/me/Documents/说明.txt"] : [];
   const text = superScenario === "url" ? "https://example.com" : superScenario === "text" ? "Build something useful with AhaTools." : undefined;
@@ -160,13 +281,91 @@ Object.assign(window, { __AHATOOLS_SUPER_MOCK__: {
   setScenario(value: string) { superScenario = value; superConsumed = false; superRequest++; return emit("superpanel-shown", superState()); },
   get executed() { return executed; }, get pending() { return pendingRequest; }, get text() { return clipboardText; },
   openFeature(plugin: string, feature: string, input?: string, viewOnly = false) { navigate(plugin, feature, input, viewOnly); },
+  openQuery(query: string) { navigateQuery(query); },
   setOcr(phase: string) { ocrJob = makeOcr(String(++ocrId), phase); navigate("system", "ocr", ocrJob.id, true); return emit("system-ocr-updated", ocrJob); },
 } });
 if (params.get("page") === "settings") pendingRequest = { id: ++requestId, plugin: "settings", feature: "general", input: "superpanel" };
 if (params.has("ocrMock")) pendingRequest = { id: ++requestId, plugin: "system", feature: "ocr", input: "1", viewOnly: true };
-mockWindows(params.get("view") === "super" ? "super" : "panel");
+type SystemScenario = "normal" | "pressure" | "low-battery" | "no-battery" | "partial-error" | "sampling" | "charged" | "not-charging" | "no-estimate";
+let systemScenario = (params.get("sysmonMock") ?? "normal") as SystemScenario;
+let systemSequence = 0;
+let menuVisible = true;
+let mockAutostart = false;
+const systemActions: string[] = [];
+
+function systemSnapshot(): SystemSnapshot {
+  const sequence = ++systemSequence;
+  if (systemScenario === "sampling") return { ...EMPTY_SYSTEM, sequence };
+  const sampledAt = Date.now();
+  const available = <T,>(data: T): Reading<T> => ({ state: "available", data, sampledAt });
+  const battery: BatteryInfo = systemScenario === "no-battery" ? { status: "absent" } : {
+    status: "present", percent: systemScenario === "low-battery" ? 12 : systemScenario === "charged" ? 100 : 86,
+    state: systemScenario === "low-battery" ? "discharging" : systemScenario === "charged" ? "charged" : systemScenario === "not-charging" ? "notCharging" : "charging",
+    remainingMinutes: systemScenario === "low-battery" ? 35 : ["no-estimate", "not-charging", "charged"].includes(systemScenario) ? null : 25,
+  };
+  return {
+    sequence,
+    cpu: {
+      usage: available(23),
+      history: Array.from({ length: 60 }, (_, i) => ({ timestamp: sampledAt - (59 - i) * 1000, percent: 23 + Math.sin(i / 4) * 14 })),
+      busiest: systemScenario === "partial-error" ? { state: "unavailable" } : available({ name: "Visual Studio Code Helper (Renderer)", percent: 112 }),
+    },
+    memory: available({ usedBytes: (systemScenario === "pressure" ? 15.2 : 11.2) * 1024 ** 3, totalBytes: 16 * 1024 ** 3, pressure: systemScenario === "pressure" ? "critical" : systemScenario === "partial-error" ? "unknown" : "normal" }),
+    battery: systemScenario === "partial-error" ? { state: "unavailable" } : available(battery),
+    disk: systemScenario === "partial-error" ? { state: "unavailable" } : available({ availableBytes: 212 * 1024 ** 3, totalBytes: 494 * 1024 ** 3 }),
+  };
+}
+
+Object.assign(window, {
+  __AHATOOLS_SYSMON_MOCK__: {
+    async scenario(value: SystemScenario) { systemScenario = value; if (menuVisible) await emit("sysmon", systemSnapshot()); },
+    async show() { menuVisible = true; await emit("menu-shown"); },
+    async hide() { menuVisible = false; await emit("menu-hidden"); },
+    get visible() { return menuVisible; },
+    get actions() { return systemActions; },
+    get config() { return structuredClone(config); },
+    get listeners() { return [...listeners.values()]; },
+  },
+});
+if (params.get("view") === "menu") {
+  const timer = window.setInterval(() => { if (menuVisible) void emit("sysmon", systemSnapshot()); }, 1000);
+  window.addEventListener("pagehide", () => clearInterval(timer), { once: true });
+}
+
+mockWindows(params.get("view") === "menu" ? "menu" : params.get("view") === "super" ? "super" : "panel");
+let panelVisible = true;
+let panelLarge = false;
+let panelHiddenAt: number | null = null;
+function hideMockPanel() {
+  if (panelVisible) { panelVisible = false; panelHiddenAt = performance.now(); }
+}
+async function showMockPanel(target?: { plugin: string; feature: string; input?: string }) {
+  const reset = !panelVisible && !target && (config.panelReopen === "search"
+    || (config.panelReopen === "afterFiveMinutes" && panelHiddenAt !== null && performance.now() - panelHiddenAt > 300_000));
+  panelVisible = true;
+  panelHiddenAt = null;
+  if (reset) panelLarge = false;
+  await emit("panel-shown", { reset });
+  if (target) await emit("open-feature", target);
+}
+
+const translationKeys = new Set(params.get("translateMock") === "missing-key" ? [] : ["work", "backup", "messages"]);
+const translationJobs = new Map<string, ReturnType<typeof setTimeout>>();
+const translationCalls: { id: string; profileId: string; text: string; mode: string; direction: string }[] = [];
+let translationStops = 0;
+let panelPinned = false;
+Object.assign(window, { __AHATOOLS_TRANSLATE_MOCK__: {
+  get calls() { return translationCalls; }, get jobs() { return translationJobs.size; },
+  get stops() { return translationStops; },
+  get listeners() { return Array.from(listeners.values()).filter((name) => name.startsWith("translate-")).length; }, get pinned() { return panelPinned; },
+  setScenario(value: string) { params.set("translateMock", value); },
+  get config() { return structuredClone(config.translate); },
+  keyPresent(id: string) { return translationKeys.has(id); },
+} });
+
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
+  if (cmd.startsWith("hosts_")) return hostsMockInvoke(cmd, a);
   switch (cmd) {
     // The installed event API unlistens with eventId; mockIPC's built-in event
     // helper still expects id. Keep listener cleanup accurate in StrictMode.
@@ -183,11 +382,109 @@ mockIPC((cmd, args) => {
       }
       return null;
     }
+    case "set_panel_pinned": panelPinned = Boolean(a.pinned); setHostsPinned(panelPinned); return null;
+    case "translate_select":
+      if (a.profileId) config.translate.activeProfileId = String(a.profileId);
+      if (a.direction) config.translate.direction = a.direction as TranslateDirection;
+      queueMicrotask(() => void emit("config-changed", config)); return config;
+    case "translate_has_key":
+      if (params.get("translateMock") === "key-error") throw new Error("无法读取系统钥匙串，请允许 AhaTools 访问后重试");
+      return translationKeys.has(String(a.profileId));
+    case "translate_save_profile": {
+      if (params.get("translateMock") === "save-error") throw new Error("配置保存失败，原配置已保留");
+      const profile = a.profile as TranslateProfile;
+      const old = config.translate.profiles.find((p) => p.id === profile.id);
+      if ((!old || old.baseUrl !== profile.baseUrl || old.protocol !== profile.protocol) && !a.key) throw new Error("请重新填写 API Key");
+      config.translate.profiles = old ? config.translate.profiles.map((p) => p.id === profile.id ? profile : p) : [...config.translate.profiles, profile];
+      if (a.key) translationKeys.add(profile.id);
+      config.translate.activeProfileId ??= profile.id;
+      queueMicrotask(() => void emit("config-changed", config));
+      return config;
+    }
+    case "translate_delete_profile": {
+      const id = String(a.profileId);
+      config.translate.profiles = config.translate.profiles.filter((p) => p.id !== id); translationKeys.delete(id);
+      if (config.translate.activeProfileId === id) config.translate.activeProfileId = config.translate.profiles[0]?.id ?? null;
+      queueMicrotask(() => void emit("config-changed", config)); return config;
+    }
+    case "translate_list_models":
+      if (params.get("translateMock") === "model-slow") return new Promise((resolve) => setTimeout(() => resolve([{ id:"stale-model", name:"过期模型" }]), 600));
+      if (params.get("translateMock") === "model-error") throw new Error("HTTP 404：此服务不提供模型列表");
+      return [{ id: "custom-model-a", name: "自定义模型 A" }, { id: "custom-model-b", name: "自定义模型 B" }];
+    case "translate_test_connection":
+      if (params.get("translateMock") === "test-slow") return new Promise((resolve) => setTimeout(() => resolve({ firstTokenMs:999 }), 600));
+      if (params.get("translateMock") === "error") throw new Error("HTTP 401：密钥无效");
+      return { firstTokenMs: 420 };
+    case "translate_stop": {
+      const id = String(a.id); const timer = translationJobs.get(id);
+      if (timer) { clearTimeout(timer); translationJobs.delete(id); translationStops++; void emit("translate-done", { id, reason: "stopped", word: false }); }
+      return null;
+    }
+    case "translate_start": {
+      const id = String(a.id); const text = String(a.text);
+      const profileId = String(a.profileId);
+      if (!translationKeys.has(profileId)) throw new Error("请先设置这套配置的 API Key");
+      const mode = a.mode as TranslateMode; const direction = a.direction as TranslateDirection;
+      translationCalls.push({ id, profileId, text, mode, direction });
+      const word = isWord(text, mode, direction);
+      const output = word ? params.get("translateMock") === "invalid-word" ? "机缘巧合；意外的美好发现" : JSON.stringify({
+        phonetic: "/ˌserənˈdɪpəti/", senses: [{ partOfSpeech: "名词", meaning: "机缘巧合；意外发现美好事物的运气", explanation: "指没有刻意寻找时，偶然发现有价值的事物。" }],
+        examples: [{ en: "Finding that café was pure serendipity.", zh: "找到那家咖啡馆纯属机缘巧合。" }, { en: "Many discoveries happen by serendipity.", zh: "许多发现都源于偶然。" }], synonyms: ["chance", "fortune", "luck"],
+      }) : mode === "polish" ? "Tauri helps you build small, fast desktop applications with a web frontend." : mode === "explain" ? "这段文字介绍了 Tauri：它使用 Rust 处理核心逻辑，并用系统自带的网页视图呈现界面。" : direction === "zh-en" || direction === "auto" && /\p{Script=Han}/u.test(text) ? "AhaTools makes everyday work easier. It is a lightweight toolbox for macOS." : "Tauri 让你用网页前端构建更小、更快的桌面应用。核心使用 Rust，界面运行在系统自带的网页视图中，让应用保持轻量。";
+      const chars = Array.from(output); let n = 0;
+      const tick = () => {
+        if (params.get("translateMock") === "error" && n >= 8) { translationJobs.delete(id); void emit("translate-error", { id, message: "HTTP 503：服务暂时不可用" }); return; }
+        if (n >= chars.length) { translationJobs.delete(id); void emit("translate-done", { id, reason:"completed", word }); return; }
+        void emit("translate-chunk", { id, delta: chars.slice(n, n += 8).join("") });
+        translationJobs.set(id, setTimeout(tick, params.get("translateMock") === "slow" ? 250 : 20));
+      };
+      translationJobs.set(id, setTimeout(tick, 60)); return null;
+    }
     case "list_plugins":
       return manifests;
+    case "search_files": {
+      if (config.disabledMatches.includes("compress/compress")) return [];
+      const paths = expandMockPaths(a.paths as string[]);
+      const count = paths.filter(mockImage).length;
+      return count ? [{ ...feature("compress", "compress", `压缩图片 · ${count} 张`, `图片压缩 · ${count} 张图片`), action: { type: "feature", feature: "compress", input: JSON.stringify(paths) } }] : [];
+    }
+    case "compress_start":
+      return compressionStart(String(a.batchId), a.paths as string[], Number(a.quality), Boolean(a.toWebp));
+    case "compress_reprocess": {
+      const old = compressionBatches.find((b) => b.batchId === a.sourceBatchId);
+      if (!old) throw new Error("原批次不存在");
+      return compressionStart(String(a.batchId), old.items.map((i) => i.path), Number(a.quality), Boolean(a.toWebp));
+    }
+    case "compress_list_batches":
+      if ((compressionScenario === "mixed" || compressionScenario === "slow") && !compressionBatches.length) compressionStart("preview", compressionFixtures, 80, false);
+      return structuredClone(compressionBatches);
+    case "compress_export": {
+      const batchId = String(a.batchId), action = a.action as ExportAction, itemIds = a.itemIds as string[];
+      compressionExports.push({ batchId, action, itemIds });
+      const batch = compressionBatches.find((b) => b.batchId === batchId)!;
+      const items = batch.items.filter((i) => itemIds.includes(i.itemId));
+      if (action === "copy" && params.get("compressExport") !== "error") compressionCopies.push(items.map((i) => `/缓存/${batchId}/${i.outputName}`));
+      return items.map((i): ExportResult => ({ itemId: i.itemId, path: params.get("compressExport") === "error" ? null : `/预览/${i.outputName}`, error: params.get("compressExport") === "error" ? "没有写入权限" : null }));
+    }
+    case "plugin:dialog|open":
+      if (params.get("compressOpen") === "error") throw new Error("无法打开文件选择框");
+      return params.get("compressOpen") === "cancel" ? null : compressionFixtures;
+    case "plugin:dialog|message":
+      return params.get("compressConfirm") === "cancel" ? "取消" : "覆盖原图";
     case "search": {
       const original = String(a.query ?? "").trim();
       const q = original.toLowerCase();
+      const content = a.content as { type: "image" | "files"; paths?: string[] } | undefined;
+      const compressionPaths = content?.type === "files" ? expandMockPaths(content.paths ?? []) : [];
+      const compressionCount = compressionPaths.filter(mockImage).length;
+      if (content) return manifests.flatMap((m) => m.features.filter((f) => {
+        if (!f.match || config.disabledMatches.includes(`${m.id}/${f.code}`)) return false;
+        const accepted = m.id === "compress" ? compressionCount > 0 : content.type === "image" ? f.match.image : content.paths?.length && content.paths.length <= (f.match.maxFiles ?? Infinity) && content.paths.every((path) =>
+          f.match?.files?.some((ext) => ext === "*" || path.split(".").pop()?.toLowerCase() === ext));
+        return accepted && (!q || [f.explain, m.name, ...f.cmds].some((name) => name.toLowerCase().includes(q)));
+      }).map((f) => m.id === "compress"
+        ? { ...feature(m.id, f.code, `${f.explain} · ${compressionCount} 张`, `${m.name} · ${compressionCount} 张图片`), action: { type: "feature", feature: f.code, input: JSON.stringify(compressionPaths) } }
+        : feature(m.id, f.code, f.explain, m.name)));
       if (!q) return [];
       const prefix = original.match(/^(\S+)\s+([\s\S]+)$/);
       const features = manifests.flatMap((m) => m.features.flatMap((f) => {
@@ -230,8 +527,25 @@ mockIPC((cmd, args) => {
       const [down, up] = history[59];
       return { up, down, history, rxTotal: 12.4 * 1024 ** 3, txTotal: 1.8 * 1024 ** 3, iface: "en0", ifaceLabel: "Wi-Fi" };
     }
+    case "sysmon_snapshot":
+      return systemSnapshot();
+    case "menu_hide":
+      menuVisible = false;
+      queueMicrotask(() => void emit("menu-hidden"));
+      return null;
+    case "menu_open_panel":
+    case "menu_open_feature":
+    case "quit_app":
+      systemActions.push(cmd);
+      menuVisible = false;
+      queueMicrotask(() => void emit("menu-hidden"));
+      return null;
     case "plugin:autostart|is_enabled":
-      return false;
+      return mockAutostart;
+    case "plugin:autostart|enable":
+    case "plugin:autostart|disable":
+      mockAutostart = cmd.endsWith("|enable");
+      return null;
     case "panel_pending": return pendingRequest;
     case "panel_ack": if (pendingRequest?.id === a.id) pendingRequest = null; return null;
     case "superpanel_state": return superState();
@@ -251,7 +565,7 @@ mockIPC((cmd, args) => {
       superConsumed = true; const id = String(a.actionId); executed.push(id);
       const s = superState();
       if (id === "settings") navigate("settings", "general", "superpanel");
-      else if (id === "search-panel" || id === "search") { pendingRequest = { id: ++requestId, plugin: "", feature: "", query: id === "search" ? s.context.text : "" }; void emit("panel-query", pendingRequest); }
+      else if (id === "search-panel" || id === "search") navigateQuery(id === "search" ? s.context.text ?? "" : "");
       else if (id === "copy") clipboardText = s.context.text ?? s.context.paths.join("\n");
       else if (id === "qr") navigate("qrcode", s.context.kind === "files" ? "scan" : "generate", s.context.kind === "files" ? JSON.stringify({ paths: s.context.paths }) : s.context.text);
       return null;
@@ -271,12 +585,15 @@ mockIPC((cmd, args) => {
       queueMicrotask(() => void emit("config-changed", config));
       return [];
     case "plugin:clipboard-manager|read_image": {
+      clipboardReads++;
       if (!clipboardPixels && scenario === "empty") throw new Error("剪贴板里没有图片");
       if (!clipboardPixels && scenario === "error") throw new Error("暂时无法读取剪贴板（预览错误）");
       const rid = nextImage++;
       images.set(rid, cloneImage(clipboardPixels ?? fixtureImage()));
-      return rid;
+      return clipboardReadDelay ? new Promise((resolve) => setTimeout(() => resolve(rid), clipboardReadDelay)) : rid;
     }
+    case "clipboard_files":
+      return [...clipboardFiles];
     case "plugin:image|new": {
       const rid = nextImage++;
       images.set(rid, { width: Number(a.width), height: Number(a.height), rgba: new Uint8ClampedArray(a.rgba as ArrayLike<number>) });
@@ -299,17 +616,19 @@ mockIPC((cmd, args) => {
       const image = images.get(Number(a.image));
       if (!image) throw new Error("图片资源不存在");
       clipboardPixels = cloneImage(image);
+      clipboardFiles = [];
       return null;
     }
     case "plugin:clipboard-manager|write_text":
       clipboardText = String(a.text);
       clipboardPixels = undefined;
+      clipboardFiles = [];
       scenario = "empty";
       return null;
     case "plugin:clipboard-manager|read_text":
       return clipboardText;
     case "plugin:dialog|save":
-      return params.get("qrSave") === "cancel" ? null : "/预览/二维码.png";
+      return params.get("qrSave") === "cancel" ? null : `/预览/${(a.options as { defaultPath?: string })?.defaultPath ?? "二维码.png"}`;
     case "qr_save_png":
       if (params.get("qrSave") === "error") throw new Error("无法保存 PNG 图片：没有写入权限");
       savedImages.push({ path: String(a.path), bytes: a.bytes as number[] });
@@ -325,11 +644,27 @@ mockIPC((cmd, args) => {
         { id: "utools", installed: true, running: true },
       ];
     case "usage_home":
-      return usage;
+      return structuredClone(usage);
+    case "usage_reorder_pinned": return (async () => {
+      pinWrites++;
+      const delay = Number(params.get("pinDelay") ?? 0);
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (params.get("pinSave") === "error") throw new Error("无法写入 usage.json（预览错误）");
+      const item = homeItem(a.item as SearchItem);
+      const before = a.before ? homeItem(a.before as SearchItem) : null;
+      const from = usage.pinned.findIndex((entry) => sameItem(entry, item));
+      if (from < 0) throw new Error("这个功能已取消固定");
+      const [moved] = usage.pinned.splice(from, 1);
+      const to = before ? usage.pinned.findIndex((entry) => sameItem(entry, before)) : usage.pinned.length;
+      usage.pinned.splice(to < 0 ? usage.pinned.length : to, 0, moved);
+      localStorage.setItem("ahatools.mock.pinned", JSON.stringify(usage.pinned));
+      return structuredClone(usage);
+    })();
     case "usage_toggle_pin": {
       const item = homeItem(a.item as SearchItem);
       const had = usage.pinned.some((x) => sameItem(x, item));
       usage.pinned = had ? usage.pinned.filter((x) => !sameItem(x, item)) : [...usage.pinned, item];
+      localStorage.setItem("ahatools.mock.pinned", JSON.stringify(usage.pinned));
       return !had;
     }
     case "usage_record": {
@@ -350,10 +685,15 @@ mockIPC((cmd, args) => {
     case "plugin:app|version":
       return "0.1.0";
     case "webapp_open":
-    case "set_panel_large":
     case "hotkey_set_recording":
     case "relay_press_later":
     case "screenshot_take":
+      return null;
+    case "hide_panel":
+      hideMockPanel();
+      return null;
+    case "set_panel_large":
+      panelLarge = Boolean(a.large);
       return null;
     case "hotkey_bindings":
       return config.hotkeys;

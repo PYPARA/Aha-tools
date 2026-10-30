@@ -4,6 +4,12 @@
 import type { ComponentType } from "react";
 import {
   invoke,
+  imagePng,
+  saveFileDialog,
+  withPinned,
+  writeClipboardImage,
+  writeClipboardText,
+  type PluginContent,
   type PluginSettingsProps,
   type PluginViewProps,
   type FeatureTarget,
@@ -17,6 +23,12 @@ import WebAppsSettings from "../plugins/webapps/Settings";
 import QrGenerate from "../plugins/qrcode/Generate";
 import QrScan from "../plugins/qrcode/Scan";
 import OcrResult from "../plugins/system/OcrResult";
+import Compress from "../plugins/compress/Compress";
+import Hosts from "../plugins/hosts/Hosts";
+import Translate from "../plugins/translate/Translate";
+import TranslateSettings from "../plugins/translate/Settings";
+
+export { featureIcons, featureIconKey } from "./feature-icons";
 
 export const views: Record<string, ComponentType<PluginViewProps>> = {
   "launcher/manage": LauncherManage,
@@ -25,6 +37,9 @@ export const views: Record<string, ComponentType<PluginViewProps>> = {
   "qrcode/generate": QrGenerate,
   "qrcode/scan": QrScan,
   "system/ocr": OcrResult,
+  "compress/compress": Compress,
+  "hosts/hosts": Hosts,
+  "translate/translate": Translate,
 };
 
 /** Views that draw the whole window themselves (no page header or footer). */
@@ -34,16 +49,42 @@ export const fullPageViews = new Set(["settings/general"]);
 export type Target = FeatureTarget;
 
 /** Features that act right away instead of opening their own page. */
-export const actions: Record<string, (ctx: { input?: string; open: (t: Target) => void }) => unknown> = {
+export const actions: Record<string, (ctx: { input?: string; content?: PluginContent; open: (t: Target) => void }) => unknown> = {
   "screenshot/take": () => invoke("screenshot_take", { target: null }),
   "superpanel/open": () => invoke("superpanel_open"),
   ...Object.fromEntries(["colorpicker", "desktop", "lock", "ocr"].map((feature) => [`system/${feature}`, () => invoke("system_run", { feature })])),
   // Web apps are managed in their plugin's 设置 tab.
   "webapps/manage": ({ open }) => open({ plugin: "settings", feature: "general", input: "plugins/webapps/settings" }),
+  "images/copy": async ({ content }) => {
+    if (content?.type !== "image") throw new Error("先在搜索框粘贴一张图片");
+    await writeClipboardImage(content.image);
+    return "已复制图片";
+  },
+  "images/save": async ({ content }) => {
+    if (content?.type !== "image") throw new Error("先在搜索框粘贴一张图片");
+    const bytes = Array.from(new Uint8Array(await (await imagePng(content.image)).arrayBuffer()));
+    return withPinned(async () => {
+      const path = await saveFileDialog({ defaultPath: "图片.png", filters: [{ name: "PNG 图片", extensions: ["png"] }] });
+      if (!path) return;
+      await invoke("qr_save_png", { path, bytes });
+      return "已保存图片";
+    });
+  },
+  "launcher/copy-path": async ({ content }) => {
+    if (content?.type !== "files") throw new Error("先在搜索框粘贴或拖入文件");
+    await writeClipboardText(content.paths.join("\n"));
+    return "已复制文件路径";
+  },
+  "launcher/copy-name": async ({ content }) => {
+    if (content?.type !== "files") throw new Error("先在搜索框粘贴或拖入文件");
+    await writeClipboardText(content.paths.map((path) => path.replace(/\/$/, "").split("/").pop()).join("\n"));
+    return "已复制文件名称";
+  },
 };
 
 /** Each plugin's 设置 tab in the plugin detail page. */
 export const pluginSettings: Record<string, ComponentType<PluginSettingsProps>> = {
   screenshot: ScreenshotSettings,
   webapps: WebAppsSettings,
+  translate: TranslateSettings,
 };

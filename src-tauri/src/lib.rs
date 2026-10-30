@@ -1,5 +1,6 @@
 mod config;
 mod context;
+mod clipboard;
 mod favicon;
 mod hotkey;
 mod netspeed;
@@ -10,8 +11,10 @@ mod relay;
 mod screenshot;
 mod superpanel;
 mod superpanel_commands;
+mod sysmon;
 mod usage;
 mod webapps;
+mod window_position;
 
 use std::thread;
 
@@ -32,6 +35,7 @@ pub fn run() {
         ))
         .plugin(hotkey::plugin())
         .manage(hotkey::Router::default())
+        .manage(plugins::translate::TranslationState::default())
         .setup(|app| {
             // Menu-bar only: no Dock icon, no app switcher entry.
             #[cfg(target_os = "macos")]
@@ -52,6 +56,7 @@ pub fn run() {
             thread::spawn(move || launcher.refresh());
 
             panel::init(app.handle());
+            plugins::compress::init(app.handle());
             popover::init(app.handle())?;
             superpanel::init(app.handle())?;
             plugins::system::init(app.handle());
@@ -64,6 +69,7 @@ pub fn run() {
             config::config_get,
             config::config_set,
             config::config_dir,
+            clipboard::clipboard_files,
             panel::hide_panel,
             panel::panel_pending,
             panel::panel_ack,
@@ -80,9 +86,26 @@ pub fn run() {
             panel::set_panel_large,
             plugins::list_plugins,
             plugins::search,
+            plugins::search_files,
+            plugins::compress::compress_start,
+            plugins::compress::compress_reprocess,
+            plugins::compress::compress_list_batches,
+            plugins::compress::compress_export,
             plugins::open_path,
             plugins::qrcode::qr_read_image,
             plugins::qrcode::qr_save_png,
+            plugins::hosts::hosts_load,
+            plugins::hosts::hosts_validate,
+            plugins::hosts::hosts_apply,
+            plugins::hosts::hosts_restore,
+            plugins::translate::translate_save_profile,
+            plugins::translate::translate_delete_profile,
+            plugins::translate::translate_has_key,
+            plugins::translate::translate_select,
+            plugins::translate::translate_list_models,
+            plugins::translate::translate_test_connection,
+            plugins::translate::translate_start,
+            plugins::translate::translate_stop,
             launcher::launcher_saved,
             launcher::launcher_add,
             launcher::launcher_remove,
@@ -91,6 +114,7 @@ pub fn run() {
             usage::usage_record,
             usage::usage_toggle_pin,
             usage::usage_forget,
+            usage::usage_reorder_pinned,
             webapps::webapp_open,
             favicon::webapp_icon,
             hotkey::hotkey_bindings,
@@ -103,6 +127,8 @@ pub fn run() {
             relay::relay_press_later,
             screenshot::screenshot_take,
             netspeed::netspeed_snapshot,
+            sysmon::sysmon_snapshot,
+            popover::menu_hide,
             popover::menu_open_panel,
             popover::menu_open_feature,
             popover::quit_app,
@@ -172,6 +198,7 @@ fn setup_tray(app: &App, cfg: &config::Config) -> tauri::Result<()> {
         .build(app)?;
 
     // Sample even without the menu-bar display: the popover needs the numbers.
-    netspeed::start(app.handle().clone(), tray, cfg.netspeed);
+    sysmon::start(app.handle().clone(), &cfg.menubar);
+    netspeed::start(app.handle().clone(), tray, &cfg.menubar);
     Ok(())
 }

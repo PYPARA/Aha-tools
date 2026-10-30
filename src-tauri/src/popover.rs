@@ -5,15 +5,12 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, Rect, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, Rect, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 pub const LABEL: &str = "menu";
 const WIDTH: f64 = 300.0;
-const HEIGHT: f64 = 412.0;
-/// Gap between the menu bar and the popover, in points.
-const OFFSET: f64 = 6.0;
+const HEIGHT: f64 = 720.0;
 
 /// When the popover last hid itself on blur. A click on the tray icon blurs the popover
 /// first, so a toggle right after that must not show it again.
@@ -31,12 +28,21 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .visible_on_all_workspaces(true)
         .visible(false)
         .build()?;
-    let w2 = w.clone();
-    w.on_window_event(move |e| {
-        if let WindowEvent::Focused(false) = e {
+    let handle = app.clone();
+    w.on_window_event(move |e| match e {
+        WindowEvent::Focused(false) => {
+            if crate::screenshot::is_capturing() {
+                return;
+            }
             *BLUR_HIDDEN_AT.lock().unwrap() = Some(Instant::now());
-            let _ = w2.hide();
+            hide(&handle);
         }
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            hide(&handle);
+        }
+        WindowEvent::Destroyed => crate::sysmon::set_menu_visible(false),
+        _ => {}
     });
     Ok(())
 }
@@ -53,32 +59,33 @@ pub fn toggle(app: &AppHandle, anchor: Rect) {
         .unwrap()
         .is_some_and(|t| t.elapsed() < Duration::from_millis(300));
     if w.is_visible().unwrap_or(false) || just_hidden {
-        let _ = w.hide();
+        hide(app);
         return;
     }
 
-    let scale = w.scale_factor().unwrap_or(2.0);
-    let pos = anchor.position.to_physical::<f64>(scale);
-    let size = anchor.size.to_physical::<f64>(scale);
-    let width = WIDTH * scale;
-    let mut x = pos.x + size.width / 2.0 - width / 2.0;
-    let y = pos.y + size.height + OFFSET * scale;
-    // Keep it on the screen the icon is on.
-    if let Ok(Some(m)) = app.monitor_from_point(pos.x, pos.y) {
-        let left = m.position().x as f64 + 8.0 * scale;
-        let right = left - 16.0 * scale + m.size().width as f64 - width;
-        x = x.clamp(left, right.max(left));
-    }
-    let _ = w.set_position(PhysicalPosition::new(x, y));
-    let _ = w.show();
-    let _ = w.set_focus();
-    let _ = app.emit_to(LABEL, "menu-shown", ());
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        crate::window_position::place_popover(&w, anchor, (WIDTH, HEIGHT));
+        if w.show().is_err() {
+            return;
+        }
+        crate::sysmon::set_menu_visible(true);
+        let _ = w.set_focus();
+        let _ = app2.emit_to(LABEL, "menu-shown", ());
+    });
 }
 
 pub fn hide(app: &AppHandle) {
+    crate::sysmon::set_menu_visible(false);
     if let Some(w) = window(app) {
         let _ = w.hide();
     }
+    let _ = app.emit_to(LABEL, "menu-hidden", ());
+}
+
+#[tauri::command]
+pub fn menu_hide(app: AppHandle) {
+    hide(&app);
 }
 
 /// Popover actions. Each closes the popover first.

@@ -16,7 +16,7 @@ interface Snapshot {
   result?: ScanResult;
 }
 
-export default function Scan({ setStatus, openFeature, input }: PluginViewProps) {
+export default function Scan({ setStatus, openFeature, content, input }: PluginViewProps) {
   const [state, setState] = useState<Snapshot>({ phase: "loading", source: "剪贴板", message: "正在读取剪贴板…" });
   const [notice, setNotice] = useState({ text: "", error: false });
   const [dragging, setDragging] = useState(false);
@@ -100,10 +100,16 @@ export default function Scan({ setStatus, openFeature, input }: PluginViewProps)
 
   useEffect(() => {
     let supplied: string[] | undefined;
-    try { const value = input ? JSON.parse(input) : null; if (Array.isArray(value?.paths)) supplied = value.paths.every((p: unknown) => typeof p === "string") ? value.paths : []; } catch { /* no file input */ }
-    if (supplied) readPaths(supplied); else void reread();
+    try { const value = input ? JSON.parse(input) : null; if (Array.isArray(value?.paths)) supplied = value.paths.every((p: unknown) => typeof p === "string") ? value.paths : []; } catch { /* no native file input */ }
+    const load = () => {
+      if (supplied) readPaths(supplied);
+      else if (content?.type === "files") readPaths(content.paths);
+      else if (content?.type === "image") void read(content.name, async () => ({ ...content.image, rgba: content.image.rgba.slice() }));
+      else void reread();
+    };
+    load();
     let disposed = false;
-    const subscriptions = [onPanelShown(() => { if (supplied) readPaths(supplied); else void reread(); }), onFileDrop(readPaths)];
+    const subscriptions = [onPanelShown((event) => { if (!event?.reset) load(); }), onFileDrop(readPaths)];
     for (const subscription of subscriptions) {
       subscription.catch(() => {
         if (!disposed) setNotice({ text: "无法监听图片拖放，请重新打开识别页面", error: true });
@@ -113,7 +119,7 @@ export default function Scan({ setStatus, openFeature, input }: PluginViewProps)
       disposed = true;
       subscriptions.forEach((s) => { void s.then((off) => off()).catch(() => {}); });
     };
-  }, [reread, readPaths, input]);
+  }, [reread, readPaths, read, content, input]);
 
   const result = state.result;
   const url = result ? httpUrl(result.text) : null;

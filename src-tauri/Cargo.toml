@@ -32,17 +32,32 @@ regex = "1.13.1"
 tauri-plugin-clipboard-manager = "2.5.0"
 pinyin = "0.11.0"
 base64 = "0.23.1"
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
-objc2-app-kit = { version = "0.3", features = ["NSColorSampler", "NSColor", "NSColorSpace", "NSPasteboard", "NSPasteboardItem", "NSWorkspace", "NSRunningApplication", "block2"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+png = "0.18"
+imagequant = { version = "4.4.1", default-features = false }
+oxipng = { version = "10.2.1", default-features = false }
+mozjpeg = { version = "0.10.13", default-features = false, features = ["with_simd"] }
+webp = { version = "0.3.1", default-features = false }
+img-parts = "0.4.1"
+rayon = "1.11"
+sha2 = "0.10.9"
+tempfile = "3"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "system-proxy"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+keyring = { version = "4.2", features = ["v1"] }
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSPasteboard", "NSEvent", "NSScreen", "NSWindow", "NSColorSampler", "NSColor", "NSColorSpace", "NSPasteboardItem", "NSWorkspace", "NSRunningApplication", "block2", "libc"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSURL"] }
+
 objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes", "objc2-core-foundation"] }
 block2 = "0.6"
-
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+panic = "unwind"
 strip = true

@@ -1,4 +1,4 @@
-import { formatAccelerator, featureAction, FeatureIcon, sameAction } from "@ahatools/sdk";
+import { FeatureIcon, formatAccelerator, featureAction, sameAction } from "@ahatools/sdk";
 import type { SectionProps } from "./Settings";
 
 /** Every feature of every plugin, with its keywords and hotkey. */

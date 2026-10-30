@@ -1,0 +1,7 @@
+{
+  "id": "translate",
+  "name": "翻译",
+  "version": "0.1.0",
+  "description": "自定义服务流式翻译，单词附带释义",
+  "features": [{ "code": "translate", "explain": "翻译", "cmds": ["翻译", "fy", "translate"], "match": { "text": true, "minLength": 2 } }]
+}
