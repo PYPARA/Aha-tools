@@ -290,6 +290,7 @@ type SystemScenario = "normal" | "pressure" | "low-battery" | "no-battery" | "pa
 let systemScenario = (params.get("sysmonMock") ?? "normal") as SystemScenario;
 let systemSequence = 0;
 let menuVisible = true;
+const menuResizeRequests: number[] = [];
 let mockAutostart = false;
 const systemActions: string[] = [];
 
@@ -322,6 +323,8 @@ Object.assign(window, {
     async show() { menuVisible = true; await emit("menu-shown"); },
     async hide() { menuVisible = false; await emit("menu-hidden"); },
     get visible() { return menuVisible; },
+    get contentHeight() { return menuResizeRequests[menuResizeRequests.length - 1] ?? null; },
+    get resizes() { return [...menuResizeRequests]; },
     get actions() { return systemActions; },
     get config() { return structuredClone(config); },
     get listeners() { return [...listeners.values()]; },
@@ -529,6 +532,9 @@ mockIPC((cmd, args) => {
     }
     case "sysmon_snapshot":
       return systemSnapshot();
+    case "menu_resize":
+      menuResizeRequests.push(Number(a.height));
+      return null;
     case "menu_hide":
       menuVisible = false;
       queueMicrotask(() => void emit("menu-hidden"));

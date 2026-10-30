@@ -128,6 +128,7 @@ pub fn run() {
             screenshot::screenshot_take,
             netspeed::netspeed_snapshot,
             sysmon::sysmon_snapshot,
+            popover::menu_resize,
             popover::menu_hide,
             popover::menu_open_panel,
             popover::menu_open_feature,

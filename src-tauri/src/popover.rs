@@ -10,7 +10,9 @@ use tauri::{
 
 pub const LABEL: &str = "menu";
 const WIDTH: f64 = 300.0;
-const HEIGHT: f64 = 720.0;
+const INITIAL_HEIGHT: f64 = 720.0;
+// The webview reports its natural content height; each display still caps the window.
+static CONTENT_HEIGHT: Mutex<f64> = Mutex::new(INITIAL_HEIGHT);
 
 /// When the popover last hid itself on blur. A click on the tray icon blurs the popover
 /// first, so a toggle right after that must not show it again.
@@ -19,7 +21,7 @@ static BLUR_HIDDEN_AT: Mutex<Option<Instant>> = Mutex::new(None);
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let w = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?view=menu".into()))
         .title("AhaTools")
-        .inner_size(WIDTH, HEIGHT)
+        .inner_size(WIDTH, INITIAL_HEIGHT)
         .decorations(false)
         .transparent(true)
         .resizable(false)
@@ -65,7 +67,8 @@ pub fn toggle(app: &AppHandle, anchor: Rect) {
 
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        crate::window_position::place_popover(&w, anchor, (WIDTH, HEIGHT));
+        let height = *CONTENT_HEIGHT.lock().unwrap();
+        crate::window_position::place_popover(&w, anchor, (WIDTH, height));
         if w.show().is_err() {
             return;
         }
@@ -81,6 +84,22 @@ pub fn hide(app: &AppHandle) {
         let _ = w.hide();
     }
     let _ = app.emit_to(LABEL, "menu-hidden", ());
+}
+
+#[tauri::command]
+pub fn menu_resize(app: AppHandle, height: f64) {
+    if !height.is_finite() || height <= 0.0 {
+        return;
+    }
+    *CONTENT_HEIGHT.lock().unwrap() = height.ceil();
+    if let Some(w) = window(&app) {
+        let _ = app.run_on_main_thread(move || {
+            if w.is_visible().unwrap_or(false) {
+                let height = *CONTENT_HEIGHT.lock().unwrap();
+                crate::window_position::resize_panel(&w, (WIDTH, height));
+            }
+        });
+    }
 }
 
 #[tauri::command]

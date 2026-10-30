@@ -1,6 +1,6 @@
 // The menu-bar popover (window "menu"): live network speed plus the app's switches.
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { ChevronIcon, formatAccelerator, invoke, Switch, useAppearance, type Config } from "@ahatools/sdk";
@@ -78,11 +78,31 @@ function Sparkline({ history }: { history: [number, number][] }) {
 
 export default function MenuPopover() {
   useAppearance();
+  const contentRef = useRef<HTMLDivElement>(null);
   const [net, setNet] = useState<Snapshot>(EMPTY);
   const [hotkey, setHotkey] = useState<HotkeyStatus | null>(null);
   const [system, setSystem] = useState<SystemSnapshot>(EMPTY_SYSTEM);
   const [autostart, setAutostart] = useState(false);
   const [cfg, setCfg] = useState<Config | null>(null);
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    const popover = content?.parentElement;
+    if (!content || !popover) return;
+    let lastHeight = 0;
+    const resize = () => {
+      const border = popover.offsetHeight - popover.clientHeight;
+      const height = Math.ceil(content.getBoundingClientRect().height + border);
+      if (height === lastHeight) return;
+      lastHeight = height;
+      void invoke("menu_resize", { height }).catch(() => {});
+    };
+    // Measure the unconstrained content, even when a short screen makes it scroll.
+    const observer = new ResizeObserver(resize);
+    observer.observe(content);
+    resize();
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -159,94 +179,96 @@ export default function MenuPopover() {
 
   return (
     <div className="popover" role="dialog" aria-label="AhaTools 菜单">
-      <div className="pop-head">
-        <strong>网速</strong>
-        {net.iface && <span>{net.ifaceLabel ? `${net.ifaceLabel} · ${net.iface}` : net.iface}</span>}
-      </div>
+      <div className="popover-content" ref={contentRef}>
+        <div className="pop-head">
+          <strong>网速</strong>
+          {net.iface && <span>{net.ifaceLabel ? `${net.ifaceLabel} · ${net.iface}` : net.iface}</span>}
+        </div>
 
-      <div className="speeds">
-        <div className="speed">
-          <span className="label">↓ 下载</span>
-          <span className="value">
-            {down}
-            <small> {downUnit}</small>
+        <div className="speeds">
+          <div className="speed">
+            <span className="label">↓ 下载</span>
+            <span className="value">
+              {down}
+              <small> {downUnit}</small>
+            </span>
+          </div>
+          <div className="speed">
+            <span className="label">↑ 上传</span>
+            <span className="value">
+              {up}
+              <small> {upUnit}</small>
+            </span>
+          </div>
+        </div>
+
+        <div className="graph">
+          <Sparkline history={net.history} />
+          <span className="graph-legend">
+            <span>最近 60 秒</span>
+            <span>
+              开机以来 ↓ {formatBytes(net.rxTotal)} · ↑ {formatBytes(net.txTotal)}
+            </span>
           </span>
         </div>
-        <div className="speed">
-          <span className="label">↑ 上传</span>
-          <span className="value">
-            {up}
-            <small> {upUnit}</small>
-          </span>
-        </div>
-      </div>
 
-      <div className="graph">
-        <Sparkline history={net.history} />
-        <span className="graph-legend">
-          <span>最近 60 秒</span>
-          <span>
-            开机以来 ↓ {formatBytes(net.rxTotal)} · ↑ {formatBytes(net.txTotal)}
-          </span>
-        </span>
-      </div>
+        <hr />
 
-      <hr />
+        <SystemMonitor snapshot={system} />
 
-      <SystemMonitor snapshot={system} />
+        <hr />
 
-      <hr />
-
-      <div className="menu-group">
-        <button type="button" className="menu-row" onClick={() => invoke("menu_open_panel")}>
-          打开搜索面板
-          {accelerator && <span className="keys">{accelerator}</span>}
-        </button>
-        <label className="menu-row">
-          截图工具
-          <span className="value">
-            {tools.find((t) => t.id === cfg?.screenshot.target)?.name ?? "系统截图"}
-            <ChevronIcon />
-          </span>
-          <select aria-label="截图工具" value={cfg?.screenshot.target ?? "system"} onChange={(e) => setTool(e.target.value)}>
-            {tools.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="menu-row">
-          独占热键
-          <span className="end">
-            {hotkey?.enabled &&
-              (hotkey.exclusive ? (
-                <span className="menu-state ok">已生效</span>
-              ) : (
-                <button type="button" className="menu-state warn" onClick={() => invoke("hotkey_request_access")}>
-                  等待授权
-                </button>
+        <div className="menu-group">
+          <button type="button" className="menu-row" onClick={() => invoke("menu_open_panel")}>
+            打开搜索面板
+            {accelerator && <span className="keys">{accelerator}</span>}
+          </button>
+          <label className="menu-row">
+            截图工具
+            <span className="value">
+              {tools.find((t) => t.id === cfg?.screenshot.target)?.name ?? "系统截图"}
+              <ChevronIcon />
+            </span>
+            <select aria-label="截图工具" value={cfg?.screenshot.target ?? "system"} onChange={(e) => setTool(e.target.value)}>
+              {tools.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
               ))}
-            <Switch small label="独占热键" checked={!!hotkey?.enabled} onChange={setExclusive} />
-          </span>
-        </label>
-      </div>
+            </select>
+          </label>
+          <label className="menu-row">
+            独占热键
+            <span className="end">
+              {hotkey?.enabled &&
+                (hotkey.exclusive ? (
+                  <span className="menu-state ok">已生效</span>
+                ) : (
+                  <button type="button" className="menu-state warn" onClick={() => invoke("hotkey_request_access")}>
+                    等待授权
+                  </button>
+                ))}
+              <Switch small label="独占热键" checked={!!hotkey?.enabled} onChange={setExclusive} />
+            </span>
+          </label>
+        </div>
 
-      <hr />
+        <hr />
 
-      <div className="menu-group">
-        <button type="button" className="menu-row" onClick={openSettings}>
-          设置…
-          <span className="keys">⌘ ,</span>
-        </button>
-        <label className="menu-row">
-          开机自动启动
-          <Switch small label="开机自动启动" checked={autostart} onChange={setAutostartOn} />
-        </label>
-        <button type="button" className="menu-row" onClick={() => invoke("quit_app")}>
-          退出 AhaTools
-          <span className="keys">⌘ Q</span>
-        </button>
+        <div className="menu-group">
+          <button type="button" className="menu-row" onClick={openSettings}>
+            设置…
+            <span className="keys">⌘ ,</span>
+          </button>
+          <label className="menu-row">
+            开机自动启动
+            <Switch small label="开机自动启动" checked={autostart} onChange={setAutostartOn} />
+          </label>
+          <button type="button" className="menu-row" onClick={() => invoke("quit_app")}>
+            退出 AhaTools
+            <span className="keys">⌘ Q</span>
+          </button>
+        </div>
       </div>
     </div>
   );
