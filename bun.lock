@@ -5,6 +5,9 @@
     "": {
       "name": "aha-tools",
       "dependencies": {
+        "@dnd-kit/collision": "^0.5.1",
+        "@dnd-kit/dom": "^0.5.1",
+        "@dnd-kit/react": "^0.5.1",
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-autostart": "^2.7.0",
         "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
@@ -26,7 +29,21 @@
     },
   },
   "packages": {
+    "@dnd-kit/abstract": ["@dnd-kit/abstract@0.5.1", "", { "dependencies": { "@dnd-kit/geometry": "^0.5.1", "@dnd-kit/state": "^0.5.1", "tslib": "^2.6.2" } }, "sha512-XI13sUYRvRgggMocjHlQhLRgENm/2GF94KF7mk+c0uxse7sbn75r0BgxoNPDlzLTDPWx6PkS0YHoeXN9JWhnOA=="],
+
+    "@dnd-kit/collision": ["@dnd-kit/collision@0.5.1", "", { "dependencies": { "@dnd-kit/abstract": "^0.5.1", "@dnd-kit/geometry": "^0.5.1", "tslib": "^2.6.2" } }, "sha512-exQmBlWWQ6calIup4KNQudiEF8Do61Lpzw/F0M3UOhqdKi9dx0ZXGf+qfdfmew8rJzPMj3MzKeGqNMEbCKA22g=="],
+
+    "@dnd-kit/dom": ["@dnd-kit/dom@0.5.1", "", { "dependencies": { "@dnd-kit/abstract": "^0.5.1", "@dnd-kit/collision": "^0.5.1", "@dnd-kit/geometry": "^0.5.1", "@dnd-kit/state": "^0.5.1", "tslib": "^2.6.2" } }, "sha512-r7/l4D+nsH1mFXWkplXCkZC9JlY7UjxsVuTu4yCqzC00XgX+SXiK3Oazp42KKG3mshfBNVtm15BI9rKNlkw2fA=="],
+
+    "@dnd-kit/geometry": ["@dnd-kit/geometry@0.5.1", "", { "dependencies": { "@dnd-kit/state": "^0.5.1", "tslib": "^2.6.2" } }, "sha512-7X/Ro2U5qW96SihIukMitnc3pYc5n/PmHmJ28oApLBIJRfLxPLgrL6X0ZbQT7qUEfdUIqXnehobJ3jXAc4hdAA=="],
+
+    "@dnd-kit/react": ["@dnd-kit/react@0.5.1", "", { "dependencies": { "@dnd-kit/abstract": "^0.5.1", "@dnd-kit/dom": "^0.5.1", "@dnd-kit/state": "^0.5.1", "tslib": "^2.6.2" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0" } }, "sha512-WL8LvALUL9PqUUVun4xu4e8HO3x6rPwTxnnNwovj/VOUVyWpTmIaAK5Yj8jkzqNK01W74sQbwtffpLep1Ckj/Q=="],
+
+    "@dnd-kit/state": ["@dnd-kit/state@0.5.1", "", { "dependencies": { "@preact/signals-core": "^1.10.0", "tslib": "^2.6.2" } }, "sha512-SN0BZ0d/ob9dK8sTqk/0z3eNBWV6xPSrLbHUBbiCo9Sj3xfhPFk6ej2oZpDcqk7LWaujT57ocgdtznY7wQ2yFw=="],
+
     "@oxc-project/types": ["@oxc-project/types@0.155.0", "", {}, "sha512-SeE8JPwW1xs1tHeNycjUtUBdhorRa8o4jlvjwk49R7/Z291i+4DQa7JJIgOm/TaYQZx+QrPQbVJ/9c8dMIZN8Q=="],
+
+    "@preact/signals-core": ["@preact/signals-core@1.14.5", "", {}, "sha512-vcRv7Ityz5JVmeiVqIluLFzT/PDS/AlhHUpw3/aUWqcVUs6bDGIPXE/6RSC4evBNWYvnniozg5Syfj33al3gkg=="],
 
     "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.15", "", { "os": "android", "cpu": "arm" }, "sha512-aLcgK9gIJ3YRvrrtfSBbRa27F5WrpiTaPulnFpsHPxpUHgFlSgnU4854MHwoRGEBhfRJDWCS2WQ7lIjskE9Olw=="],
 
@@ -203,6 +220,8 @@
     "strip-ansi": ["strip-ansi@6.0.1", "", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
 
     "tinyglobby": ["tinyglobby@0.2.17", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.4" } }, "sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g=="],
+
+    "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
     "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 

@@ -12,14 +12,19 @@ import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
 import webapps from "../plugins/webapps/plugin.json";
 import qrcode from "../plugins/qrcode/plugin.json";
+import imageTools from "../plugins/images/plugin.json";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, imageTools, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
 let scenario = (params.get("qrMock") ?? "url") as QrScenario;
 let clipboardPixels: RgbaImage | undefined;
 let clipboardText = "";
+let clipboardFiles: string[] = [];
+let clipboardReadDelay = 0;
+let clipboardReads = 0;
+let pinWrites = 0;
 let nextImage = 1;
 const images = new Map<number, RgbaImage>();
 const savedImages: { path: string; bytes: number[] }[] = [];
@@ -32,12 +37,31 @@ const fixtureImage = () => scenario === "no-code"
 // Preview-only controls for repeatable browser checks; not included in production.
 Object.assign(window, {
   __AHATOOLS_QR_MOCK__: {
-    setClipboard(value: QrScenario) { scenario = value; clipboardPixels = undefined; },
+    setClipboard(value: QrScenario) { scenario = value; clipboardPixels = undefined; clipboardFiles = []; },
+    setFiles(paths: string[]) { clipboardFiles = paths; },
+    setReadDelay(milliseconds: number) { clipboardReadDelay = milliseconds; },
     get text() { return clipboardText; },
     get activeImages() { return images.size; },
+    get clipboardReads() { return clipboardReads; },
     get saved() { return savedImages; },
+    get pinned() { return usage.pinned.map((item) => item.title); },
+    get pinWrites() { return pinWrites; },
     drop(paths: string[]) { return emit("tauri://drag-drop", { paths, position: { x: 100, y: 100 } }); },
-    showPanel() { return emit("panel-shown"); },
+    showPanel() { return showMockPanel(); },
+  },
+  __AHATOOLS_PANEL_MOCK__: {
+    get config() { return config; },
+    get large() { return panelLarge; },
+    hide() { hideMockPanel(); },
+    show() { return showMockPanel(); },
+    reopen(hiddenForMs = 0) {
+      hideMockPanel();
+      panelHiddenAt = performance.now() - hiddenForMs;
+      return showMockPanel();
+    },
+    openFeature(plugin: string, feature: string, input?: string) {
+      return showMockPanel({ plugin, feature, input });
+    },
   },
 });
 
@@ -68,14 +92,28 @@ const usage = {
     app("微信", "/Applications/WeChat.app"),
     feature("screenshot", "take", "截图", "截图"),
     app("访达", "/System/Library/CoreServices/Finder.app"),
+    feature("qrcode", "generate", "生成二维码", "二维码"),
+    feature("qrcode", "scan", "识别二维码", "二维码"),
     feature("hotkeys", "probe", "检测热键占用", "热键检测"),
-    app("Cursor", "/Applications/Cursor.app"),
     feature("launcher", "manage", "管理收藏的路径", "快捷启动"),
+    feature("webapps", "manage", "管理网页应用", "网页应用"),
+    app("Cursor", "/Applications/Cursor.app"),
     app("系统设置", "/System/Applications/System Settings.app"),
     app("备忘录", "/System/Applications/Notes.app"),
   ],
-  pinned: [app("Ghostty", "/Applications/Ghostty.app"), app("微信", "/Applications/WeChat.app"), feature("screenshot", "take", "截图", "截图")],
+  pinned: [app("Ghostty", "/Applications/Ghostty.app"), app("微信", "/Applications/WeChat.app"), feature("screenshot", "take", "截图", "截图"),
+    feature("qrcode", "generate", "生成二维码", "二维码"), feature("qrcode", "scan", "识别二维码", "二维码"),
+    feature("hotkeys", "probe", "检测热键占用", "热键检测"), feature("launcher", "manage", "管理收藏的路径", "快捷启动"),
+    feature("webapps", "manage", "管理网页应用", "网页应用"), feature("images", "save", "保存图片为 PNG", "图片工具")],
 };
+try { usage.pinned = JSON.parse(localStorage.getItem("ahatools.mock.pinned") ?? "null") ?? usage.pinned; } catch { /* Preview data can be reset by clearing localStorage. */ }
+if (params.get("pinsMock") === "many") {
+  usage.pinned = Array.from({ length: 35 }, (_, i): SearchItem => ({
+    title: `项目 ${i + 1}`, subtitle: `/预览/项目 ${i + 1}`, score: 0, plugin: "launcher", kind: "saved", icon: "folder",
+    action: { type: "openPath", path: `/预览/项目 ${i + 1}` },
+  }));
+}
+if (params.get("pinsMock") === "only") usage.recent = [];
 
 function homeItem(item: SearchItem): SearchItem {
   if (item.action.type !== "feature") return { ...item, score: 0 };
@@ -101,6 +139,7 @@ let config = {
   exclusiveHotkeys: true,
   pinyin: true,
   appearance: "system",
+  panelReopen: "resume",
   disabledMatches: [] as string[],
   webApps: [{ id: "deepseek", name: "DeepSeek", url: "https://chat.deepseek.com", keywords: ["ds"] }],
   screenshot: { target: "wechat", systemMode: "region" },
@@ -111,6 +150,22 @@ let config = {
     { id: "utools", name: "uTools", bundleId: "org.yuanli.utools", accelerator: "Control+Super+Digit0", screenshot: false, ready: false },
   ],
 };
+
+let panelVisible = true;
+let panelLarge = false;
+let panelHiddenAt: number | null = null;
+function hideMockPanel() {
+  if (panelVisible) { panelVisible = false; panelHiddenAt = performance.now(); }
+}
+async function showMockPanel(target?: { plugin: string; feature: string; input?: string }) {
+  const reset = !panelVisible && !target && (config.panelReopen === "search"
+    || (config.panelReopen === "afterFiveMinutes" && panelHiddenAt !== null && performance.now() - panelHiddenAt > 300_000));
+  panelVisible = true;
+  panelHiddenAt = null;
+  if (reset) panelLarge = false;
+  await emit("panel-shown", { reset });
+  if (target) await emit("open-feature", target);
+}
 
 mockWindows("panel");
 mockIPC((cmd, args) => {
@@ -136,6 +191,13 @@ mockIPC((cmd, args) => {
     case "search": {
       const original = String(a.query ?? "").trim();
       const q = original.toLowerCase();
+      const content = a.content as { type: "image" | "files"; paths?: string[] } | undefined;
+      if (content) return manifests.flatMap((m) => m.features.filter((f) => {
+        if (!f.match || config.disabledMatches.includes(`${m.id}/${f.code}`)) return false;
+        const accepted = content.type === "image" ? f.match.image : content.paths?.length && content.paths.length <= (f.match.maxFiles ?? Infinity) && content.paths.every((path) =>
+          f.match?.files?.some((ext) => ext === "*" || path.split(".").pop()?.toLowerCase() === ext));
+        return accepted && (!q || [f.explain, m.name, ...f.cmds].some((name) => name.toLowerCase().includes(q)));
+      }).map((f) => feature(m.id, f.code, f.explain, m.name)));
       if (!q) return [];
       const prefix = original.match(/^(\S+)\s+([\s\S]+)$/);
       const features = manifests.flatMap((m) => m.features.flatMap((f) => {
@@ -187,12 +249,15 @@ mockIPC((cmd, args) => {
       queueMicrotask(() => void emit("config-changed", config));
       return [];
     case "plugin:clipboard-manager|read_image": {
+      clipboardReads++;
       if (!clipboardPixels && scenario === "empty") throw new Error("剪贴板里没有图片");
       if (!clipboardPixels && scenario === "error") throw new Error("暂时无法读取剪贴板（预览错误）");
       const rid = nextImage++;
       images.set(rid, cloneImage(clipboardPixels ?? fixtureImage()));
-      return rid;
+      return clipboardReadDelay ? new Promise((resolve) => setTimeout(() => resolve(rid), clipboardReadDelay)) : rid;
     }
+    case "clipboard_files":
+      return [...clipboardFiles];
     case "plugin:image|new": {
       const rid = nextImage++;
       images.set(rid, { width: Number(a.width), height: Number(a.height), rgba: new Uint8ClampedArray(a.rgba as ArrayLike<number>) });
@@ -215,17 +280,19 @@ mockIPC((cmd, args) => {
       const image = images.get(Number(a.image));
       if (!image) throw new Error("图片资源不存在");
       clipboardPixels = cloneImage(image);
+      clipboardFiles = [];
       return null;
     }
     case "plugin:clipboard-manager|write_text":
       clipboardText = String(a.text);
       clipboardPixels = undefined;
+      clipboardFiles = [];
       scenario = "empty";
       return null;
     case "plugin:clipboard-manager|read_text":
       return clipboardText;
     case "plugin:dialog|save":
-      return params.get("qrSave") === "cancel" ? null : "/预览/二维码.png";
+      return params.get("qrSave") === "cancel" ? null : `/预览/${(a.options as { defaultPath?: string })?.defaultPath ?? "二维码.png"}`;
     case "qr_save_png":
       if (params.get("qrSave") === "error") throw new Error("无法保存 PNG 图片：没有写入权限");
       savedImages.push({ path: String(a.path), bytes: a.bytes as number[] });
@@ -241,11 +308,27 @@ mockIPC((cmd, args) => {
         { id: "utools", installed: true, running: true },
       ];
     case "usage_home":
-      return usage;
+      return structuredClone(usage);
+    case "usage_reorder_pinned": return (async () => {
+      pinWrites++;
+      const delay = Number(params.get("pinDelay") ?? 0);
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (params.get("pinSave") === "error") throw new Error("无法写入 usage.json（预览错误）");
+      const item = homeItem(a.item as SearchItem);
+      const before = a.before ? homeItem(a.before as SearchItem) : null;
+      const from = usage.pinned.findIndex((entry) => sameItem(entry, item));
+      if (from < 0) throw new Error("这个功能已取消固定");
+      const [moved] = usage.pinned.splice(from, 1);
+      const to = before ? usage.pinned.findIndex((entry) => sameItem(entry, before)) : usage.pinned.length;
+      usage.pinned.splice(to < 0 ? usage.pinned.length : to, 0, moved);
+      localStorage.setItem("ahatools.mock.pinned", JSON.stringify(usage.pinned));
+      return structuredClone(usage);
+    })();
     case "usage_toggle_pin": {
       const item = homeItem(a.item as SearchItem);
       const had = usage.pinned.some((x) => sameItem(x, item));
       usage.pinned = had ? usage.pinned.filter((x) => !sameItem(x, item)) : [...usage.pinned, item];
+      localStorage.setItem("ahatools.mock.pinned", JSON.stringify(usage.pinned));
       return !had;
     }
     case "usage_record": {
@@ -266,10 +349,15 @@ mockIPC((cmd, args) => {
     case "plugin:app|version":
       return "0.1.0";
     case "webapp_open":
-    case "set_panel_large":
     case "hotkey_set_recording":
     case "relay_press_later":
     case "screenshot_take":
+      return null;
+    case "hide_panel":
+      hideMockPanel();
+      return null;
+    case "set_panel_large":
+      panelLarge = Boolean(a.large);
       return null;
     case "hotkey_bindings":
       return config.hotkeys;

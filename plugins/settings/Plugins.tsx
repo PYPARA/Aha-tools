@@ -1,14 +1,14 @@
 import { useState } from "react";
 import {
   HotkeyRecorder,
-  PuzzleIcon,
+  FeatureIcon,
   Switch,
   featureAction,
   sameAction,
   type Feature,
   type Manifest,
 } from "@ahatools/sdk";
-import { pluginIcons, pluginSettings } from "../../src/views";
+import { pluginSettings } from "../../src/views";
 import type { SectionProps } from "./Settings";
 
 type Tab = "keywords" | "match" | "settings";
@@ -19,7 +19,9 @@ function describeMatch(f: Feature) {
   const parts = [];
   if (m.text) parts.push(m.minLength && m.minLength > 1 ? `任意文字，至少 ${m.minLength} 个字` : "任意文字");
   if (m.regex) parts.push(`符合规则 ${m.regex}`);
-  if (m.files?.length) parts.push(`拖入 ${m.files.map((x) => `.${x}`).join(" ")} 文件`);
+  if (m.image) parts.push("粘贴图片");
+  if (m.files?.length) parts.push(m.files.includes("*") ? "粘贴或拖入文件" : `粘贴或拖入 ${m.files.map((x) => `.${x}`).join(" ")} 文件`);
+  if (m.maxFiles) parts.push(`每次最多 ${m.maxFiles} 个文件`);
   return parts.join("；");
 }
 
@@ -99,7 +101,7 @@ function Matches({ plugin, cfg, save }: SectionProps & { plugin: Manifest }) {
               <span className="row-text">
                 <span className="row-title">{f.explain}</span>
                 <span className="row-desc">条件：{describeMatch(f)}</span>
-                <span className="row-desc">例如：输入一段符合条件的内容，结果最后出现「{f.explain}」</span>
+                <span className="row-desc">{f.match?.image || f.match?.files?.length ? `粘贴或拖入后，在「匹配结果」中显示「${f.explain}」` : `例如：输入一段符合条件的内容，结果最后出现「${f.explain}」`}</span>
               </span>
               <Switch label={`自动匹配「${f.explain}」`} checked={!cfg.disabledMatches.includes(key)} onChange={(on) => toggle(key, on)} />
             </div>
@@ -126,13 +128,11 @@ export default function Plugins(
     ...(PluginSettings ? [{ id: "settings" as Tab, label: "设置" }] : []),
   ];
   const current = tabs.some((t) => t.id === tab) ? tab : "keywords";
-  const Icon = pluginIcons[plugin.id] ?? PuzzleIcon;
 
   return (
     <>
       <ul className="plist" aria-label="已安装插件">
         {plugins.map((m) => {
-          const MIcon = pluginIcons[m.id] ?? PuzzleIcon;
           return (
             <li key={m.id}>
               <button
@@ -143,9 +143,7 @@ export default function Plugins(
                   setTab("keywords");
                 }}
               >
-                <span className="tile sm" aria-hidden="true">
-                  <MIcon size={14} />
-                </span>
+                <FeatureIcon plugin={m.id} size={26} />
                 {m.name}
               </button>
             </li>
@@ -159,9 +157,7 @@ export default function Plugins(
           </div>
         )}
         <div className="detail-head">
-          <span className="tile xl" aria-hidden="true">
-            <Icon size={22} />
-          </span>
+          <FeatureIcon plugin={plugin.id} size={44} />
           <span>
             <strong>{plugin.name}</strong>
             <span className="note">

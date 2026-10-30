@@ -1,4 +1,5 @@
 mod config;
+mod clipboard;
 mod favicon;
 mod hotkey;
 mod netspeed;
@@ -9,6 +10,7 @@ mod relay;
 mod screenshot;
 mod usage;
 mod webapps;
+mod window_position;
 
 use std::thread;
 
@@ -56,6 +58,7 @@ pub fn run() {
             config::config_get,
             config::config_set,
             config::config_dir,
+            clipboard::clipboard_files,
             panel::hide_panel,
             panel::set_panel_pinned,
             panel::set_panel_large,
@@ -72,6 +75,7 @@ pub fn run() {
             usage::usage_record,
             usage::usage_toggle_pin,
             usage::usage_forget,
+            usage::usage_reorder_pinned,
             webapps::webapp_open,
             favicon::webapp_icon,
             hotkey::hotkey_bindings,

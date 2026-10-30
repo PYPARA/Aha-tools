@@ -11,6 +11,7 @@ import { save, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 export { invoke };
 export * from "./ui";
 export * from "./config";
+export { imageCanvas, imagePng, pixelsFromBlob, hasTextSelection, isEditingTarget } from "./image";
 
 export type ItemAction =
   | { type: "openPath"; path: string }
@@ -32,7 +33,7 @@ export interface Feature {
   code: string;
   explain: string;
   cmds: string[];
-  match?: { text?: boolean; minLength?: number; regex?: string; files?: string[] };
+  match?: { text?: boolean; minLength?: number; regex?: string; files?: string[]; image?: boolean; maxFiles?: number };
 }
 
 export interface Manifest {
@@ -44,7 +45,12 @@ export interface Manifest {
   features: Feature[];
 }
 
-export type FeatureTarget = { plugin: string; feature: string; input?: string };
+export type FeatureTarget = { plugin: string; feature: string; input?: string; content?: PluginContent };
+
+/** A snapshot of an explicit paste/drop, kept in memory and never written to history. */
+export type PluginContent =
+  | { type: "image"; image: RgbaImage; name: string }
+  | { type: "files"; paths: string[] };
 
 /** Pixels are RGBA, in row-major order. Native image handles never leave the SDK. */
 export interface RgbaImage {
@@ -61,6 +67,7 @@ export interface PluginViewProps {
   setStatus: (text: string) => void;
   /** Text the feature was opened with ("fy hello" → "hello", or a matched query). */
   input?: string;
+  content?: PluginContent;
   /** Open another feature, including its title and optional input. */
   openFeature: (target: FeatureTarget) => void;
 }
@@ -70,6 +77,7 @@ export const hidePanel = () => invoke("hide_panel");
 export const openPath = (path: string) => invoke("open_path", { path });
 
 export const writeClipboardText = (text: string) => writeText(text);
+export const readClipboardFiles = () => invoke<string[]>("clipboard_files");
 
 export async function readClipboardImage(): Promise<RgbaImage | null> {
   let image: Image;
@@ -99,7 +107,9 @@ export async function writeClipboardImage({ width, height, rgba }: RgbaImage): P
 
 export const saveFileDialog = (options: SaveDialogOptions) => save(options);
 
-export const onPanelShown = (handler: () => void) => listen("panel-shown", handler);
+export interface PanelShownEvent { reset: boolean }
+export const onPanelShown = (handler: (event: PanelShownEvent) => void) =>
+  listen<PanelShownEvent>("panel-shown", ({ payload }) => handler(payload));
 
 export const onFileDrop = (handler: (paths: string[]) => void) =>
   getCurrentWindow().onDragDropEvent(({ payload }) => {

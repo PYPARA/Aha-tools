@@ -192,6 +192,13 @@ p {
 
 /* ---- Icons and tiles ---- */
 
+.feature-icon {
+  display: block;
+  flex-shrink: 0;
+  object-fit: contain;
+  user-select: none;
+}
+
 .icon-btn {
   width: 32px;
   height: 32px;
@@ -215,7 +222,7 @@ p {
   border-radius: 7px;
 }
 
-/* Plugin / path icon: line icon in a sunken rounded square. */
+/* Path icons, placeholders and small UI symbols in a sunken rounded square. */
 .tile {
   width: 32px;
   height: 32px;
@@ -330,6 +337,64 @@ p {
 .grid-item.selected {
   background: var(--selected);
 }
+.pinned-item {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.pinned-item img { pointer-events: none; -webkit-user-drag: none; }
+.pinned-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  transition: scale 180ms ease-out;
+}
+.pinned-grid[data-sorting] .pinned-item:not([data-dnd-dragging]) {
+  background: transparent;
+}
+.pinned-item[data-dnd-dragging] {
+  margin: 0;
+  overflow: visible;
+  color: var(--text);
+  background: var(--surface);
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+  cursor: grabbing;
+}
+.pinned-item[data-dnd-dragging]:not([data-dnd-dropping]) .pinned-content { scale: 1.035; }
+.pinned-grid .pinned-item[data-dnd-placeholder] {
+  visibility: visible;
+  background: var(--hover);
+  outline: 1px dashed var(--border-strong);
+  outline-offset: -2px;
+}
+.pinned-item[data-dnd-placeholder] > * { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .pinned-content { transition: none; }
+  .pinned-item[data-dnd-dragging]:not([data-dnd-dropping]) .pinned-content { scale: 1; }
+}
+.content-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 52%;
+  flex-shrink: 0;
+  height: 42px;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--sunken);
+}
+.content-chip > img { width: 30px; height: 30px; object-fit: cover; border-radius: 4px; }
+.content-chip > span { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.content-chip .icon-btn { width: 26px; height: 28px; }
+.content-dragging { outline: 2px dashed var(--accent); outline-offset: -4px; }
 .grid-item .label {
   max-width: 100%;
   font-size: 12px;

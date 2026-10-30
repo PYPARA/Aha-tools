@@ -31,6 +31,7 @@ export interface Config {
   relayApps: RelayApp[];
   pinyin: boolean;
   appearance: "system" | "light" | "dark";
+  panelReopen: "resume" | "afterFiveMinutes" | "search";
   /** Content matches switched off, as "<plugin>/<feature>". */
   disabledMatches: string[];
   webApps: WebApp[];
