@@ -9,6 +9,7 @@
 
 pub mod launcher;
 pub mod qrcode;
+pub mod system;
 pub mod webapps;
 
 use std::collections::HashMap;
@@ -29,6 +30,8 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/webapps/plugin.json"),
     include_str!("../../../plugins/qrcode/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
+    include_str!("../../../plugins/system/plugin.json"),
+    include_str!("../../../plugins/superpanel/plugin.json"),
 ];
 
 /// Search options from config.json, set by `configure`.
@@ -244,7 +247,10 @@ impl Registry {
         for m in &self.manifests {
             for f in &m.features {
                 let feature_item = |score: i64, input: Option<&str>| SearchItem {
-                    title: if m.id == "qrcode" && f.code == "generate" && score == CONTENT_MATCH_SCORE {
+                    title: if m.id == "qrcode"
+                        && f.code == "generate"
+                        && score == CONTENT_MATCH_SCORE
+                    {
                         format!("为「{}」生成二维码", preview(input.unwrap_or("")))
                     } else {
                         f.explain.clone()
@@ -438,7 +444,11 @@ mod tests {
         assert_eq!(items.last().unwrap().plugin, "qrcode");
 
         let disabled = ["qrcode/generate".into()];
-        assert!(!r.search_with_disabled(query, &disabled).iter().any(|it| it.plugin == "qrcode"));
+        assert!(
+            !r.search_with_disabled(query, &disabled)
+                .iter()
+                .any(|it| it.plugin == "qrcode")
+        );
         let named = r.search_with_disabled("qr hello", &disabled);
         assert_eq!(input_of(&named[0]), Some("hello"));
         assert!(r.search_with_disabled("", &[]).is_empty());

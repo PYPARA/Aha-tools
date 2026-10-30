@@ -50,7 +50,11 @@ fn sizes() -> Sizes {
 
 fn current_size() -> (f64, f64) {
     let s = sizes();
-    if PAGE.load(Ordering::Relaxed) { s.page } else { s.search }
+    if PAGE.load(Ordering::Relaxed) {
+        s.page
+    } else {
+        s.search
+    }
 }
 
 pub fn init(app: &AppHandle) {
@@ -70,7 +74,10 @@ pub fn init(app: &AppHandle) {
 
 /// Keeps a size the user dragged to, for the mode on screen.
 fn remember(w: &WebviewWindow, size: tauri::PhysicalSize<u32>) {
-    let ours = OURS_UNTIL.lock().unwrap().is_some_and(|t| Instant::now() < t);
+    let ours = OURS_UNTIL
+        .lock()
+        .unwrap()
+        .is_some_and(|t| Instant::now() < t);
     if ours || !w.is_visible().unwrap_or(false) {
         return;
     }
@@ -78,7 +85,11 @@ fn remember(w: &WebviewWindow, size: tauri::PhysicalSize<u32>) {
     let logical = size.to_logical::<f64>(scale);
     let mut guard = SIZES.lock().unwrap();
     let s = guard.get_or_insert_with(Sizes::default);
-    let slot = if PAGE.load(Ordering::Relaxed) { &mut s.page } else { &mut s.search };
+    let slot = if PAGE.load(Ordering::Relaxed) {
+        &mut s.page
+    } else {
+        &mut s.search
+    };
     *slot = (logical.width, logical.height);
 }
 
@@ -92,7 +103,9 @@ fn resize(w: &WebviewWindow, (width, height): (f64, f64)) {
     else {
         return;
     };
-    if (size.width as f64 - width * scale).abs() < 1.0 && (size.height as f64 - height * scale).abs() < 1.0 {
+    if (size.width as f64 - width * scale).abs() < 1.0
+        && (size.height as f64 - height * scale).abs() < 1.0
+    {
         return;
     }
     *OURS_UNTIL.lock().unwrap() = Some(Instant::now() + Duration::from_millis(400));
@@ -144,5 +157,77 @@ pub fn set_panel_large(app: AppHandle, large: bool) {
     PAGE.store(large, Ordering::Relaxed);
     if let Some(w) = window(&app) {
         resize(&w, current_size());
+    }
+}
+
+/// Latest unacknowledged navigation survives the webview's initial load.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Request {
+    pub id: u64,
+    pub plugin: String,
+    pub feature: String,
+    pub input: Option<String>,
+    pub view_only: bool,
+    pub query: Option<String>,
+}
+static REQUEST: Mutex<Option<Request>> = Mutex::new(None);
+static NEXT_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+pub fn open_feature(
+    app: &AppHandle,
+    plugin: &str,
+    feature: &str,
+    input: Option<String>,
+    view_only: bool,
+) {
+    send_request(
+        app,
+        Request {
+            id: 0,
+            plugin: plugin.into(),
+            feature: feature.into(),
+            input,
+            view_only,
+            query: None,
+        },
+    );
+}
+pub fn open_query(app: &AppHandle, query: String) {
+    send_request(
+        app,
+        Request {
+            id: 0,
+            plugin: String::new(),
+            feature: String::new(),
+            input: None,
+            view_only: false,
+            query: Some(query),
+        },
+    );
+}
+fn send_request(app: &AppHandle, mut request: Request) {
+    request.id = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed);
+    *REQUEST.lock().unwrap() = Some(request.clone());
+    show(app);
+    let _ = app.emit_to(
+        LABEL,
+        if request.query.is_some() {
+            "panel-query"
+        } else {
+            "open-feature"
+        },
+        &request,
+    );
+}
+#[tauri::command]
+pub fn panel_pending() -> Option<Request> {
+    REQUEST.lock().unwrap().clone()
+}
+#[tauri::command]
+pub fn panel_ack(id: u64) {
+    let mut pending = REQUEST.lock().unwrap();
+    if pending.as_ref().is_some_and(|r| r.id == id) {
+        *pending = None;
     }
 }

@@ -9,12 +9,14 @@ import Hotkeys from "./Hotkeys";
 import Plugins from "./Plugins";
 import Commands from "./Commands";
 import About from "./About";
+import SuperPanel from "./SuperPanel";
 
-type Section = "general" | "hotkeys" | "plugins" | "commands" | "about";
+type Section = "general" | "hotkeys" | "superpanel" | "plugins" | "commands" | "about";
 
 const NAV: ({ id: Section; label: string } | { group: string })[] = [
   { id: "general", label: "通用" },
   { id: "hotkeys", label: "全局热键" },
+  { id: "superpanel", label: "超级面板" },
   { group: "插件" },
   { id: "plugins", label: "已安装插件" },
   { id: "commands", label: "所有指令" },
@@ -108,6 +110,7 @@ export default function Settings({ onBack, input }: PluginViewProps) {
           )}
           {props && section === "general" && <General {...props} />}
           {props && section === "hotkeys" && <Hotkeys {...props} />}
+          {props && section === "superpanel" && <SuperPanel {...props} />}
           {props && section === "commands" && <Commands {...props} onOpenPlugin={openPlugin} />}
           {section === "about" && <About />}
         </div>

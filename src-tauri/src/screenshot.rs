@@ -17,6 +17,7 @@ pub fn take(app: &AppHandle, target: Option<String>) {
     thread::spawn(move || {
         // The panel must be out of the way before anything captures the screen.
         crate::panel::hide(&app);
+        crate::superpanel::hide(&app);
         crate::popover::hide(&app);
         thread::sleep(Duration::from_millis(150));
 

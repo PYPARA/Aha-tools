@@ -9,6 +9,7 @@
 //! Actions can also hand a key to another app (`Forward`, `Screenshot`): AhaTools presses
 //! that app's own secret hotkey for it (see relay.rs).
 
+mod gesture;
 pub mod probe;
 pub mod tap;
 
@@ -31,14 +32,22 @@ use crate::panel;
 pub enum Action {
     /// Show / hide the search panel.
     TogglePanel,
+    SuperPanel,
     /// Show the panel and jump straight into a plugin feature.
-    OpenFeature { plugin: String, feature: String },
+    OpenFeature {
+        plugin: String,
+        feature: String,
+    },
     /// Take a screenshot with the tool chosen in settings.
     Screenshot,
     /// Press a relay app's own hotkey, e.g. to open uTools.
-    Forward { app: String },
+    Forward {
+        app: String,
+    },
     /// Show or hide a web app's window (webapps.rs).
-    OpenWeb { id: String },
+    OpenWeb {
+        id: String,
+    },
 }
 
 #[derive(Default)]
@@ -68,13 +77,22 @@ pub fn plugin() -> TauriPlugin<Wry> {
 
 pub fn dispatch(app: &AppHandle, action: &Action) {
     match action {
-        Action::TogglePanel => panel::toggle(app),
+        Action::TogglePanel => {
+            crate::superpanel::hide(app);
+            panel::toggle(app)
+        }
+        Action::SuperPanel => crate::superpanel::toggle(app),
         Action::OpenFeature { plugin, feature } => {
-            panel::show(app);
-            let _ = app.emit(
-                "open-feature",
-                serde_json::json!({ "plugin": plugin, "feature": feature }),
-            );
+            if plugin == "system" {
+                if let Err(e) = crate::plugins::system::run(app, feature) {
+                    crate::relay::notify(&e);
+                }
+            } else if plugin == "superpanel" {
+                crate::superpanel::toggle(app);
+            } else {
+                crate::superpanel::hide(app);
+                panel::open_feature(app, plugin, feature, None, false);
+            }
         }
         Action::Screenshot => crate::screenshot::take(app, None),
         Action::Forward { app: id } => {
@@ -94,7 +112,8 @@ pub fn dispatch(app: &AppHandle, action: &Action) {
 /// macOS allows it. Call from setup (main thread).
 pub fn init(app: &AppHandle, cfg: &Config) {
     tap::set_enabled(cfg.exclusive_hotkeys);
-    if cfg.exclusive_hotkeys {
+    tap::set_mouse_enabled(cfg.super_panel.long_press_right);
+    if cfg.exclusive_hotkeys || cfg.super_panel.long_press_right {
         ensure_tap(app);
     }
     apply(app, &cfg.hotkeys);
@@ -147,7 +166,8 @@ static APPLYING: Mutex<()> = Mutex::new(());
 pub fn reconfigure(app: &AppHandle, cfg: &Config) -> Vec<String> {
     let _guard = APPLYING.lock().unwrap();
     tap::set_enabled(cfg.exclusive_hotkeys);
-    if cfg.exclusive_hotkeys {
+    tap::set_mouse_enabled(cfg.super_panel.long_press_right);
+    if cfg.exclusive_hotkeys || cfg.super_panel.long_press_right {
         ensure_tap(app);
     }
     let errors = apply(app, &cfg.hotkeys);
@@ -264,7 +284,10 @@ pub fn hotkey_set_recording(app: AppHandle, on: bool) {
     } else {
         apply(&app, &crate::config::load(&app).hotkeys);
     }
-    eprintln!("[hotkey] recording {}", if on { "started" } else { "ended" });
+    eprintln!(
+        "[hotkey] recording {}",
+        if on { "started" } else { "ended" }
+    );
 }
 
 #[tauri::command]

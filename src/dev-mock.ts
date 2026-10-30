@@ -12,8 +12,10 @@ import screenshot from "../plugins/screenshot/plugin.json";
 import settings from "../plugins/settings/plugin.json";
 import webapps from "../plugins/webapps/plugin.json";
 import qrcode from "../plugins/qrcode/plugin.json";
+import system from "../plugins/system/plugin.json";
+import superpanel from "../plugins/superpanel/plugin.json";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, system, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
@@ -93,10 +95,21 @@ const sameItem = (a: SearchItem, b: SearchItem) => a.plugin === b.plugin && JSON
 
 let config = {
   hotkeys: [
+    { accelerator: "Alt+Shift+Space", action: { type: "superPanel" }, enabled: true },
     { accelerator: "Alt+Space", action: { type: "togglePanel" }, enabled: true },
     { accelerator: "Shift+Super+KeyA", action: { type: "screenshot" }, enabled: true },
     { accelerator: "Control+Space", action: { type: "forward", app: "utools" }, enabled: false },
   ],
+  superPanel: {
+    longPressRight: false,
+    pinned: [feature("screenshot", "take", "截图", "截图"), feature("qrcode", "generate", "二维码", "二维码"), feature("system", "colorpicker", "取色", "系统动作"), feature("system", "ocr", "截图识字", "系统动作"),
+      { title: "DeepSeek", subtitle: "网页应用", score: 0, plugin: "webapps", kind: "feature", icon: "https://chat.deepseek.com", action: { type: "openWeb", id: "deepseek" } } as SearchItem,
+      feature("system", "desktop", "显示桌面", "系统动作"), feature("system", "lock", "锁屏", "系统动作")],
+    actions: [
+      { id: "vscode", name: "用 VS Code 打开", command: "code {path}", when: ["file", "folder", "image"], enabled: false },
+      { id: "claude-code", name: "用 Claude Code 打开", command: "/usr/bin/osascript -e 'on run argv' -e 'tell application \"Terminal\" to do script (\"cd \" & quoted form of (item 1 of argv) & \" && claude\")' -e 'end run' {dir}", when: ["folder"], enabled: false },
+    ],
+  },
   netspeed: true,
   exclusiveHotkeys: true,
   pinyin: true,
@@ -112,7 +125,46 @@ let config = {
   ],
 };
 
-mockWindows("panel");
+if (params.get("pins") === "12") config.superPanel.pinned.push(...["微信", "访达", "备忘录", "系统设置", "Ghostty"].map((name, i) => app(name, `/Applications/mock-${i}.app`)));
+let superScenario = params.get("superMock") ?? "home";
+let superRequest = 1;
+let superConsumed = false;
+let pendingRequest: Record<string, unknown> | null = null;
+let requestId = 0;
+const executed: string[] = [];
+let ocrId = 1;
+function makeOcr(id: string, phase = params.get("ocrMock") ?? "success") {
+  return { id, phase, text: phase === "success" ? "AhaTools 让常用工具触手可及。\nBuild something useful.\n\n截图识字全程在本机完成。" : "", copied: phase === "success", message: ({ success: "已复制识别文字", loading: "正在本机识别…", empty: "没有识别到文字，请选择清晰的文字区域", cancelled: "已取消截图，剪贴板内容保留", error: "无法截取屏幕，请允许 AhaTools 使用屏幕录制权限" } as Record<string, string>)[phase] ?? "请选择要识别的区域" };
+}
+let ocrJob = makeOcr("1");
+function navigate(plugin: string, feature: string, input?: string, viewOnly = false) {
+  pendingRequest = { id: ++requestId, plugin, feature, input, viewOnly };
+  void emit("open-feature", pendingRequest);
+}
+function superState() {
+  const paths = superScenario === "folder" ? ["/Users/me/Documents/设计稿"] : superScenario === "image" ? ["/Users/me/Documents/二维码.png"] : superScenario === "multi" ? ["/Users/me/Documents/图.png", "/Users/me/Documents/备注.txt"] : superScenario === "file" ? ["/Users/me/Documents/说明.txt"] : [];
+  const text = superScenario === "url" ? "https://example.com" : superScenario === "text" ? "Build something useful with AhaTools." : undefined;
+  const context = { kind: paths.length ? "files" : text ? "text" : "none", appName: paths.length ? "访达" : "Safari", paths, text, notice: superScenario === "permission" ? "无法读取访达。请在系统设置 → 隐私与安全性 → 自动化中允许 AhaTools 控制访达" : undefined };
+  const row = (id: string, title: string, subtitle: string, plugin: string, feature = "") => ({ id, title, subtitle, plugin, feature });
+  const actions = paths.length ? [
+    ...(superScenario === "image" ? [row("qr", "识别二维码", "选中的图片", "qrcode", "scan")] : []),
+    row("copy", "复制路径", `${paths.length} 个项目`, "launcher"), row("terminal", "在终端中打开", "所在文件夹", "launcher"),
+    ...(superScenario === "folder" ? [row("new", "新建空白文件", "未命名.txt", "launcher")] : []), row("save", "收藏到快捷启动", "保留全部选中项目", "launcher"),
+  ] : text ? [
+    ...config.webApps.map((w) => row(`ask:${w.id}`, `问 ${w.name}`, "复制文字并打开网页应用", "webapps")), row("qr", "生成二维码", "选中的文字", "qrcode", "generate"), row("search", "在搜索面板中打开", "带入选中文字", "launcher"), row("copy", "复制为纯文本", "去掉文字格式", "launcher"), ...(superScenario === "url" ? [row("url", "在浏览器中打开", text, "webapps")] : []),
+  ] : [];
+  const pinned = config.superPanel.pinned.map((item, i) => ({ ...row(`pin:${i}`, item.title, item.subtitle, item.plugin, item.action.type === "feature" ? item.action.feature : ""), item }));
+  return { requestId: superRequest, context, actions, pinned };
+}
+Object.assign(window, { __AHATOOLS_SUPER_MOCK__: {
+  setScenario(value: string) { superScenario = value; superConsumed = false; superRequest++; return emit("superpanel-shown", superState()); },
+  get executed() { return executed; }, get pending() { return pendingRequest; }, get text() { return clipboardText; },
+  openFeature(plugin: string, feature: string, input?: string, viewOnly = false) { navigate(plugin, feature, input, viewOnly); },
+  setOcr(phase: string) { ocrJob = makeOcr(String(++ocrId), phase); navigate("system", "ocr", ocrJob.id, true); return emit("system-ocr-updated", ocrJob); },
+} });
+if (params.get("page") === "settings") pendingRequest = { id: ++requestId, plugin: "settings", feature: "general", input: "superpanel" };
+if (params.has("ocrMock")) pendingRequest = { id: ++requestId, plugin: "system", feature: "ocr", input: "1", viewOnly: true };
+mockWindows(params.get("view") === "super" ? "super" : "panel");
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (cmd) {
@@ -180,6 +232,38 @@ mockIPC((cmd, args) => {
     }
     case "plugin:autostart|is_enabled":
       return false;
+    case "panel_pending": return pendingRequest;
+    case "panel_ack": if (pendingRequest?.id === a.id) pendingRequest = null; return null;
+    case "superpanel_state": return superState();
+    case "superpanel_open": superConsumed = false; superRequest++; void emit("superpanel-shown", superState()); return null;
+    case "superpanel_hide": superConsumed = true; return null;
+    case "superpanel_pin_status": return config.superPanel.pinned.map((i) => i.action.type === "openPath" ? !i.action.path.includes("missing") : i.action.type === "openWeb" ? config.webApps.some((w) => w.id === (i.action as {id:string}).id) : manifests.some((m) => m.id === i.plugin));
+    case "superpanel_validate_command": {
+      const command = String(a.command);
+      if (!command.trim()) throw new Error("请输入命令");
+      if (/[\"']\{(?:path|text|dir|name)\}|\{(?:path|text|dir|name)\}[\"']/.test(command)) throw new Error("占位符要单独放在参数位置，不要加引号。例如：code {path}");
+      return null;
+    }
+    case "superpanel_remove_pin": config.superPanel.pinned.splice(Number(a.index), 1); void emit("config-changed", config); return null;
+    case "superpanel_run": {
+      if (Number(a.requestId) !== superRequest || superConsumed) throw new Error("上下文已更新，请重新呼出");
+      if (params.get("superError") === "run") throw new Error("无法执行动作（预览错误）");
+      superConsumed = true; const id = String(a.actionId); executed.push(id);
+      const s = superState();
+      if (id === "settings") navigate("settings", "general", "superpanel");
+      else if (id === "search-panel" || id === "search") { pendingRequest = { id: ++requestId, plugin: "", feature: "", query: id === "search" ? s.context.text : "" }; void emit("panel-query", pendingRequest); }
+      else if (id === "copy") clipboardText = s.context.text ?? s.context.paths.join("\n");
+      else if (id === "qr") navigate("qrcode", s.context.kind === "files" ? "scan" : "generate", s.context.kind === "files" ? JSON.stringify({ paths: s.context.paths }) : s.context.text);
+      return null;
+    }
+    case "system_ocr_get": return a.jobId && a.jobId !== ocrJob.id ? null : ocrJob;
+    case "system_run": {
+      if (a.feature !== "ocr") { executed.push(String(a.feature)); return null; }
+      const id = String(++ocrId); ocrJob = makeOcr(id, "loading");
+      setTimeout(() => { navigate("system", "ocr", id, true); void emit("system-ocr-updated", ocrJob); }, 100);
+      setTimeout(() => { ocrJob = makeOcr(id); if (ocrJob.copied) clipboardText = ocrJob.text; void emit("system-ocr-updated", ocrJob); }, 500);
+      return id;
+    }
     case "config_get":
       return config;
     case "config_set":

@@ -1583,3 +1583,72 @@ p {
   border-radius: 4px;
   object-fit: contain;
 }
+
+/* Shared feature art keeps its intrinsic aspect ratio in every host. */
+.feature-icon { display: block; flex-shrink: 0; object-fit: contain; }
+.super-panel { height: 100%; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; position: relative; }
+.super-head { height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); }
+.super-head strong { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.super-head .icon-btn { width: 26px; height: 28px; }
+.super-body { flex: 1; min-height: 0; overflow: auto; }
+.super-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); padding: 8px; gap: 4px; }
+.super-cell { height: 88px; min-width: 0; border: 0; background: transparent; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; padding: 4px; font-size: 12px; color: var(--text); cursor: pointer; }
+.super-cell > span:last-child { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.super-cell .tile,.super-cell .app-img,.super-cell .web-img { width: 38px; height: 38px; }
+.super-cell:hover,.super-action:hover { background: var(--hover); }
+.super-cell[aria-current="true"],.super-action[aria-current="true"] { background: var(--selected); }
+.super-add > span { display: grid; place-items: center; width: 38px !important; height: 38px; border: 1px dashed var(--border-strong); border-radius: 10px; font-size: 24px; color: var(--text-2); }
+.super-foot { height: 30px; flex-shrink: 0; display: flex; align-items: center; padding: 0 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-2); }
+.super-actions { padding: 8px 6px; }
+.super-action { border: 0; background: transparent; display: flex; align-items: center; text-align: left; gap: 12px; width: 100%; min-height: 52px; border-radius: 10px; padding: 8px; cursor: pointer; color: var(--text); }
+.super-action > span { min-width: 0; display: flex; flex-direction: column; }
+.super-action b { font-size: 13px; font-weight: 500; }
+.super-action small { font-size: 11px; color: var(--text-2); max-width: 218px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.super-bottom { border-top: 1px solid var(--border); padding: 8px; flex-shrink: 0; }
+.super-bottom > span { font-size: 11px; color: var(--text-2); }
+.super-bottom > div { display: flex; gap: 4px; overflow-x: auto; margin-top: 4px; }
+.super-cell.compact { height: 44px; width: 44px; flex-shrink: 0; padding: 4px; }
+.super-cell.compact .feature-icon,.super-cell.compact .tile,.super-cell.compact .app-img,.super-cell.compact .web-img { width: 30px; height: 30px; }
+.super-notice { margin: 12px; padding: 8px 12px; font-size: 12px; background: var(--sunken); border-radius: 8px; color: var(--text-2); }
+.super-pin-menu { position: absolute; bottom: 36px; left: 12px; right: 12px; border: 1px solid var(--border-strong); background: var(--surface); border-radius: 10px; padding: 4px; }
+.super-pin-menu button { display: block; width: 100%; padding: 8px; border: 0; background: transparent; color: var(--text); border-radius: 6px; text-align: left; cursor: pointer; }
+.super-pin-menu button:hover { background: var(--hover); }
+.super-section-head { display: flex; gap: 12px; align-items: center; margin: 24px 0 12px; }
+.super-section-head h2,.super-editor h2 { font-size: 13px; color: var(--text-2); font-weight: 600; margin: 0; flex: 1; }
+.super-pins { display: flex; flex-direction: column; gap: 4px; }
+.super-pin { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; cursor: grab; }
+.super-pin-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.super-pin-name small { font-size: 11px; margin-left: 8px; }
+.super-custom-row { display: flex; gap: 12px; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); }
+.super-custom-row:last-child { border-bottom: 0; }
+.super-custom-edit { border: 0; background: transparent; color: var(--text); text-align: left; min-width: 0; flex: 1; cursor: pointer; }
+.super-custom-edit b { display: block; font-weight: 500; }
+.super-custom-edit code { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--text-2); margin: 4px 0; }
+.super-custom-edit small { font-size: 11px; color: var(--text-2); }
+.super-picker { padding: 16px; border: 1px solid var(--border); border-radius: 10px; margin: 12px 0; }
+.super-picker label,.super-editor > label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--text-2); }
+.super-picker input,.super-editor input:not([type="checkbox"]),.super-editor textarea { width: 100%; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: 6px; padding: 8px 12px; font: inherit; }
+.super-picker-results { max-height: 240px; overflow: auto; margin: 12px 0; }
+.super-pick { display: flex; align-items: center; gap: 12px; text-align: left; width: 100%; padding: 8px; color: var(--text); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
+.super-pick:hover { background: var(--hover); }
+.super-pick > span:first-of-type { flex: 1; min-width: 0; }
+.super-pick small { display: block; font-size: 11px; color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.super-editor { position: absolute; z-index: 10; inset: 24px; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding: 24px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--bg); }
+.super-editor fieldset { display: flex; flex-wrap: wrap; gap: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.super-editor fieldset label { display: flex; align-items: center; gap: 4px; }
+.ocr-result { padding: 24px; display: flex; flex-direction: column; gap: 16px; height: 100%; min-height: 0; }
+.ocr-meta { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; color: var(--text-2); font-size: 12px; }
+.ocr-text { flex: 1; min-height: 160px; width: 100%; resize: none; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: 14px/1.8 var(--sans); user-select: text; }
+.ocr-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; }
+.ocr-empty h2 { font: 500 22px/1.3 var(--serif); margin: 4px 0; }
+.ocr-empty p { margin: 0; max-width: 420px; }
+.ocr-mark { font: 24px var(--serif); border: 1px solid var(--border); border-radius: 10px; padding: 8px 16px; color: var(--text-2); }
+@media (max-width: 719px) { .ocr-result { padding: 16px; } .super-editor { inset: 12px; padding: 16px; } }
+.super-pins { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.super-pin { gap: 4px; padding: 4px 8px 4px 4px; min-height: 36px; border-radius: 8px; font-size: 12px; }
+.super-pin .feature-icon { width: 22px; height: 22px; }
+.super-pin-name { flex: initial; max-width: 120px; }
+.super-pin .icon-btn { width: 20px; height: 24px; }
+.super-pin .app-img,.super-pin .web-img,.super-pin > .tile { width: 22px; height: 22px; }
+.super-pick .app-img,.super-pick .web-img,.super-pick > .tile { width: 26px; height: 26px; }
+.super-editor h2 { flex: none; color: var(--text); font: 500 22px/1.3 var(--serif); }

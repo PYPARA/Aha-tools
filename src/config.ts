@@ -2,6 +2,7 @@
 
 export type Action =
   | { type: "togglePanel" }
+  | { type: "superPanel" }
   | { type: "openFeature"; plugin: string; feature: string }
   | { type: "screenshot" }
   | { type: "forward"; app: string }
@@ -25,6 +26,7 @@ export interface RelayApp {
 
 export interface Config {
   hotkeys: Binding[];
+  superPanel: SuperPanelSettings;
   netspeed: boolean;
   exclusiveHotkeys: boolean;
   screenshot: { target: string; systemMode: "region" | "toolbar" };
@@ -66,9 +68,19 @@ export function screenshotToolName(cfg: Config) {
 
 /** The hotkey action that runs a plugin feature. Screenshot runs directly, without a page. */
 export function featureAction(plugin: string, feature: string): Action {
-  return plugin === "screenshot" ? { type: "screenshot" } : { type: "openFeature", plugin, feature };
+  return plugin === "screenshot" ? { type: "screenshot" } : plugin === "superpanel" ? { type: "superPanel" } : { type: "openFeature", plugin, feature };
 }
 
 export function sameAction(a: Action, b: Action) {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export interface CustomAction {
+  id: string; name: string; command: string;
+  when: ("file" | "folder" | "image" | "text")[]; enabled: boolean;
+}
+export interface SuperPanelSettings {
+  longPressRight: boolean;
+  pinned: import("./sdk").SearchItem[];
+  actions: CustomAction[];
 }

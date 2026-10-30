@@ -4,7 +4,8 @@
   "description": "Capability for the search panel and the menu popover",
   "windows": [
     "panel",
-    "menu"
+    "menu",
+    "super"
   ],
   "permissions": [
     "core:default",

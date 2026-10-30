@@ -1,0 +1,42 @@
+{
+  "id": "system",
+  "name": "系统动作",
+  "version": "0.1.0",
+  "description": "取色、显示桌面、锁屏和本机截图识字",
+  "features": [
+    {
+      "code": "colorpicker",
+      "explain": "取色",
+      "cmds": [
+        "取色",
+        "颜色",
+        "colorpicker"
+      ]
+    },
+    {
+      "code": "desktop",
+      "explain": "显示桌面",
+      "cmds": [
+        "显示桌面",
+        "desktop"
+      ]
+    },
+    {
+      "code": "lock",
+      "explain": "锁屏",
+      "cmds": [
+        "锁屏",
+        "lock"
+      ]
+    },
+    {
+      "code": "ocr",
+      "explain": "截图识字",
+      "cmds": [
+        "截图识字",
+        "识字",
+        "ocr"
+      ]
+    }
+  ]
+}

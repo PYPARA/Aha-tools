@@ -1,4 +1,5 @@
 mod config;
+mod context;
 mod favicon;
 mod hotkey;
 mod netspeed;
@@ -7,6 +8,8 @@ mod plugins;
 mod popover;
 mod relay;
 mod screenshot;
+mod superpanel;
+mod superpanel_commands;
 mod usage;
 mod webapps;
 
@@ -40,13 +43,18 @@ pub fn run() {
             let launcher = Launcher::new(app.handle().clone());
             let mut registry = Registry::new();
             registry.add_provider(launcher::ID, launcher.clone());
-            registry.add_provider(plugins::webapps::ID, std::sync::Arc::new(plugins::webapps::WebApps));
+            registry.add_provider(
+                plugins::webapps::ID,
+                std::sync::Arc::new(plugins::webapps::WebApps),
+            );
             app.manage(registry);
             app.manage(launcher.clone());
             thread::spawn(move || launcher.refresh());
 
             panel::init(app.handle());
             popover::init(app.handle())?;
+            superpanel::init(app.handle())?;
+            plugins::system::init(app.handle());
             setup_tray(app, &cfg)?;
             setup_menu(app)?;
             hotkey::init(app.handle(), &cfg);
@@ -57,6 +65,17 @@ pub fn run() {
             config::config_set,
             config::config_dir,
             panel::hide_panel,
+            panel::panel_pending,
+            panel::panel_ack,
+            superpanel::superpanel_state,
+            superpanel::superpanel_open,
+            superpanel::superpanel_run,
+            superpanel::superpanel_hide,
+            superpanel::superpanel_remove_pin,
+            superpanel::superpanel_validate_command,
+            superpanel::superpanel_pin_status,
+            plugins::system::system_run,
+            plugins::system::system_ocr_get,
             panel::set_panel_pinned,
             panel::set_panel_large,
             plugins::list_plugins,
@@ -116,7 +135,9 @@ fn setup_menu(app: &App) -> tauri::Result<()> {
         .item(&reload)
         .build()?;
     let app_menu = SubmenuBuilder::new(app, "AhaTools").build()?;
-    let menu = MenuBuilder::new(app).items(&[&app_menu, &edit, &window]).build()?;
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit, &window])
+        .build()?;
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
         if event.id() == "reload" {

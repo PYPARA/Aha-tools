@@ -2,6 +2,7 @@
 // Icons are 24-unit stroke paths drawn in currentColor.
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { featureIcons, featureIconKey } from "./feature-icons";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -399,4 +400,8 @@ export function HotkeyRecorder({
       {recording ? "按下组合键…" : value ? formatAccelerator(value) : placeholder}
     </button>
   );
+}
+
+export function FeatureIcon({ plugin, feature, size = 32 }: { plugin: string; feature?: string; size?: number }) {
+  return <img className="feature-icon" src={featureIcons[featureIconKey(plugin, feature)]} width={size} height={size} alt="" aria-hidden="true" />;
 }

@@ -7,7 +7,7 @@
 
 use std::ffi::c_void;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
@@ -26,6 +26,10 @@ type TapCallback = unsafe extern "C" fn(
 const HID_EVENT_TAP: u32 = 0;
 const HEAD_INSERT: u32 = 0;
 const TAP_DEFAULT: u32 = 0;
+const RIGHT_DOWN: u32 = 3;
+const RIGHT_UP: u32 = 4;
+const MOUSE_MOVED: u32 = 5;
+const RIGHT_DRAGGED: u32 = 7;
 const KEY_DOWN: u32 = 10;
 const KEY_UP: u32 = 11;
 const TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
@@ -58,6 +62,9 @@ unsafe extern "C" {
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     fn CGEventGetFlags(event: CGEventRef) -> u64;
+    fn CGEventGetLocation(event: CGEventRef) -> Point;
+    fn CGEventCreateCopy(event: CGEventRef) -> CGEventRef;
+    fn CGEventSourceFlagsState(state: i32) -> u64;
     fn CGEventSourceCreate(state: i32) -> *mut c_void;
     fn CGEventCreateKeyboardEvent(source: *mut c_void, keycode: u16, key_down: bool) -> CGEventRef;
     fn CGEventSetFlags(event: CGEventRef, flags: u64);
@@ -109,6 +116,7 @@ struct State {
     bindings: Vec<TapBinding>,
     /// Keys whose key-down we swallowed; their key-up is swallowed too.
     held: Vec<u16>,
+    right: Option<RightPress>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -116,6 +124,37 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 static ENABLED: AtomicBool = AtomicBool::new(true);
 /// While a hotkey is being recorded in settings, every key goes through to the page.
 static RECORDING: AtomicBool = AtomicBool::new(false);
+static MOUSE_ENABLED: AtomicBool = AtomicBool::new(false);
+static MOUSE_TOKEN: AtomicU64 = AtomicU64::new(1);
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+struct RightPress {
+    event: usize,
+    token: u64,
+    gesture: super::gesture::Gesture,
+}
+pub fn set_mouse_enabled(on: bool) {
+    MOUSE_ENABLED.store(on, Ordering::Relaxed);
+}
+pub fn wait_released() -> bool {
+    for _ in 0..100 {
+        if unsafe { CGEventSourceFlagsState(SOURCE_STATE_HID_SYSTEM) } & MOD_MASK == 0 {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    false
+}
+unsafe fn replay(event: CGEventRef) {
+    unsafe {
+        CGEventSetIntegerValueField(event, FIELD_SOURCE_USER_DATA, SYNTHETIC_MARK);
+        CGEventPost(HID_EVENT_TAP, event);
+    }
+}
 
 pub fn set_recording(on: bool) {
     RECORDING.store(on, Ordering::Relaxed);
@@ -169,7 +208,12 @@ pub fn install(app: &AppHandle) -> bool {
         return true;
     }
     unsafe {
-        let mask = (1u64 << KEY_DOWN) | (1u64 << KEY_UP);
+        let mask = (1u64 << KEY_DOWN)
+            | (1u64 << KEY_UP)
+            | (1u64 << RIGHT_DOWN)
+            | (1u64 << RIGHT_UP)
+            | (1u64 << MOUSE_MOVED)
+            | (1u64 << RIGHT_DRAGGED);
         let tap = CGEventTapCreate(
             HID_EVENT_TAP,
             HEAD_INSERT,
@@ -192,6 +236,7 @@ pub fn install(app: &AppHandle) -> bool {
             tap: tap as usize,
             bindings: vec![],
             held: vec![],
+            right: None,
         });
     }
     true
@@ -237,7 +282,10 @@ const MODIFIER_KEYS: [(u64, u16); 4] = [
 /// apps track modifiers from those separate events and miss ones that only ride on the
 /// key event (QQ recorded ⌘⌃2 when sent a lone ⌃⌥⇧⌘2).
 fn key_sequence(keycode: u16, flags: u64) -> Vec<(u16, bool, u64)> {
-    let mods: Vec<_> = MODIFIER_KEYS.iter().filter(|(f, _)| flags & f != 0).collect();
+    let mods: Vec<_> = MODIFIER_KEYS
+        .iter()
+        .filter(|(f, _)| flags & f != 0)
+        .collect();
     let mut held = 0;
     let mut seq = vec![];
     for &&(f, k) in &mods {
@@ -301,6 +349,127 @@ unsafe extern "C" fn callback(
         return event;
     }
 
+    if unsafe { CGEventGetIntegerValueField(event, FIELD_SOURCE_USER_DATA) } == SYNTHETIC_MARK {
+        return event;
+    }
+    if [RIGHT_DOWN, RIGHT_UP, MOUSE_MOVED, RIGHT_DRAGGED].contains(&etype) {
+        let enabled = MOUSE_ENABLED.load(Ordering::Relaxed) && !RECORDING.load(Ordering::Relaxed);
+        if !enabled {
+            if let Some(right) = state.right.take() {
+                if right.event != 0 {
+                    unsafe {
+                        replay(right.event as CGEventRef);
+                        CFRelease(right.event as *const c_void);
+                    }
+                }
+                if etype == RIGHT_UP || etype == RIGHT_DRAGGED {
+                    if !right.gesture.fired() {
+                        unsafe {
+                            replay(event);
+                        }
+                    }
+                    return std::ptr::null_mut();
+                }
+            }
+            return event;
+        }
+        if etype == RIGHT_DOWN {
+            let saved = unsafe { CGEventCreateCopy(event) };
+            if saved.is_null() {
+                return event;
+            }
+            if let Some(old) = state.right.take() {
+                if old.event != 0 {
+                    unsafe {
+                        CFRelease(old.event as *const c_void);
+                    }
+                }
+            }
+            let token = MOUSE_TOKEN.fetch_add(1, Ordering::Relaxed);
+            let p = unsafe { CGEventGetLocation(event) };
+            state.right = Some(RightPress {
+                event: saved as usize,
+                token,
+                gesture: super::gesture::Gesture::new((p.x, p.y), std::time::Instant::now()),
+            });
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                let app = {
+                    let mut guard = STATE.lock().unwrap();
+                    let Some(s) = guard.as_mut() else {
+                        return;
+                    };
+                    let Some(right) = s.right.as_mut() else {
+                        return;
+                    };
+                    if right.token != token
+                        || !MOUSE_ENABLED.load(Ordering::Relaxed)
+                        || RECORDING.load(Ordering::Relaxed)
+                        || !right.gesture.fire(std::time::Instant::now())
+                    {
+                        return;
+                    }
+                    if right.event != 0 {
+                        unsafe {
+                            CFRelease(right.event as *const c_void);
+                        }
+                        right.event = 0;
+                    }
+                    s.app.clone()
+                };
+                let a = app.clone();
+                let _ = app.run_on_main_thread(move || crate::superpanel::toggle(&a));
+            });
+            return std::ptr::null_mut();
+        }
+        if etype == RIGHT_UP {
+            if let Some(mut right) = state.right.take() {
+                // The timer may have been delayed; a >=400ms release is still a hold.
+                if right.gesture.fire(std::time::Instant::now()) {
+                    let app = state.app.clone();
+                    let a = app.clone();
+                    let _ = app.run_on_main_thread(move || crate::superpanel::toggle(&a));
+                }
+                if right.event != 0 {
+                    if !right.gesture.fired() {
+                        unsafe {
+                            replay(right.event as CGEventRef);
+                        }
+                    }
+                    unsafe {
+                        CFRelease(right.event as *const c_void);
+                    }
+                }
+                if !right.gesture.fired() {
+                    unsafe {
+                        replay(event);
+                    }
+                }
+                return std::ptr::null_mut();
+            }
+            return event;
+        }
+        if let Some(right) = state.right.as_ref() {
+            if right.gesture.fired() {
+                return if etype == RIGHT_DRAGGED {
+                    std::ptr::null_mut()
+                } else {
+                    event
+                };
+            }
+            let p = unsafe { CGEventGetLocation(event) };
+            if right.gesture.moved((p.x, p.y)) {
+                let right = state.right.take().unwrap();
+                unsafe {
+                    replay(right.event as CGEventRef);
+                    CFRelease(right.event as *const c_void);
+                    replay(event);
+                }
+                return std::ptr::null_mut();
+            }
+        }
+        return event;
+    }
     if RECORDING.load(Ordering::Relaxed) {
         // Record here rather than in the page: the combo may never reach the web view
         // (macOS or another app can claim it first). Swallow it so nothing else reacts.
@@ -511,7 +680,10 @@ mod tests {
         assert_eq!(acc, "Shift+Super+KeyA");
         let s: Shortcut = acc.parse().unwrap();
         assert_eq!(binding_for(&s, Action::TogglePanel).unwrap().keycode, 0x00);
-        assert_eq!(accelerator_for(0x31, FLAG_ALT).as_deref(), Some("Alt+Space"));
+        assert_eq!(
+            accelerator_for(0x31, FLAG_ALT).as_deref(),
+            Some("Alt+Space")
+        );
         assert_eq!(accelerator_for(0x7A, 0).as_deref(), Some("F1"));
         assert!(accelerator_for(0x00, 0).is_none());
     }

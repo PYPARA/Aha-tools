@@ -3,6 +3,8 @@ import { formatAccelerator, screenshotToolName, type Action, type Config, type M
 /** What a hotkey does, as a row title and a line under it. */
 export function describeAction(action: Action, cfg: Config, manifests: Manifest[]) {
   switch (action.type) {
+    case "superPanel":
+      return { title: "超级面板", desc: "在鼠标旁使用选中文字和文件" };
     case "togglePanel":
       return { title: "打开搜索面板", desc: "AhaTools" };
     case "screenshot":
@@ -37,9 +39,10 @@ export function actionChoices(
 ): { group: string; label: string; detail?: string; action: Action }[] {
   return [
     { group: "常用", label: "打开搜索面板", action: { type: "togglePanel" } },
+    { group: "常用", label: "超级面板", action: { type: "superPanel" } },
     { group: "常用", label: "截图", action: { type: "screenshot" } },
     ...manifests
-      .filter((m) => m.id !== "screenshot" && m.id !== "webapps")
+      .filter((m) => m.id !== "screenshot" && m.id !== "webapps" && m.id !== "superpanel")
       .flatMap((m) =>
         m.features.map((f) => ({
           group: "插件功能",

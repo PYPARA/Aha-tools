@@ -10,7 +10,7 @@ import {
   openPath,
   PageActionsSlot,
   PathIcon,
-  PuzzleIcon,
+  FeatureIcon,
   SearchIcon,
   SlidersIcon,
   useAppearance,
@@ -21,7 +21,7 @@ import {
   type Manifest,
   type SearchItem,
 } from "@ahatools/sdk";
-import { actions, fullPageViews, pluginIcons, views, type Target } from "./views";
+import { actions, fullPageViews, views, type Target } from "./views";
 import "./styles.css";
 
 interface Home {
@@ -45,16 +45,8 @@ function ItemIcon({ item, large }: { item: SearchItem; large?: boolean }) {
   if (item.kind === "app" && item.action.type === "openPath") {
     return <AppIcon path={item.action.path} name={item.title} large={large} />;
   }
-  const Icon = item.kind === "saved" ? null : (pluginIcons[item.plugin] ?? PuzzleIcon);
-  return (
-    <span className={large ? "tile lg" : "tile"} aria-hidden="true">
-      {Icon ? (
-        <Icon size={large ? 18 : 16} />
-      ) : (
-        <PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} />
-      )}
-    </span>
-  );
+  if (item.kind !== "saved") return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={large ? 40 : 32} />;
+  return <span className={large ? "tile lg" : "tile"} aria-hidden="true"><PathIcon kind={item.icon as PathKind | undefined} size={large ? 18 : 16} /></span>;
 }
 
 /** Identity of a result for pinning; a feature is the same with or without input text. */
@@ -98,6 +90,7 @@ export default function App() {
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const lastRequest = useRef(0);
   const activeRef = useRef<Target | null>(null);
   activeRef.current = active;
 
@@ -125,18 +118,17 @@ export default function App() {
         loadHome();
         requestAnimationFrame(() => inputRef.current?.select());
       }),
-      listen<Target>("open-feature", (e) => {
-        const act = actions[`${e.payload.plugin}/${e.payload.feature}`];
-        if (act) act({ input: e.payload.input, open });
-        else open(e.payload);
-      }),
+      listen<Target & { query?: string }>("open-feature", (e) => receiveRequest(e.payload)),
+      listen<Target & { query?: string }>("panel-query", (e) => receiveRequest(e.payload)),
       listen<Config>("config-changed", (e) => {
         loadHotkey();
         loadWebUrls(e.payload);
         setSearchRevision((v) => v + 1);
       }),
     ];
-    return () => subs.forEach((s) => s.then((f) => f()));
+    let live = true;
+    Promise.all(subs).then(() => invoke<(Target & { query?: string }) | null>("panel_pending")).then((r) => { if (live && r) receiveRequest(r); });
+    return () => { live = false; subs.forEach((s) => s.then((f) => f())); };
   }, []);
 
   useEffect(() => {
@@ -199,6 +191,19 @@ export default function App() {
     setActive(target);
   }
 
+  function receiveRequest(request: Target & { query?: string }) {
+    if (request.id && request.id <= lastRequest.current) return;
+    if (request.id) { lastRequest.current = request.id; void invoke("panel_ack", { id: request.id }); }
+    if (request.query !== undefined && request.query !== null) {
+      setActive(null); setQuery(request.query); setError(null); setSelected(0);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } else {
+      const act = !request.viewOnly && actions[`${request.plugin}/${request.feature}`];
+      if (act) Promise.resolve(act({ input: request.input, open })).catch((e) => setError(String(e)));
+      else open(request);
+    }
+  }
+
   const back = () => {
     setActive(null);
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -225,7 +230,7 @@ export default function App() {
     const key = `${item.plugin}/${item.action.feature}`;
     if (actions[key]) {
       setQuery("");
-      actions[key]({ input: item.action.input, open });
+      try { await actions[key]({ input: item.action.input, open }); } catch (e) { setError(String(e)); }
     } else {
       open({ plugin: item.plugin, feature: item.action.feature, input: item.action.input });
     }
@@ -312,7 +317,7 @@ export default function App() {
     const key = `${active.plugin}/${active.feature}`;
     const View = views[key];
     const viewEl = View ? (
-      <View key={`${key}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} openFeature={open} />
+      <View key={`${key}/${active.id ?? ""}/${active.input ?? ""}`} onBack={back} setStatus={setStatus} input={active.input} openFeature={open} />
     ) : (
       <div className="state">
         <span className="note">插件页面不存在：{key}</span>
@@ -323,16 +328,14 @@ export default function App() {
     }
     const m = manifests.find((m) => m.id === active.plugin);
     const f = m?.features.find((f) => f.code === active.feature);
-    const Icon = pluginIcons[active.plugin] ?? PuzzleIcon;
+
     return (
       <div className="panel">
         <header className="page-head" data-tauri-drag-region>
           <button type="button" className="icon-btn" onClick={back} aria-label="返回搜索">
             <BackIcon size={18} />
           </button>
-          <span className="tile md" aria-hidden="true">
-            <Icon />
-          </span>
+          <FeatureIcon plugin={active.plugin} feature={active.feature} size={30} />
           <span className="page-title" data-tauri-drag-region>
             <strong>{f?.explain ?? active.feature}</strong>
             <span>{m?.name ?? active.plugin}</span>

@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>NSAppleEventsUsageDescription</key><string>AhaTools 需要读取访达选中的项目，以显示复制路径、新建文件等动作，并按你配置的自定义动作打开终端。</string></dict></plist>

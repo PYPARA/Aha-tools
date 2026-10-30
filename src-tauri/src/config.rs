@@ -10,6 +10,7 @@ use crate::hotkey::Action;
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
     pub hotkeys: Vec<Binding>,
+    pub super_panel: crate::superpanel::Settings,
     pub netspeed: bool,
     /// Swallow AhaTools' hotkeys so other apps bound to the same keys don't fire.
     pub exclusive_hotkeys: bool,
@@ -101,10 +102,17 @@ fn migrate_secret_keys(cfg: &mut Config) -> bool {
     let defaults = default_relay_apps();
     let mut changed = false;
     for app in cfg.relay_apps.iter_mut().filter(|a| !a.ready) {
-        let Some(key) = app.accelerator.strip_prefix(OLD_SECRET_MODS).and_then(|k| k.strip_prefix('+')) else {
+        let Some(key) = app
+            .accelerator
+            .strip_prefix(OLD_SECRET_MODS)
+            .and_then(|k| k.strip_prefix('+'))
+        else {
             continue;
         };
-        if defaults.iter().any(|d| d.id == app.id && d.accelerator.ends_with(&format!("+{key}"))) {
+        if defaults
+            .iter()
+            .any(|d| d.id == app.id && d.accelerator.ends_with(&format!("+{key}")))
+        {
             app.accelerator = format!("{SECRET_MODS}+{key}");
             changed = true;
         }
@@ -151,6 +159,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             hotkeys: vec![
+                super_binding(true),
                 Binding {
                     accelerator: "Alt+Space".into(),
                     action: Action::TogglePanel,
@@ -162,6 +171,7 @@ impl Default for Config {
                     enabled: false,
                 },
             ],
+            super_panel: crate::superpanel::Settings::default(),
             netspeed: true,
             exclusive_hotkeys: true,
             screenshot: Screenshot::default(),
@@ -212,7 +222,15 @@ pub fn load(app: &AppHandle) -> Config {
         let _ = save_json(app, "config", &Config::default());
     }
     let mut cfg: Config = load_json(app, "config");
-    if migrate_secret_keys(&mut cfg) {
+    let mut changed = migrate_secret_keys(&mut cfg);
+    let old = fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    if old.as_ref().is_some_and(|v| v.get("superPanel").is_none()) {
+        migrate_super_panel(&mut cfg);
+        changed = true;
+    }
+    if changed {
         let _ = save_json(app, "config", &cfg);
     }
     cfg
@@ -226,13 +244,20 @@ pub fn config_get(app: AppHandle) -> Config {
 /// Saves the whole config and applies it immediately (no restart). Returns the
 /// hotkeys that failed to register, if any.
 #[tauri::command]
-pub fn config_set(app: AppHandle, config: Config) -> Result<Vec<String>, String> {
+pub fn config_set(app: AppHandle, mut config: Config) -> Result<Vec<String>, String> {
+    crate::superpanel::validate_settings(&mut config.super_panel)?;
     save_json(&app, "config", &config)?;
     crate::plugins::configure(&config);
     crate::netspeed::set_visible(config.netspeed);
     crate::webapps::reconfigure(&app, &config.web_apps);
     let errors = crate::hotkey::reconfigure(&app, &config);
-    let keys: Vec<_> = config.hotkeys.iter().filter(|b| b.enabled).map(|b| b.accelerator.as_str()).collect();
+    crate::superpanel::refresh(&app);
+    let keys: Vec<_> = config
+        .hotkeys
+        .iter()
+        .filter(|b| b.enabled)
+        .map(|b| b.accelerator.as_str())
+        .collect();
     eprintln!("[config] saved; hotkeys {keys:?}; errors {errors:?}");
     let _ = app.emit("config-changed", &config);
     Ok(errors)
@@ -269,8 +294,33 @@ mod tests {
         cfg.relay_apps[1].ready = true;
         assert!(migrate_secret_keys(&mut cfg));
         assert_eq!(cfg.relay_apps[0].accelerator, "Control+Super+Digit1");
-        assert_eq!(cfg.relay_apps[1].accelerator, "Control+Alt+Shift+Super+Digit2");
+        assert_eq!(
+            cfg.relay_apps[1].accelerator,
+            "Control+Alt+Shift+Super+Digit2"
+        );
         assert!(!migrate_secret_keys(&mut cfg));
+    }
+
+    #[test]
+    fn super_panel_migration_is_once_and_respects_conflicts() {
+        let mut cfg = Config::default();
+        cfg.hotkeys.retain(|b| b.action != Action::SuperPanel);
+        cfg.hotkeys.push(Binding {
+            accelerator: "Shift+Alt+Space".into(),
+            action: Action::TogglePanel,
+            enabled: true,
+        });
+        migrate_super_panel(&mut cfg);
+        assert!(!cfg.hotkeys.last().unwrap().enabled);
+        let len = cfg.hotkeys.len();
+        migrate_super_panel(&mut cfg);
+        assert_eq!(cfg.hotkeys.len(), len);
+        let cfg: Config = serde_json::from_str(
+            r#"{"hotkeys":[],"superPanel":{"pinned":[],"actions":[],"longPressRight":false}}"#,
+        )
+        .unwrap();
+        assert!(cfg.hotkeys.is_empty());
+        assert!(cfg.super_panel.pinned.is_empty());
     }
 
     #[test]
@@ -285,4 +335,26 @@ mod tests {
         );
         assert_eq!(serde_json::to_string(&actions).unwrap(), json);
     }
+}
+
+pub fn super_binding(enabled: bool) -> Binding {
+    Binding {
+        accelerator: "Alt+Shift+Space".into(),
+        action: Action::SuperPanel,
+        enabled,
+    }
+}
+
+fn migrate_super_panel(cfg: &mut Config) {
+    if cfg.hotkeys.iter().any(|b| b.action == Action::SuperPanel) {
+        return;
+    }
+    let target: tauri_plugin_global_shortcut::Shortcut = "Alt+Shift+Space".parse().unwrap();
+    let conflict = cfg.hotkeys.iter().any(|b| {
+        b.enabled
+            && b.accelerator
+                .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                .is_ok_and(|s| s.id() == target.id())
+    });
+    cfg.hotkeys.push(super_binding(!conflict));
 }

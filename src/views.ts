@@ -3,13 +3,7 @@
 
 import type { ComponentType } from "react";
 import {
-  BookmarkIcon,
-  GearIcon,
-  GlobeIcon,
   invoke,
-  KeyboardIcon,
-  QrCodeIcon,
-  ScreenshotIcon,
   type PluginSettingsProps,
   type PluginViewProps,
   type FeatureTarget,
@@ -22,6 +16,7 @@ import Settings from "../plugins/settings/Settings";
 import WebAppsSettings from "../plugins/webapps/Settings";
 import QrGenerate from "../plugins/qrcode/Generate";
 import QrScan from "../plugins/qrcode/Scan";
+import OcrResult from "../plugins/system/OcrResult";
 
 export const views: Record<string, ComponentType<PluginViewProps>> = {
   "launcher/manage": LauncherManage,
@@ -29,6 +24,7 @@ export const views: Record<string, ComponentType<PluginViewProps>> = {
   "settings/general": Settings,
   "qrcode/generate": QrGenerate,
   "qrcode/scan": QrScan,
+  "system/ocr": OcrResult,
 };
 
 /** Views that draw the whole window themselves (no page header or footer). */
@@ -40,17 +36,10 @@ export type Target = FeatureTarget;
 /** Features that act right away instead of opening their own page. */
 export const actions: Record<string, (ctx: { input?: string; open: (t: Target) => void }) => unknown> = {
   "screenshot/take": () => invoke("screenshot_take", { target: null }),
+  "superpanel/open": () => invoke("superpanel_open"),
+  ...Object.fromEntries(["colorpicker", "desktop", "lock", "ocr"].map((feature) => [`system/${feature}`, () => invoke("system_run", { feature })])),
   // Web apps are managed in their plugin's 设置 tab.
   "webapps/manage": ({ open }) => open({ plugin: "settings", feature: "general", input: "plugins/webapps/settings" }),
-};
-
-export const pluginIcons: Record<string, ComponentType<{ size?: number }>> = {
-  launcher: BookmarkIcon,
-  hotkeys: KeyboardIcon,
-  screenshot: ScreenshotIcon,
-  webapps: GlobeIcon,
-  settings: GearIcon,
-  qrcode: QrCodeIcon,
 };
 
 /** Each plugin's 设置 tab in the plugin detail page. */

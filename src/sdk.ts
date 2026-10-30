@@ -44,7 +44,7 @@ export interface Manifest {
   features: Feature[];
 }
 
-export type FeatureTarget = { plugin: string; feature: string; input?: string };
+export type FeatureTarget = { plugin: string; feature: string; input?: string; viewOnly?: boolean; id?: number };
 
 /** Pixels are RGBA, in row-major order. Native image handles never leave the SDK. */
 export interface RgbaImage {

@@ -1,14 +1,14 @@
 import { useState } from "react";
 import {
   HotkeyRecorder,
-  PuzzleIcon,
+  FeatureIcon,
   Switch,
   featureAction,
   sameAction,
   type Feature,
   type Manifest,
 } from "@ahatools/sdk";
-import { pluginIcons, pluginSettings } from "../../src/views";
+import { pluginSettings } from "../../src/views";
 import type { SectionProps } from "./Settings";
 
 type Tab = "keywords" | "match" | "settings";
@@ -126,13 +126,13 @@ export default function Plugins(
     ...(PluginSettings ? [{ id: "settings" as Tab, label: "设置" }] : []),
   ];
   const current = tabs.some((t) => t.id === tab) ? tab : "keywords";
-  const Icon = pluginIcons[plugin.id] ?? PuzzleIcon;
+
 
   return (
     <>
       <ul className="plist" aria-label="已安装插件">
         {plugins.map((m) => {
-          const MIcon = pluginIcons[m.id] ?? PuzzleIcon;
+
           return (
             <li key={m.id}>
               <button
@@ -143,9 +143,7 @@ export default function Plugins(
                   setTab("keywords");
                 }}
               >
-                <span className="tile sm" aria-hidden="true">
-                  <MIcon size={14} />
-                </span>
+                <FeatureIcon plugin={m.id} feature={m.features[0]?.code} size={26} />
                 {m.name}
               </button>
             </li>
@@ -159,9 +157,7 @@ export default function Plugins(
           </div>
         )}
         <div className="detail-head">
-          <span className="tile xl" aria-hidden="true">
-            <Icon size={22} />
-          </span>
+          <FeatureIcon plugin={plugin.id} feature={plugin.features[0]?.code} size={44} />
           <span>
             <strong>{plugin.name}</strong>
             <span className="note">

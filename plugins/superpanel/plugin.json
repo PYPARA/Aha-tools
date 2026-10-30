@@ -1,0 +1,16 @@
+{
+  "id": "superpanel",
+  "name": "超级面板",
+  "version": "0.1.0",
+  "description": "在鼠标旁使用选中文字和文件",
+  "features": [
+    {
+      "code": "open",
+      "explain": "超级面板",
+      "cmds": [
+        "超级面板",
+        "superpanel"
+      ]
+    }
+  ]
+}
