@@ -1,6 +1,6 @@
 # AhaTools 任务清单与接手说明
 
-更新于 2026-10-29。骨架功能、热键路由、第二版界面、网页应用和二维码插件已实现，代码在 `main`（二维码功能提交 `a96e380`，待真机验收）。GitHub 远程 `origin` 已配置，远端还没有 `main` 分支。目前只以 `bun run tauri dev` 调试版运行。先把「计划中的功能」做到基本满意，最后再发布正式版（见文末）。后续功能的设计和实现规格见 [specs.md](specs.md)。
+更新于 2026-10-30。骨架功能、热键路由、第二版界面、网页应用和二维码插件已实现（二维码功能提交 `a96e380`，待真机验收）。本工作树新增图片压缩及共享功能图标接线，尚未提交，待真机验收。GitHub 远程 `origin` 已配置，远端还没有 `main` 分支。目前只以 `bun run tauri dev` 调试版运行。先把「计划中的功能」做到基本满意，最后再发布正式版（见文末）。后续功能的设计和实现规格见 [specs.md](specs.md)。
 
 ## 当前状态
 
@@ -22,11 +22,13 @@
 | 插件详情页（关键词 / 自动匹配 / 设置），截图设置在截图插件的「设置」页签 | 完成 | 浏览器预览核对 |
 | 网页应用（内置 DeepSeek，可自己加网站；独立常驻窗口，关掉只是收起；登录和窗口位置保留；新窗口链接用默认浏览器打开；自动使用网站图标） | 完成 | 单元测试搜索；浏览器预览设置页签；真机待确认 |
 | 二维码（实时生成、四档容错、复制图片、保存 1024px PNG；剪贴板 / 拖图单码识别、位置标记、复制文字和打开网址） | 实现完成，待真机验收 | Rust 与 Bun 测试通过；浏览器核对深浅色、880×580 和 600×400、生成→复制→识别及错误恢复；真机项见下文 |
+| 图片压缩（PNG / JPEG / WebP、一级目录导入、后台批次、参数重压、覆盖 / 另存 / 文件复制） | 实现完成，待真机验收 | 原生编码、原图保护、并发及导出测试通过；浏览器核对深浅色、两种窗口尺寸、拖放 / 历史 / 快捷键 / 错误恢复；真机项见下文 |
+| 功能图标（搜索、首页、插件标题、已安装插件、所有指令） | 完成 | 使用已有 SVG；共享 `FeatureIcon` 按功能、插件、默认图标依次回退 |
 | 外观（跟随系统 / 浅色 / 深色）、菜单栏网速开关（关闭后显示 AhaTools 标志） | 完成 | 浏览器预览核对；网速开关待真机确认 |
 | 截图热键路由（系统截图 / 微信 / QQ / 钉钉） | 完成 | 浏览器预览核对；代按第三方应用待真机确认 |
 | ⌥Space 等热键转发给 uTools | 完成 | 待真机确认 |
 
-Rust 单元测试 36 个通过，2 个手动预览 / 站点测试按原设置跳过；二维码 Bun 测试 25 个通过，`bun run build` 通过。界面设计稿：[AhaTools 界面设计](https://claude.ai/artifact/MvKZXwUow89G1yPLrWDhgE)（仅本人可见，以「第二版」页面为准）；设计规范见 [design-system.md](design-system.md)，最初的设计需求见 [design-brief.md](design-brief.md)。
+Rust 单元测试 48 个通过，2 个手动预览 / 站点测试按原设置跳过；Bun 测试 31 个通过（二维码 25、压缩状态 / 输入 6），`bun run build` 通过。界面设计稿：[AhaTools 界面设计](https://claude.ai/artifact/MvKZXwUow89G1yPLrWDhgE)（仅本人可见，以「第二版」页面为准）；设计规范见 [design-system.md](design-system.md)，最初的设计需求见 [design-brief.md](design-brief.md)。
 
 **第二版界面已实现**：搜索面板 760×500，空状态显示最近使用和已固定；进入设置或插件页时窗口放大到 880×580（`set_panel_large`，保持顶边和水平中心不动）；设置侧栏只有通用、全局热键、已安装插件、所有指令、关于；截图是独立插件，它的设置在插件详情的「设置」页签。以后的翻译等插件同样把设置放在自己的「设置」页签（`src/views.ts` 的 `pluginSettings`）。
 
@@ -47,6 +49,27 @@ Rust 单元测试 36 个通过，2 个手动预览 / 站点测试按原设置跳
 - [ ] 从访达拖入 PNG / JPEG / WebP 可识别，识别框位置正确。
 - [ ] 保存 PNG 的原生对话框打开、取消、保存和覆盖已有文件后，面板保持显示并恢复焦点。
 - [ ] 二维码功能绑定热键可用；Esc 返回搜索后 ⌥Space、⌘C 等原有交互正常。
+
+### 图片压缩插件（2026-10-30）
+
+- 搜索「压缩」「图片压缩」「compress」「tinypng」进入页面；搜索页拖入图片或文件夹先显示文件动作，确认后开始。自动匹配可在插件详情关闭，关闭不影响关键词入口。文件夹只读取第一层，路径去重，不支持的直接输入显示跳过。
+- 默认质量 80，转 WebP 关闭；每次导入独立建批，批次按顺序排队，批内 Rayon 最多同时处理两张。返回搜索或收起面板后继续执行，再次进入恢复本次运行的历史；修改质量或格式以原始快照生成新批次，不重复压缩旧输出。
+- PNG 用 imagequant + png + oxipng，JPEG 用 mozjpeg，WebP 用 webp。保持尺寸、透明通道，先校正方向再移除拍摄信息，保留 ICC 和必要的 PNG 色彩块；动画 PNG/WebP、GIF、SVG 跳过。读取上限 128 MiB、解码像素内存上限 256 MiB，单张失败不影响其他图片。
+- 若输出不小于原图，复制原始字节到输出目录，显示「已是最小，保留原图；拍摄信息未移除」；即使开启转 WebP，也可能保留原格式。
+- 覆盖前确认，只处理确实缩小且格式未变的结果；比对原文件身份、修改时间、长度及快照字节，变化时要求重新导入；用同目录暂存文件原子替换。PNG/JPEG 转 WebP 只允许另存或复制。另存命名 `name.min.ext`，重名时用 `name.min.2.ext` 等；输出缓存也自动避免同名冲突。
+- 复制使用 NSPasteboard file URL 列表，复制的是文件；⌘C 在没有文字选区且未编辑输入框时复制当前批次所有可用结果。逐行复制可在完成后立即使用，批量按钮等待整批完成；导出失败逐行提示，保留结果供重试。
+- 临时数据仅位于 `~/Library/Caches/com.ahatools.app/compress/<batch_id>/{originals,output}/`，重压可以引用旧批次原始快照，运行中不淘汰批次；下次启动仅清空 compress 专用缓存。没有新增配置或持久化文件列表，最近使用 / 固定仍只保存功能入口。
+- `compress-progress` 使用逐项版本号；前端先订阅后加载快照，避免过期响应回退状态。浏览器假数据在 `src/dev-mock.ts`：`?compressMock=empty|mixed|slow|error`、`?compressOpen=cancel|error`、`?compressConfirm=cancel`、`?compressExport=error`；可用 `window.__AHATOOLS_COMPRESS_MOCK__.drop(paths)` 模拟原生路径拖放，`drop(['/预览/图片'])` 模拟一级目录导入。浏览器 DOM 文件对象没有原生绝对路径，真实本地文件请在 AhaTools 中导入。
+- 浏览器已核对导入不重复、搜索页先选动作、参数新建批次、多批排队、离开后恢复、监听清理、快捷键选区保护、取消 / 错误恢复及深浅色的 880×580 / 600×400。因本机 1420 已有开发服务，本工作树验收使用独立的 `bun run dev --port 5187`，未操作其他开发进程。
+- mozjpeg 通过 unwind 报告部分编码错误，因此 release 改为 `panic = "unwind"`，每张编码在捕获边界内；`with_simd` 使用平台可用的 C SIMD，本机 arm64 编译无需另装 nasm / cmake。正式版发布仍留在全部功能之后。
+
+真机待作者确认（涉及真实原生对话框、剪贴板及文件访问授权，浏览器假数据不能代替）：
+
+- [ ] 从访达向搜索页拖入 10 张 PNG，先看到文件动作；进入后逐行完成，未点覆盖前原文件内容及修改时间不变。
+- [ ] 页面内拖文件、一级文件夹和「选择文件…」可用；选择和覆盖对话框取消后面板保持显示并恢复焦点。
+- [ ] 「复制所有」和逐行复制后，在访达 ⌘V 粘贴出结果文件，中文、空格、引号文件名及同名文件正常。
+- [ ] 覆盖确认、原文件在导入后变化时拒绝覆盖、另存重名自动避让、只读 / 无写入权限时错误提示正常；受保护目录按 macOS 提示授予必要访问权限。
+- [ ] 原生面板收起后任务继续，重新唤出显示进度；压缩功能热键、Esc 返回搜索、二维码拖放和 ⌘C 均正常。
 
 ## 已知问题与技术债
 
@@ -71,10 +94,10 @@ Rust 单元测试 36 个通过，2 个手动预览 / 站点测试按原设置跳
 
 | 顺序 | 任务 | 一句话 | 设计稿 | 状态 |
 | --- | --- | --- | --- | --- |
-| 0 | 功能图标 | 每个功能一个彩色圆角方块图标，SVG 已在 `src/assets/icons/`，只需接线 | FeatureIcons | 图标已出，未接线 |
+| 0 | 功能图标 | 每个功能一个彩色圆角方块图标，共享 FeatureIcon 已接线 | FeatureIcons | 完成 |
 | 1 | 二维码 | 生成（实时、复制图片、保存 PNG）+ 剪贴板 / 拖图单码识别 | QrGenerate、QrScan | 实现完成，待真机验收 |
 | 2 | 翻译 | 大模型流式翻译，单词给释义；key 存钥匙串；设置在插件页签 | TranslateText、TranslateWord、TranslateSettings | 未开始 |
-| 3 | 图片压缩 | 先压到临时目录，再选覆盖原图 / 另存 / 复制所有；带批次历史 | Compress | 未开始 |
+| 3 | 图片压缩 | 先压到临时目录，再选覆盖原图 / 另存 / 复制所有；带批次历史 | Compress | 实现完成，待真机验收 |
 | 4 | 超级面板 | 鼠标旁弹出，按上下文（访达选中、选中文字）列动作；我的面板九宫格；自定义命令动作；配套取色、显示桌面、锁屏、截图识字 | SuperPanelHome、SuperPanelFinder、SuperPanelText、SuperPanelSettings | 未开始 |
 | 5 | hosts 切换 | 多方案合并写入标记段，管理员授权，刷新 DNS | Hosts | 未开始 |
 | 6 | 系统监控 | 弹出面板加 CPU / 内存 / 电池 / 磁盘；菜单栏可选显示 | SystemMonitor | 未开始 |
@@ -82,7 +105,7 @@ Rust 单元测试 36 个通过，2 个手动预览 / 站点测试按原设置跳
 | 8 | 应用图标 | 已选「衬线 A」，出 1024px 正式稿并导出各尺寸 | AppIcon | 已选方向，未出正式稿 |
 | 9 | 小项 | 搜索面板跟随鼠标所在屏幕；「再次打开时」设置 | — | 未开始 |
 
-已完成：截图热键路由、⌥Space 整合（转发给 uTools）、热键设置、拼音搜索、真实应用图标、网页应用、二维码插件（待真机验收）。下一项是翻译。
+已完成：截图热键路由、⌥Space 整合（转发给 uTools）、热键设置、拼音搜索、真实应用图标、网页应用、功能图标、二维码和图片压缩插件（两项待真机验收）。翻译仍未开始；本次按作者要求先实现图片压缩。
 
 ## 接手指南
 
@@ -97,6 +120,7 @@ bun run tauri dev
 - 只看界面不想启动应用：dev 运行时，用普通浏览器打开 `http://localhost:1420`（搜索面板）或 `http://localhost:1420/index.html?view=menu`（菜单栏弹出面板），会自动用 `src/dev-mock.ts` 里的假数据。正式打包不包含这些假数据。
 - 测试：在 `src-tauri/` 下运行 `cargo test`。
 - 二维码图像与格式测试：在项目根目录运行 `bun test tests/qrcode.test.ts`。
+- 压缩状态 / 输入与二维码回归：`bun test tests/compress.test.ts tests/qrcode.test.ts`；原生压缩测试已包含在 `cargo test` 内。
 - 菜单栏图标预览：在 `src-tauri/` 下运行 `AHATOOLS_PREVIEW=out.pgm cargo test preview -- --ignored`，输出深色背景下的图标。
 
 ### 目录结构
@@ -113,7 +137,7 @@ src-tauri/src/
   hotkey/         热键路由（mod.rs）、独占拦截和代按（tap.rs）、占用检测（probe.rs）
   relay.rs        转发目标应用：代按暗号键、是否安装 / 运行、系统通知
   screenshot.rs   截图路由：系统截图或转发给选中的应用
-  plugins/        插件注册、搜索汇总和拼音匹配（mod.rs）、快捷启动和应用图标（launcher.rs）、网页应用搜索（webapps.rs）、二维码图片读写（qrcode.rs）
+  plugins/        插件注册、文字 / 文件搜索匹配（mod.rs）、快捷启动和应用图标（launcher.rs）、网页应用搜索（webapps.rs）、二维码图片读写（qrcode.rs）、压缩队列 / 编码 / 导出（compress.rs）
   config.rs       配置读写（config_get / config_set 命令，保存后立即生效）
 src/
   App.tsx         搜索面板界面，以及插件页的外框（标题栏、底栏）
@@ -131,7 +155,7 @@ docs/             本文档、实现规格 specs.md、设计规范、design/ 设
 
 1. 新建 `plugins/<id>/plugin.json`，每个功能的 `cmds` 是搜索关键词。
 2. 每个功能写一个页面 `plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入宿主接口和图标；页面可以调用 `setStatus` 往底栏右侧写文字，用 `openFeature({ plugin, feature, input? })` 携带内容切换页面。
-3. 在 `src/views.ts` 里登记页面（键为 `"<id>/<功能 code>"`）和插件图标；不需要页面、选中就直接执行的功能登记在 `actions`；插件有自己的设置时，写一个设置组件登记在 `pluginSettings`，会出现在插件详情的「设置」页签。页面右上角的按钮用 `<PageActions>` 放。
+3. 在 `src/views.ts` 里登记页面（键为 `"<id>/<功能 code>"`）；功能图标由 `src/ui.tsx` 的 `FeatureIcon` 自动读取 `src/assets/icons/`（先找 `<plugin>-<feature>.svg`，再找 `<plugin>.svg`，否则 external）。不需要页面、选中就直接执行的功能登记在 `actions`；插件有自己的设置时，写一个设置组件登记在 `pluginSettings`，会出现在插件详情的「设置」页签。页面右上角的按钮用 `<PageActions>` 放。
 4. 在 `src-tauri/src/plugins/mod.rs` 的 `BUILTIN_MANIFESTS` 里加上这个 `plugin.json`。
 5. 需要原生能力时，加 `src-tauri/src/plugins/<id>.rs` 并在 `lib.rs` 注册命令；要往每次搜索里贡献结果，就实现 `SearchProvider` 并在清单里设 `"searchProvider": true`。
 

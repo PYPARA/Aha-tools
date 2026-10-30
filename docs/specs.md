@@ -12,7 +12,7 @@
 现有代码就是范例，照着抄：网页应用插件（`plugins/webapps/`、`src-tauri/src/webapps.rs`、`src-tauri/src/plugins/webapps.rs`）是最完整的一份。
 
 1. **清单**：`plugins/<id>/plugin.json`：`id`、`name`、`version`、`description`、`features[]`（`code`、`explain`、`cmds` 关键词、可选 `match`）。在 `src-tauri/src/plugins/mod.rs` 的 `BUILTIN_MANIFESTS` 里加 `include_str!`。
-2. **页面**：`plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入；在 `src/views.ts` 的 `views` 里登记 `"<id>/<code>"`，`pluginIcons` 里登记图标（图标写在 `src/ui.tsx`，线条 1.6px）。页面拿到 `PluginViewProps`：`onBack`、`setStatus`（写底栏右侧）、`input`（从搜索框带入的文字，例如 `qr hello` 的 `hello`，或 `match` 命中的整段输入）。标题栏右侧按钮用 `<PageActions>`。
+2. **页面**：`plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入宿主接口和组件；在 `src/views.ts` 的 `views` 里登记 `"<id>/<code>"`，功能图标使用已有的共享 `FeatureIcon`（见第 0 项）。页面拿到 `PluginViewProps`：`onBack`、`setStatus`（写底栏右侧）、`input`（文字或路径数组 JSON）、`openFeature`（携带内容切换页面）。标题栏右侧按钮用 `<PageActions>`。
 3. **插件设置**：写 `plugins/<id>/Settings.tsx`（拿到 `cfg`、`save`），登记到 `src/views.ts` 的 `pluginSettings`，会出现在 设置 → 已安装插件 → 该插件 →「设置」页签。
 4. **不需要页面的功能**：登记到 `src/views.ts` 的 `actions`（例：`screenshot/take`）。
 5. **配置**：加到 `src-tauri/src/config.rs` 的 `Config`（结构体整体有 `#[serde(default)]`，旧文件能读）并在 `Default` 里给默认值，同步 `src/config.ts` 的类型；补「旧配置能读」的测试。密钥一律存钥匙串，不进 config.json。
@@ -21,6 +21,8 @@
 8. **文案**：中文，短句，说清楚会发生什么；不出现 aha 小写名，统一 AhaTools。
 
 ## 0. 功能图标（先做，所有插件共用）
+
+2026-10-30 已完成接线。`src/ui.tsx` 的 `FeatureIcon` 使用 `import.meta.glob` 加载 SVG，按 `<plugin>-<feature>`、`<plugin>`、`external` 回退；原 `pluginIcons` 注册表已移除。以下是原设计约定，新增功能沿用同一套资源和组件。
 
 设计：[FeatureIcons.html](design/FeatureIcons.html)，两个方向，默认方向 A（实色渐变 + 白色双色图形）。方向 A 的 SVG 已经生成好，放在 `src/assets/icons/`，文件名就是 key。如果作者改选方向 B（浅色调底 + 彩色图形），不要用图片文件：把 `soft_svg()` 的结构写成 React 组件，用 `currentColor` 跟随主题。
 
@@ -38,9 +40,9 @@
 
 接线：
 
-1. `src/views.ts` 里用 Vite 的 `import.meta.glob("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" })` 生成 `featureIcons: Record<key, url>`。
-2. 加一个 `featureIconKey(plugin, feature?)`：先找 `"<plugin>-<feature>"`（如 `qrcode-scan`），再找 `"<plugin>"`，都没有时用 `external`。
-3. 新组件 `FeatureIcon({ plugin, feature, size })` 渲染 `<img>`（`src/ui.tsx` 里，`aria-hidden`），替换现在用 `pluginIcons` 画灰色方块的地方：
+1. `src/ui.tsx` 里用 Vite 的 `import.meta.glob("./assets/icons/*.svg", { eager: true, query: "?url", import: "default" })` 加载 SVG URL。
+2. 同文件的 `featureIconKey(plugin, feature?)` 先找 `"<plugin>-<feature>"`（如 `qrcode-scan`），再找 `"<plugin>"`，都没有时用 `external`。
+3. `FeatureIcon({ plugin, feature, size })` 渲染 `<img>`（`aria-hidden`），已接入以下位置：
    - `src/App.tsx` 的 `ItemIcon`：功能结果按 `item.action.feature` 选图标；
    - 首页格子；
    - 插件页标题栏；
@@ -48,7 +50,7 @@
    - 所有指令；
    - 「添加热键」菜单可不加。
 4. 尺寸：搜索结果 32、首页格子 40、插件页标题栏 30、插件列表 26、插件详情头部 44、超级面板 38。
-5. `pluginIcons`（线条图标）删掉，或只留给没有功能图标的地方。
+5. `pluginIcons` 注册表已删除；小按钮仍使用线条图标，新功能只需提供对应 SVG。
 
 以后每加一个功能，先在 `docs/design/gen_boards.py` 的 `FEATURE_ICONS` 加一行（key、名称、底色、24 格线条图形），运行：
 
@@ -108,6 +110,15 @@ python3 docs/design/gen_boards.py <画布目录> src/assets/icons
   - 每行的复制按钮复制单张。
 - **历史**：顶部分段控件显示最近几批（「2 分钟前 · 13 张」），只保留本次运行期间的，临时目录在应用启动时清空。
 - **验收**：拖入 10 张 PNG，逐行出进度，原文件修改时间不变；点「复制所有」后在访达里 ⌘V 能粘贴出压缩后的文件。
+
+2026-10-30 实施补充（作者确认）：
+
+- 搜索页拖放先显示匹配动作，确认后开始；页面内每次拖放 / 选择均建独立批次。批次 FIFO，批内最多两张并行。调整质量（默认 80）或转 WebP（默认关）以原始快照建立新批次，保留历史；任务离开页面后继续，历史仅限本次运行。
+- 输出移除 EXIF/GPS/XMP 等拍摄信息，先校正方向，保留必要色彩信息；未缩小时保留原始字节、原格式与拍摄信息并明确提示。PNG/JPEG 实际转成 WebP 时不允许覆盖原图。
+- 同批重名输出加序号；另存 `name.min.ext`，冲突用 `name.min.2.ext` 等。覆盖前检查原文件自导入后是否变化，使用同目录暂存后原子替换；只覆盖确实缩小且格式未改变的结果。复制用 NSPasteboard file URL 列表，不经 shell。
+- 跳过动画 PNG/WebP，损坏图片逐项失败；单文件上限 128 MiB，解码像素内存上限 256 MiB。原始快照和输出分别放批次缓存下的 originals / output 子目录，运行中不淘汰，下次启动清空 compress 专用目录。
+- 原生接口为 `search_files`、`compress_start`、`compress_reprocess`、`compress_list_batches`、`compress_export`。进度事件补 itemId 和逐项 version；前端先订阅再读取快照，按版本合并。无需改 config.json。
+- 原生实现和浏览器预览已完成，真机清单见 HANDOFF；超级面板的目录入口在第 4 项实现时复用路径数组 JSON。
 
 ## 4. 超级面板（参考 uTools）
 
