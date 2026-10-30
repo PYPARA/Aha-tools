@@ -391,7 +391,7 @@ def spark(seed, top):
     return pts
 
 
-pop = f'''<div class="win" role="dialog" aria-label="AhaTools 菜单" style="width: 300px; height: 720px; border-radius: 12px; padding: 14px 12px 8px; gap: 16px; box-sizing: border-box; overflow-y: auto">
+pop = f'''<div class="win" role="dialog" aria-label="AhaTools 菜单" style="width: 300px; max-height: 720px; border-radius: 12px; padding: 14px 12px 8px; gap: 16px; box-sizing: border-box; overflow-y: auto">
 <div class="row" style="padding: 0 4px; align-items: baseline"><span class="lbl">网速</span><span class="sp"></span><span class="note" style="font-size: 11px">Wi‑Fi · en0</span></div>
 <div class="row" style="padding: 0 4px; gap: 18px"><span style="font-size: 18px; font-weight: 500">↓ 3.4<span class="note"> MB/s</span></span><span style="font-size: 18px; font-weight: 500">↑ 120<span class="note"> KB/s</span></span></div>
 <div class="col" style="gap: 8px; padding: 0 4px">
@@ -432,7 +432,7 @@ side = f'''<div class="col" style="gap: 16px; width: 360px">
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">CPU</b></span><span class="sw on"><i></i></span></div>
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">内存</b></span><span class="sw"><i></i></span></div>
 </div>
-<p class="note">弹出面板打开时每秒刷新全部指标。收起后只采集菜单栏已选的 CPU 或内存；未选时停止系统采样。空间不足时弹窗可滚动。</p>
+<p class="note">弹出面板打开时每秒刷新全部指标。收起后只采集菜单栏已选的 CPU 或内存；未选时停止系统采样。弹窗高度随内容收紧，空间不足时可滚动。</p>
 </div>'''
 boards.append(board("SystemMonitor", "菜单栏 · 系统监控", 760, 780, f'<div class="row" style="align-items: flex-start; gap: 40px">{pop}{side}</div>'))
 
