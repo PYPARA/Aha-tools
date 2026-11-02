@@ -97,9 +97,29 @@ fn popover_frame(
     .constrain(work)
 }
 
-fn mouse_screen(mtm: MainThreadMarker) -> Option<objc2::rc::Retained<NSScreen>> {
+/// Top-left corner just below and to the right of the cursor, kept on that screen.
+fn cursor_frame(cursor: (f64, f64), work: Rect, (width, height): (f64, f64)) -> Rect {
+    Rect {
+        x: cursor.0 + 8.0,
+        y: cursor.1 - 8.0 - height,
+        width,
+        height,
+    }
+    .constrain(work)
+}
+
+/// The cursor in AppKit screen points. Read it when the gesture happens, not when
+/// a slow context capture finishes.
+pub fn mouse_location() -> (f64, f64) {
     let mouse = NSEvent::mouseLocation();
-    let point = (mouse.x, mouse.y);
+    (mouse.x, mouse.y)
+}
+
+fn mouse_screen(mtm: MainThreadMarker) -> Option<objc2::rc::Retained<NSScreen>> {
+    screen_at(mtm, mouse_location())
+}
+
+fn screen_at(mtm: MainThreadMarker, point: (f64, f64)) -> Option<objc2::rc::Retained<NSScreen>> {
     let screens = NSScreen::screens(mtm);
     screens
         .iter()
@@ -152,6 +172,20 @@ pub fn place_popover(w: &WebviewWindow, anchor: tauri::Rect, size: (f64, f64)) {
             size,
         )
         .native(),
+        false,
+    );
+}
+
+/// Called on the main thread, before showing the contextual panel next to the cursor.
+pub fn place_at_cursor(w: &WebviewWindow, cursor: (f64, f64), size: (f64, f64)) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let (Some(window), Some(screen)) = (native_window(w, mtm), screen_at(mtm, cursor)) else {
+        return;
+    };
+    window.setFrame_display(
+        cursor_frame(cursor, screen.visibleFrame().into(), size).native(),
         false,
     );
 }
@@ -253,6 +287,19 @@ mod tests {
             assert_eq!(frame.x, -610.0);
             assert!(frame.y >= work.y + 8.0 && frame.top() <= work.top() - 8.0);
         }
+    }
+
+    #[test]
+    fn cursor_panel_opens_below_right_and_stays_on_the_cursors_screen() {
+        // A secondary display to the left of and above the primary one.
+        let work = rect(-1920.0, 1000.0, 1920.0, 1050.0);
+        assert_eq!(
+            cursor_frame((-1500.0, 1800.0), work, (300.0, 460.0)),
+            rect(-1492.0, 1332.0, 300.0, 460.0)
+        );
+        // Near the bottom-right corner it shifts back inside the same screen.
+        let placed = cursor_frame((-10.0, 1010.0), work, (300.0, 460.0));
+        assert_eq!(placed, rect(-308.0, 1008.0, 300.0, 460.0));
     }
 
     #[test]

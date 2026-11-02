@@ -304,7 +304,8 @@ pub fn translate_select(
 fn client() -> Result<Client, String> {
     Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(180))
+        // No total timeout: it would cut off long streamed answers. stream_text bounds
+        // silence instead, and model listing sets its own per-request timeout.
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| "无法初始化网络连接".into())
@@ -510,7 +511,10 @@ async fn stream_text(
     mut delta: impl FnMut(&str),
 ) -> Result<u128, String> {
     let started = Instant::now();
-    let mut deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    // Silence limit, reset by any bytes (reasoning deltas, keep-alives), plus a hard cap.
+    let idle = Duration::from_secs(60);
+    let cap = tokio::time::Instant::now() + Duration::from_secs(15 * 60);
+    let mut deadline = tokio::time::Instant::now() + idle;
     let (resource, body) =
         request_body(protocol, model, system, text, if test { 16 } else { 4096 });
     let request = auth(client.post(endpoint(base, resource)?), protocol, key).json(&body);
@@ -523,20 +527,26 @@ async fn stream_text(
     let mut stream = response.bytes_stream();
     let mut first = None;
     loop {
-        let bytes = tokio::time::timeout_at(deadline, stream.next())
+        let bytes = tokio::time::timeout_at(deadline.min(cap), stream.next())
             .await
-            .map_err(|_| "等待正文超时，请重试或切换配置".to_string())?;
+            .map_err(|_| {
+                if tokio::time::Instant::now() >= cap {
+                    "输出超过 15 分钟，已停止。请缩短文字后重试".to_string()
+                } else {
+                    "服务超过 60 秒没有响应，请重试或切换配置".to_string()
+                }
+            })?;
         let Some(bytes) = bytes else {
             return Err("流式连接提前断开，输出未完成".into());
         };
         let bytes = bytes.map_err(|e| redact(&e.to_string(), key))?;
+        deadline = tokio::time::Instant::now() + idle;
         for frame in decoder.feed(&bytes)? {
             let part = parse_part(protocol, &frame).map_err(|e| redact(&e, key))?;
             if !part.text.is_empty() {
                 delta(&part.text);
                 if !part.text.trim().is_empty() {
                     first.get_or_insert_with(|| started.elapsed().as_millis());
-                    deadline = tokio::time::Instant::now() + Duration::from_secs(60);
                     if test {
                         return Ok(first.unwrap());
                     }

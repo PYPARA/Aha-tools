@@ -330,15 +330,76 @@ fn copy_selection(pid: i32) -> Option<String> {
             break;
         }
     }
-    let count = changed?;
+    let Some(count) = changed else {
+        restore_late(snap, before);
+        return None;
+    };
     let text = board
         .stringForType(&NSString::from_str("public.utf8-plain-text"))
         .map(|s| s.to_string());
+    let whole_line = copied_whole_line(&board);
     // Another writer wins: only restore the generation just read.
     if board.changeCount() == count {
         restore(&*board, snap, count);
     }
+    if whole_line {
+        return None;
+    }
     (front().pid == pid).then_some(text).flatten()
+}
+
+/// A slow app may finish ⌘C after we stopped waiting. Undo that one late copy as well,
+/// but only if it is the very next generation: anything newer is the user's own copy.
+fn restore_late(snap: Snapshot, before: isize) {
+    thread::spawn(move || {
+        // Runs after copy_selection returns; holds off the next capture until done.
+        let _guard = COPY_LOCK.lock();
+        objc2::rc::autoreleasepool(|_| {
+            let board = NSPasteboard::generalPasteboard();
+            for _ in 0..100 {
+                thread::sleep(Duration::from_millis(10));
+                let count = board.changeCount();
+                if count == before {
+                    continue;
+                }
+                if count == before + 1 {
+                    // Let the app finish writing its data before replacing it.
+                    thread::sleep(Duration::from_millis(50));
+                    restore(&*board, snap, count);
+                }
+                return;
+            }
+        });
+    });
+}
+
+/// VS Code and its forks copy the current line when nothing is selected, marking the copy
+/// with `"isFromEmptySelection":true` in Chromium's custom-data pasteboard type.
+fn copied_whole_line(board: &NSPasteboard) -> bool {
+    let Some(items) = board.pasteboardItems() else {
+        return false;
+    };
+    items.iter().any(|item| {
+        item.types().iter().any(|kind| {
+            let name = kind.to_string();
+            if !name.contains("web-custom-data") && name != "vscode-editor-data" {
+                return false;
+            }
+            item.dataForType(&kind)
+                .is_some_and(|data| marks_empty_selection(&data.to_vec()))
+        })
+    })
+}
+
+fn marks_empty_selection(bytes: &[u8]) -> bool {
+    const MARK: &str = "\"isFromEmptySelection\":true";
+    // Chromium pickles custom data as UTF-16; a plain type holds UTF-8 JSON.
+    let utf16: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    String::from_utf16_lossy(&utf16).contains(MARK)
+        || String::from_utf8_lossy(bytes).contains(MARK)
 }
 
 #[cfg(test)]
@@ -425,6 +486,19 @@ mod tests {
         board.race.set(false);
         board.data.replace(None);
         assert!(snapshot(&board).is_none());
+    }
+    #[test]
+    fn whole_line_copies_are_recognized_in_utf16_and_utf8() {
+        let json = r#"{"version":1,"isFromEmptySelection":true,"multicursorText":null}"#;
+        let utf16: Vec<u8> = json.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let mut pickle = vec![0x30, 0, 0, 0];
+        pickle.extend(utf16);
+        assert!(marks_empty_selection(&pickle));
+        assert!(marks_empty_selection(json.as_bytes()));
+        let selected = json.replace("true", "false");
+        assert!(!marks_empty_selection(selected.as_bytes()));
+        let utf16: Vec<u8> = selected.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        assert!(!marks_empty_selection(&utf16));
     }
     #[test]
     fn multi_selection_needs_common_parent() {

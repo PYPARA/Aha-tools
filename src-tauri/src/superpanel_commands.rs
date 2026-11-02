@@ -180,6 +180,23 @@ mod tests {
         assert_eq!(got, paths);
     }
     #[test]
+    fn finder_launched_path_gains_cli_folders_and_keeps_existing_order() {
+        assert_eq!(
+            command_path("/usr/bin:/bin:/usr/sbin:/sbin", Some("/Users/me")),
+            "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/Users/me/.local/bin:/Users/me/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        );
+        // A terminal PATH already ordered by the user stays as it was.
+        let shell = "/Users/me/.nvm/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin";
+        assert!(command_path(shell, Some("/Users/me")).ends_with(shell));
+        assert!(command_path("", None).ends_with("/usr/bin:/bin:/usr/sbin:/sbin"));
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", "command -v sh"])
+            .env("PATH", command_path("", None))
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+    }
+    #[test]
     fn hostile_values_are_literal_and_single_pass() {
         for value in [
             "有 空格",
@@ -204,6 +221,34 @@ mod tests {
     }
 }
 
+/// Apps opened from Finder inherit launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin), so `code`
+/// or Homebrew tools would not be found. Add the usual CLI folders without reordering
+/// what is already there (a terminal-launched dev build keeps the user's own order).
+fn command_path(inherited: &str, home: Option<&str>) -> String {
+    let mut extra: Vec<String> = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+    ]
+    .map(String::from)
+    .into();
+    if let Some(home) = home.filter(|h| !h.is_empty()) {
+        extra.extend([format!("{home}/.local/bin"), format!("{home}/bin")]);
+    }
+    let mut current: Vec<String> = inherited
+        .split(':')
+        .filter(|p| !p.is_empty())
+        .map(String::from)
+        .collect();
+    if current.is_empty() {
+        current = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(String::from).into();
+    }
+    let mut out: Vec<String> = extra.into_iter().filter(|d| !current.contains(d)).collect();
+    out.extend(current);
+    out.join(":")
+}
+
 /// Bound command lifetime and output; a stuck child must not hold the panel open.
 pub fn execute(command: &str, dir: Option<&str>) -> Result<(), String> {
     use std::{
@@ -214,6 +259,13 @@ pub fn execute(command: &str, dir: Option<&str>) -> Result<(), String> {
     };
     let mut cmd = Command::new("/bin/sh");
     cmd.args(["-c", command])
+        .env(
+            "PATH",
+            command_path(
+                &std::env::var("PATH").unwrap_or_default(),
+                std::env::var("HOME").ok().as_deref(),
+            ),
+        )
         .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

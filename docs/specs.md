@@ -94,7 +94,7 @@ python3 docs/design/gen_boards.py <画布目录> src/assets/icons
 - `config.translate = { profiles: [{ id, name, protocol, baseUrl, model }], activeProfileId: null, direction: "auto" }`，默认列表为空。协议为 `openai-chat`、`openai-responses`、`anthropic-messages`。所有服务地址、模型与密钥由用户填写。Base URL 含版本前缀，只追加资源路径，不自动补 `/v1`。
 - 每套密钥存系统钥匙串，service `com.ahatools.app`，account `translate:<id>`；不回传原密钥，不写配置和日志。更换协议或地址需重填密钥。配置与密钥保存 / 删除在后端协调，失败保留可恢复状态。
 - 设置页签：配置增删改、当前配置、协议、地址、掩码密钥、模型手填与获取列表、测试连接（首个非空正文耗时）。模型查询失败仍可手填。首次保存自动启用，删除当前配置选第一套剩余配置。原生钥匙串弹窗用 `withPinned`。
-- 三种流式适配：Chat `/chat/completions`、Responses `/responses`（`store:false`）、Messages `/messages`（`x-api-key`、`anthropic-version:2023-06-01`）。共用 SSE 解帧，处理 UTF-8 跨块、心跳、截断和错误。连接 10 秒、无正文 60 秒、总时限 180 秒；不自动重试或更换配置。
+- 三种流式适配：Chat `/chat/completions`、Responses `/responses`（`store:false`）、Messages `/messages`（`x-api-key`、`anthropic-version:2023-06-01`）。共用 SSE 解帧，处理 UTF-8 跨块、心跳、截断和错误。连接 10 秒、等待响应头 60 秒；流式阶段连续 60 秒收不到任何数据（含推理增量与心跳）即停止，总时限 15 分钟，不设会截断长输出的整体请求超时；不自动重试或更换配置。
 - `translate_start(id, profileId, text, mode, direction)`、`translate_stop(id)`；`translate-chunk/done/error` 均带请求 ID，只发给调用窗口。取消真正中止 HTTP，每个请求只结束一次。
 - 翻译页左原文右结果，720px 以下上下排列；可直接切换配置并重译。输入停止 400ms 后请求，输入法组词时不发请求，⌘↵ 重译，停止保留部分结果。模式 / 方向 / 配置变化使旧请求失效。面板隐藏继续，离开页面取消。
 - 方向「自动 / 英文→中文 / 中文→英文」；自动含中文译英文，其余译中文。润色保持原语言，解释用中文，这两种模式禁用方向选择。

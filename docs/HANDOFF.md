@@ -44,6 +44,17 @@
 
 **功能图标已接入**：采用设计稿方向 A，使用 `src/assets/icons/` 下的 20 个 SVG（本轮新增图片工具、保存和复制三个图标）。`src/feature-icons.ts` 自动登记资源并按「插件-功能 → 插件 → external」选图标，`src/views.ts` 重新导出注册表，SDK 的 `FeatureIcon` 统一渲染。资源表与插件页面分开，避免共享 UI 循环引入页面。显示尺寸：搜索 / 所有指令 32px、首页 40px、插件页标题 30px、插件列表 26px、插件详情 44px。单个网页应用继续用网站图标，收藏路径和小按钮继续用线条图标。浏览器假数据补齐了二维码的两个入口；浅色深色和 15 项图标检查通过，`cargo test` 与 `bun run build` 通过。
 
+### 复审修复：二维码之后的功能（2026-11-02）
+
+复审了从二维码开始的全部实现，修了 4 处：
+
+- 超级面板自定义动作：从访达启动的 App 只有 `/usr/bin:/bin:/usr/sbin:/sbin`，`code {path}` 会找不到命令。执行前补上 `/opt/homebrew/{bin,sbin}`、`/usr/local/{bin,sbin}`、`~/.local/bin`、`~/bin`，已有 PATH 的顺序不变（`superpanel_commands::command_path`）。
+- 读取选中文字的 ⌘C 回退：超过 150ms 才完成的复制，之前会覆盖用户剪贴板；现在后台再等 1 秒，只撤销紧接着的那一次复制。VS Code 及其衍生编辑器无选区时复制整行，会带 `isFromEmptySelection:true` 标记，现在识别后按「没有选中文字」处理。
+- 超级面板定位改用 AppKit 坐标（`window_position::place_at_cursor`），不再混用 Tauri 物理坐标，修复缩放比例不同的多屏错位。光标位置在呼出时读取。
+- 翻译：去掉会截断长输出的 180 秒整体请求超时；流式阶段任何数据（含推理增量、心跳）都会重置 60 秒空闲计时，另设 15 分钟上限。
+
+`cargo test` 119 项通过，`bun test`、`bun run build` 通过。待真机确认：正式打包后从访达启动，运行「用 VS Code 打开」；在 VS Code 无选区时长按右键或按超级面板热键，应显示「我的面板」而不是当前行；两块缩放不同的屏幕上呼出超级面板的位置；用推理模型或长文本翻译不再中途超时。
+
 ### 下拉选择与细滚动条（2026-11-02）
 
 - 设计：[Controls.html](design/Controls.html)，通用设置稿 [PanelBehavior.html](design/PanelBehavior.html) 同步。`src/Select.tsx` 提供共享 `Select`、`ActionMenu` 和可手填的 `Combobox`，统一由 `@ahatools/sdk` 导出；没有新增依赖或配置字段。

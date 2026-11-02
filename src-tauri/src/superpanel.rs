@@ -14,9 +14,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder, WindowEvent,
-};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const LABEL: &str = "super";
 const WIDTH: f64 = 300.;
@@ -220,9 +218,8 @@ pub fn toggle(app: &AppHandle) {
         return;
     }
     let front = context::front();
-    let pos = app
-        .cursor_position()
-        .unwrap_or(PhysicalPosition::new(100., 100.));
+    // AppKit points: Tauri's cursor and monitor "physical" values mix display scales.
+    let cursor = crate::window_position::mouse_location();
     crate::panel::hide(app);
     crate::popover::hide(app);
     let id = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
@@ -242,21 +239,7 @@ pub fn toggle(app: &AppHandle) {
             let Some(w) = app2.get_webview_window(LABEL) else {
                 return;
             };
-            if let Ok(Some(m)) = app2.monitor_from_point(pos.x, pos.y) {
-                let scale = m.scale_factor();
-                let area = m.work_area();
-                let (x, y) = locate(
-                    (pos.x, pos.y),
-                    (
-                        area.position.x as f64,
-                        area.position.y as f64,
-                        area.size.width as f64,
-                        area.size.height as f64,
-                    ),
-                    scale,
-                );
-                let _ = w.set_position(PhysicalPosition::new(x, y));
-            }
+            crate::window_position::place_at_cursor(&w, cursor, (WIDTH, HEIGHT));
             let snapshot = session.snapshot.clone();
             *SESSION.lock().unwrap() = Some(session);
             OPENING.store(false, Ordering::SeqCst);
@@ -265,14 +248,6 @@ pub fn toggle(app: &AppHandle) {
             let _ = app2.emit_to(LABEL, "superpanel-shown", snapshot);
         });
     });
-}
-fn locate(cursor: (f64, f64), area: (f64, f64, f64, f64), scale: f64) -> (f64, f64) {
-    let (l, t, w, h) = area;
-    let gap = 8. * scale;
-    (
-        (cursor.0 + gap).clamp(l + gap, (l + w - WIDTH * scale - gap).max(l + gap)),
-        (cursor.1 + gap).clamp(t + gap, (t + h - HEIGHT * scale - gap).max(t + gap)),
-    )
 }
 pub fn item_available(app: &AppHandle, item: &SearchItem) -> bool {
     match &item.action {
@@ -650,13 +625,6 @@ mod tests {
         assert!(session.is_some());
         assert!(matches!(accept(&mut session,7,"copy"),Ok(Run::Copy(s)) if s=="snapshot text"));
         assert!(accept(&mut session, 7, "copy").is_err());
-    }
-    #[test]
-    fn placement_stays_in_scaled_work_area() {
-        let (x, y) = locate((1900., 1000.), (0., 0., 1920., 1080.), 2.);
-        assert_eq!((x, y), (1304., 144.));
-        let (x, y) = locate((-1910., -10.), (-1920., -1080., 1920., 1080.), 1.);
-        assert!(x >= -1912. && y <= -468.);
     }
     #[test]
     fn creates_without_overwriting() {
