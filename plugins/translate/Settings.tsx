@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Combobox,
+  Select,
   translateSelect,
   translateDeleteProfile,
   translateHasKey,
@@ -271,19 +273,8 @@ export default function Settings({ cfg }: PluginSettingsProps) {
               onChange={(e) => change("name", e.target.value)}
             />
             <label htmlFor="translate-protocol">协议</label>
-            <select
-              id="translate-protocol"
-              className="input"
-              value={editor.protocol}
-              onChange={(e) => change("protocol", e.target.value)}
-            >
-              <option value="">请选择协议</option>
-              {protocols.map(([id, label]) => (
-                <option value={id} key={id}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            <Select id="translate-protocol" label="协议" placeholder="请选择协议" value={editor.protocol} disabled={busy === "save"}
+              onChange={(protocol) => change("protocol", protocol)} options={protocols.map(([value, label]) => ({ value, label }))} />
             <label htmlFor="translate-url">Base URL</label>
             <input
               id="translate-url"
@@ -314,14 +305,9 @@ export default function Settings({ cfg }: PluginSettingsProps) {
             </span>
             <label htmlFor="translate-model">模型</label>
             <div className="translate-model-input">
-              <input
-                id="translate-model"
-                list="translate-model-options"
-                className="input mono"
-                value={editor.model}
-                placeholder="输入模型 ID"
-                onChange={(e) => change("model", e.target.value)}
-              />
+              <Combobox id="translate-model" label="模型" className="mono" value={editor.model} placeholder="输入或搜索模型 ID"
+                disabled={busy === "save"} onChange={(model) => change("model", model)}
+                options={models.filter((model, i) => models.findIndex((m) => m.id === model.id) === i).map((model) => ({ value: model.id, label: model.id, description: model.name !== model.id ? model.name : undefined }))} />
               <button
                 type="button"
                 className="btn"
@@ -331,13 +317,6 @@ export default function Settings({ cfg }: PluginSettingsProps) {
                 {busy === "models" ? "正在获取…" : "获取模型"}
               </button>
             </div>
-            <datalist id="translate-model-options">
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </datalist>
           </fieldset>
           <div className="translate-editor-actions">
             <button

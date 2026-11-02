@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { ChevronIcon, formatAccelerator, invoke, Switch, useAppearance, type Config } from "@ahatools/sdk";
+import { formatAccelerator, invoke, Select, Switch, useAppearance, type Config } from "@ahatools/sdk";
 import SystemMonitor from "./SystemMonitor";
 import { EMPTY_SYSTEM, type SystemSnapshot } from "./sysmon";
 
@@ -223,20 +223,8 @@ export default function MenuPopover() {
             打开搜索面板
             {accelerator && <span className="keys">{accelerator}</span>}
           </button>
-          <label className="menu-row">
-            截图工具
-            <span className="value">
-              {tools.find((t) => t.id === cfg?.screenshot.target)?.name ?? "系统截图"}
-              <ChevronIcon />
-            </span>
-            <select aria-label="截图工具" value={cfg?.screenshot.target ?? "system"} onChange={(e) => setTool(e.target.value)}>
-              {tools.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select label="截图工具" leadingLabel="截图工具" value={cfg?.screenshot.target ?? "system"} onChange={setTool}
+            options={tools.map((tool) => ({ value: tool.id, label: tool.name }))} />
           <label className="menu-row">
             独占热键
             <span className="end">

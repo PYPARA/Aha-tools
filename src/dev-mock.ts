@@ -242,6 +242,15 @@ let config: Config = {
   ],
 };
 
+// ?selectMock=many supplies long profile / model lists for the shared picker checks.
+if (params.get("selectMock") === "many") {
+  config.translate.profiles.push(...Array.from({ length: 24 }, (_, index) => ({
+    id: `preview-${index + 1}`, name: `预览配置 ${String(index + 1).padStart(2, "0")}`,
+    protocol: "openai-chat" as const, baseUrl: "https://gateway.example/v1", model: `preview-model-${index + 1}`,
+  })));
+  config.translate.activeProfileId ??= "preview-1";
+}
+
 if (params.get("pins") === "12") config.superPanel.pinned.push(...["微信", "访达", "备忘录", "系统设置", "Ghostty"].map((name, i) => app(name, `/Applications/mock-${i}.app`)));
 let superScenario = params.get("superMock") ?? "home";
 let superRequest = 1;
@@ -353,6 +362,7 @@ async function showMockPanel(target?: { plugin: string; feature: string; input?:
 }
 
 const translationKeys = new Set(params.get("translateMock") === "missing-key" ? [] : ["work", "backup", "messages"]);
+if (params.get("selectMock") === "many") config.translate.profiles.forEach((profile) => translationKeys.add(profile.id));
 const translationJobs = new Map<string, ReturnType<typeof setTimeout>>();
 const translationCalls: { id: string; profileId: string; text: string; mode: string; direction: string }[] = [];
 let translationStops = 0;
@@ -413,6 +423,7 @@ mockIPC((cmd, args) => {
     case "translate_list_models":
       if (params.get("translateMock") === "model-slow") return new Promise((resolve) => setTimeout(() => resolve([{ id:"stale-model", name:"过期模型" }]), 600));
       if (params.get("translateMock") === "model-error") throw new Error("HTTP 404：此服务不提供模型列表");
+      if (params.get("selectMock") === "many") return Array.from({ length: 80 }, (_, index) => ({ id: `preview-model-${String(index + 1).padStart(2, "0")}`, name: `预览模型 ${index + 1}` }));
       return [{ id: "custom-model-a", name: "自定义模型 A" }, { id: "custom-model-b", name: "自定义模型 B" }];
     case "translate_test_connection":
       if (params.get("translateMock") === "test-slow") return new Promise((resolve) => setTimeout(() => resolve({ firstTokenMs:999 }), 600));

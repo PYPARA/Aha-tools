@@ -11,6 +11,7 @@ import { confirm, open, save, type OpenDialogOptions, type SaveDialogOptions } f
 
 export { invoke };
 export * from "./ui";
+export { Select, Combobox, ActionMenu, type SelectOption } from "./Select";
 export * from "./config";
 export * from "./hosts";
 export { imageCanvas, imagePng, pixelsFromBlob, hasTextSelection, isEditingTarget } from "./image";

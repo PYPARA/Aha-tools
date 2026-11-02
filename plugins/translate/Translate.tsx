@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   CopyIcon,
   PageActions,
+  Select,
   invoke,
   onConfigChanged,
   onTranslation,
@@ -224,38 +225,15 @@ export default function Translate({
         </button>
       </PageActions>
       <div className="translate-toolbar">
-        <label className="sr-only" htmlFor="translate-profile">
-          当前配置
-        </label>
-        <select
-          id="translate-profile"
-          className="input"
-          value={profile?.id ?? ""}
-          onChange={(e) => void configure({ profileId: e.target.value })}
-        >
-          {!profile && <option value="">请选择配置</option>}
-          {cfg?.translate.profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <label className="sr-only" htmlFor="translate-direction">
-          翻译方向
-        </label>
-        <select
-          id="translate-direction"
-          className="input"
-          disabled={mode !== "translate"}
-          value={direction}
-          onChange={(e) =>
-            void configure({ direction: e.target.value as TranslateDirection })
-          }
-        >
-          <option value="auto">自动方向</option>
-          <option value="en-zh">英文 → 中文</option>
-          <option value="zh-en">中文 → 英文</option>
-        </select>
+        <Select id="translate-profile" label="当前配置" placeholder="请选择配置" value={profile?.id ?? ""}
+          onChange={(profileId) => void configure({ profileId })}
+          options={cfg?.translate.profiles.map((p) => ({ value: p.id, label: p.name, keywords: p.model })) ?? []} />
+        <Select<TranslateDirection> id="translate-direction" label="翻译方向" disabled={mode !== "translate"} value={direction}
+          onChange={(direction) => void configure({ direction })} options={[
+            { value: "auto", label: "自动方向" },
+            { value: "en-zh", label: "英文 → 中文" },
+            { value: "zh-en", label: "中文 → 英文" },
+          ]} />
         <div className="seg" aria-label="处理模式">
           {(
             [

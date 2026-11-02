@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { CloseIcon, formatAccelerator, HotkeyRecorder, invoke, Switch, type Binding } from "@ahatools/sdk";
+import { ActionMenu, CloseIcon, formatAccelerator, HotkeyRecorder, invoke, Switch, type Binding } from "@ahatools/sdk";
 import { actionChoices, describeAction } from "./actions";
 import Row from "./Row";
 import type { SectionProps } from "./Settings";
@@ -16,62 +16,9 @@ const sameCombo = (a: string, b: string) => formatAccelerator(a) === formatAccel
 
 /** 「添加热键」: a button with a menu of everything a hotkey can do, grouped. */
 function AddMenu({ choices, onPick }: { choices: ReturnType<typeof actionChoices>; onPick: (index: number) => void }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!(e.target instanceof Node && root.current?.contains(e.target))) setOpen(false);
-    };
-    const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", close, true);
-    window.addEventListener("keydown", esc, true);
-    return () => {
-      window.removeEventListener("mousedown", close, true);
-      window.removeEventListener("keydown", esc, true);
-    };
-  }, [open]);
-
-  const groups = [...new Set(choices.map((c) => c.group))];
-  return (
-    <div className="menu-anchor" ref={root}>
-      <button type="button" className="btn" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((o) => !o)}>
-        添加热键
-      </button>
-      {open && (
-        <div className="menu" role="menu">
-          {groups.map((g) => (
-            <div key={g} role="group" aria-label={g}>
-              <div className="menu-group-label">{g}</div>
-              {choices.map((c, i) =>
-                c.group === g ? (
-                  <button
-                    key={c.label + i}
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    onClick={() => {
-                      setOpen(false);
-                      onPick(i);
-                    }}
-                  >
-                    <span>{c.label}</span>
-                    {c.detail && <span className="note">{c.detail}</span>}
-                  </button>
-                ) : null,
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  return <ActionMenu label="添加热键" placeholder="添加热键" searchPlaceholder="搜索功能或插件…"
+    options={choices.map((choice, index) => ({ value: String(index), label: choice.label, description: choice.detail, group: choice.group }))}
+    onPick={(index) => onPick(Number(index))} />;
 }
 
 export default function Hotkeys({ cfg, save, manifests }: SectionProps) {

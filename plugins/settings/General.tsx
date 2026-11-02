@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { HotkeyRecorder, invoke, Switch, withPinned, type Config, type MenubarItem } from "@ahatools/sdk";
+import { HotkeyRecorder, invoke, Select, Switch, withPinned, type Config, type MenubarItem } from "@ahatools/sdk";
 import Row from "./Row";
 import type { SectionProps } from "./Settings";
 
@@ -53,13 +53,12 @@ export default function General({ cfg, save }: SectionProps) {
         <HotkeyRecorder value={panelKey} onChange={setPanelKey} placeholder="未设置" />
       </Row>
       <Row title="再次打开时" desc="决定重新唤出面板后显示的页面">
-        <label className="sr-only" htmlFor="panel-reopen">再次打开时</label>
-        <select id="panel-reopen" className="select" value={cfg.panelReopen ?? "resume"}
-          onChange={(event) => set({ panelReopen: event.target.value as Config["panelReopen"] })}>
-          <option value="resume">回到上次的页面</option>
-          <option value="afterFiveMinutes">超过 5 分钟回到搜索</option>
-          <option value="search">总是回到搜索</option>
-        </select>
+        <Select<Config["panelReopen"]> id="panel-reopen" label="再次打开时" value={cfg.panelReopen ?? "resume"}
+          onChange={(panelReopen) => set({ panelReopen })} options={[
+            { value: "resume", label: "回到上次的页面" },
+            { value: "afterFiveMinutes", label: "超过 5 分钟回到搜索" },
+            { value: "search", label: "总是回到搜索" },
+          ]} />
       </Row>
       <Row title="独占热键" desc="AhaTools 的热键只有它自己响应，uTools 等不会同时弹出">
         {mode?.enabled &&
@@ -92,19 +91,12 @@ export default function General({ cfg, save }: SectionProps) {
         <Switch label="开机自动启动" checked={autostart} onChange={setAutostartOn} />
       </Row>
       <Row title="外观" desc="浅色、深色或跟随系统">
-        <label className="sr-only" htmlFor="appearance">
-          外观
-        </label>
-        <select
-          id="appearance"
-          className="select"
-          value={cfg.appearance}
-          onChange={(e) => set({ appearance: e.target.value as Config["appearance"] })}
-        >
-          <option value="system">跟随系统</option>
-          <option value="light">浅色</option>
-          <option value="dark">深色</option>
-        </select>
+        <Select<Config["appearance"]> id="appearance" label="外观" value={cfg.appearance}
+          onChange={(appearance) => set({ appearance })} options={[
+            { value: "system", label: "跟随系统" },
+            { value: "light", label: "浅色" },
+            { value: "dark", label: "深色" },
+          ]} />
       </Row>
     </>
   );

@@ -5,6 +5,7 @@ import {
   formatAccelerator,
   HotkeyRecorder,
   invoke,
+  Select,
   type PluginSettingsProps,
   type RelayApp,
   type RelayStatus,
@@ -81,20 +82,9 @@ export default function ScreenshotSettings({ cfg, save }: PluginSettingsProps) {
             <div className="radio-body">
               <p className="note">不用任何设置。选择截图方式：</p>
               <span className="inline">
-                <label className="sr-only" htmlFor="system-mode">
-                  系统截图方式
-                </label>
-                <select
-                  id="system-mode"
-                  className="select sm"
-                  value={cfg.screenshot.systemMode}
-                  onChange={(e) =>
-                    save({ ...cfg, screenshot: { ...cfg.screenshot, systemMode: e.target.value as "region" | "toolbar" } })
-                  }
-                >
-                  <option value="region">选区域，存到剪贴板</option>
-                  <option value="toolbar">打开系统截图工具栏</option>
-                </select>
+                <Select<"region" | "toolbar"> id="system-mode" label="系统截图方式" className="sm" value={cfg.screenshot.systemMode}
+                  onChange={(systemMode) => save({ ...cfg, screenshot: { ...cfg.screenshot, systemMode } })}
+                  options={[{ value: "region", label: "选区域，存到剪贴板" }, { value: "toolbar", label: "打开系统截图工具栏" }]} />
                 <button type="button" className="btn ghost sm accent" onClick={() => invoke("screenshot_take", { target: "system" })}>
                   测试截图
                 </button>
