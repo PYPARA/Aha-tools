@@ -28,6 +28,12 @@ SDK 的 `PluginContent` 是 `{ type: "image", name, image: { width, height, rgba
 
 固定项使用 `@dnd-kit/react` 的 sortable 和 `@dnd-kit/dom` 的输入 / 反馈插件，提供跟手提起、落点占位、180ms 让位与归位、跨行移动、边缘自动滚动、Esc / 失焦 / 窗口尺寸变化时取消、失败回退。末行空白也接受放到末尾；空格提起、方向键移动、空格或回车放下支持键盘排序，读屏指引为中文，并遵循系统「减少动态效果」。原生文件拖放独立。`usage_reorder_pinned(item, before?)` 在锁内按身份移动已有项目并写入 `usage.json`，保留其他固定项，不允许客户端整份覆盖。AhaTools 的截图路由在调用系统 / 第三方工具期间保留原来窗口，使用独立保护状态，结束后释放并恢复焦点。
 
+### 已有共享控件：下拉选择与细滚动条（2026-11-02）
+
+设计：[Controls.html](design/Controls.html)。插件从 `@ahatools/sdk` 引入 `Select` / `ActionMenu` / `Combobox`，不要新增原生 select 或 datalist。`Select` 接收 `label`、`value`、`onChange(value)` 和 `options: { value, label, description?, group?, keywords?, disabled? }[]`；选项超过 8 项自动显示搜索，可用 `searchable` 显式指定。`ActionMenu` 用 `onPick(value)` 执行动作，始终提供分组搜索。允许自由输入的模型用 `Combobox`，输入值与候选 ID 分开处理，找不到候选时仍可保存手填值。
+
+浮层按当前窗口空间定位，支持键盘和焦点恢复，不改变菜单栏自然高度。所有本地页面共用全局细滚动条，新增滚动容器直接使用 `overflow: auto`，不要另设原生宽滚动条或隐藏滚动能力。浏览器用 `?selectMock=many&translateMock=ready` 验证长列表；原生窗口与输入法交互按 HANDOFF 清单复核。
+
 ## 0. 功能图标（先做，所有插件共用）
 
 设计：[FeatureIcons.html](design/FeatureIcons.html)，两个方向，默认方向 A（实色渐变 + 白色双色图形）。方向 A 的 SVG 已经生成好，放在 `src/assets/icons/`，文件名就是 key。如果作者改选方向 B（浅色调底 + 彩色图形），不要用图片文件：把 `soft_svg()` 的结构写成 React 组件，用 `currentColor` 跟随主题。

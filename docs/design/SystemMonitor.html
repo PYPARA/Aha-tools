@@ -36,6 +36,7 @@ input::placeholder,textarea::placeholder{color:var(--text-3)}
 .chip{height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:999px;background:var(--sunken);border:1px solid var(--border);font-size:11px;color:var(--text-2)}
 .strip{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px 0 14px;border-radius:10px;background:var(--sunken)}
 .sel{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px 0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-size:13px;flex-shrink:0}
+.sel{color:var(--text);font-family:inherit}
 .side{width:208px;flex-shrink:0;background:var(--sunken);border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
 .side .h{display:flex;align-items:center;gap:8px;padding:2px 6px 14px}.side .h b{font-family:var(--serif);font-size:18px;font-weight:500}
 .side .g{padding:14px 10px 6px;font-size:11px;color:var(--text-2)}
@@ -94,6 +95,12 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">内存</b></span><span class="sw"><i></i></span></div>
 </div>
 <p class="note">弹出面板打开时每秒刷新全部指标。收起后只采集菜单栏已选的 CPU 或内存；未选时停止系统采样。弹窗高度随内容收紧，空间不足时可滚动。</p>
+<span class="lbl" style="margin-top: 8px">截图工具 · 展开</span>
+<div class="col" style="gap: 6px; width: 276px">
+<div class="card" style="padding:6px;border-radius:10px;box-shadow:0 8px 24px rgba(30,25,15,.14)"><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;"><span style="flex:1;min-width:0;font-size:13px">系统截图</span></div><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;background:var(--selected);"><span style="flex:1;min-width:0;font-size:13px">微信</span></div><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;"><span style="flex:1;min-width:0;font-size:13px">QQ</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></div><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;"><span style="flex:1;min-width:0;font-size:13px">钉钉（未设置）</span></div></div>
+<span class="row" style="height: 30px; padding: 0 8px; border-radius: 6px; background: var(--hover); font-size: 13px">截图工具<span class="sp"></span><span class="note">QQ</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>
+</div>
+<p class="note">共享 Select 的整行样式：左边标签，右边当前值和 ›。弹层宽同行宽，按空间向上或向下展开，盖在监控区上方，不改变弹窗高度。</p>
 </div></div></div>
 <div class="t-dark" style="width:840px;height:888px;box-sizing:border-box;padding:40px;background:var(--desk);display:flex;flex-direction:column;gap:12px;--accent:#93B1E3"><div style="font-size:12px;color:var(--text-2)">深色</div><div class="row" style="align-items: flex-start; gap: 40px"><div class="win" role="dialog" aria-label="AhaTools 菜单" style="width: 300px; max-height: 720px; border-radius: 12px; padding: 14px 12px 8px; gap: 16px; box-sizing: border-box; overflow-y: auto">
 <div class="row" style="padding: 0 4px; align-items: baseline"><span class="lbl">网速</span><span class="sp"></span><span class="note" style="font-size: 11px">Wi‑Fi · en0</span></div>
@@ -136,4 +143,10 @@ td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">内存</b></span><span class="sw"><i></i></span></div>
 </div>
 <p class="note">弹出面板打开时每秒刷新全部指标。收起后只采集菜单栏已选的 CPU 或内存；未选时停止系统采样。弹窗高度随内容收紧，空间不足时可滚动。</p>
+<span class="lbl" style="margin-top: 8px">截图工具 · 展开</span>
+<div class="col" style="gap: 6px; width: 276px">
+<div class="card" style="padding:6px;border-radius:10px;box-shadow:0 8px 24px rgba(30,25,15,.14)"><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;"><span style="flex:1;min-width:0;font-size:13px">系统截图</span></div><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;background:var(--selected);"><span style="flex:1;min-width:0;font-size:13px">微信</span></div><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;"><span style="flex:1;min-width:0;font-size:13px">QQ</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></div><div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;"><span style="flex:1;min-width:0;font-size:13px">钉钉（未设置）</span></div></div>
+<span class="row" style="height: 30px; padding: 0 8px; border-radius: 6px; background: var(--hover); font-size: 13px">截图工具<span class="sp"></span><span class="note">QQ</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>
+</div>
+<p class="note">共享 Select 的整行样式：左边标签，右边当前值和 ›。弹层宽同行宽，按空间向上或向下展开，盖在监控区上方，不改变弹窗高度。</p>
 </div></div></div></div></html>

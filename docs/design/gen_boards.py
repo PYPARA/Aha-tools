@@ -52,6 +52,7 @@ input::placeholder,textarea::placeholder{color:var(--text-3)}
 .chip{height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:999px;background:var(--sunken);border:1px solid var(--border);font-size:11px;color:var(--text-2)}
 .strip{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px 0 14px;border-radius:10px;background:var(--sunken)}
 .sel{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px 0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-size:13px;flex-shrink:0}
+.sel{color:var(--text);font-family:inherit}
 .side{width:208px;flex-shrink:0;background:var(--sunken);border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
 .side .h{display:flex;align-items:center;gap:8px;padding:2px 6px 14px}.side .h b{font-family:var(--serif);font-size:18px;font-weight:500}
 .side .g{padding:14px 10px 6px;font-size:11px;color:var(--text-2)}
@@ -215,7 +216,7 @@ boards = []
 detail = f'''<div class="detail" style="gap: 0">
 <h1 style="font-family: var(--serif); font-size: 22px; font-weight: 500; margin: 0 0 12px">通用</h1>
 <div class="srow" style="min-height: 66px"><span class="st"><b>呼出快捷键</b><span>打开搜索面板</span></span><span class="btn mono">⌥ Space</span></div>
-<div class="srow" style="min-height: 66px"><span class="st"><b>再次打开时</b><span>决定重新唤出面板后显示的页面</span></span><select class="sel" aria-label="再次打开时" style="font-family: inherit; color: var(--text)"><option>回到上次的页面</option><option>超过 5 分钟回到搜索</option><option>总是回到搜索</option></select></div>
+<div class="srow" style="min-height: 66px"><span class="st"><b>再次打开时</b><span>决定重新唤出面板后显示的页面</span></span><button type="button" class="sel" aria-label="再次打开时" style="font-family: inherit; color: var(--text)">回到上次的页面{icon("down", 12)}</button></div>
 <div class="srow" style="min-height: 66px"><span class="st"><b>独占热键</b><span>AhaTools 的热键只有它自己响应</span></span><span class="sw on"><i></i></span></div>
 <div class="srow" style="min-height: 66px"><span class="st"><b>拼音搜索</b><span>用全拼或首字母搜中文名，例如 wx 找到微信</span></span><span class="sw on"><i></i></span></div>
 <div class="srow" style="min-height: 66px"><span class="st"><b>菜单栏网速</b><span>在菜单栏显示实时上传和下载速度</span></span><span class="sw on"><i></i></span></div>
@@ -223,6 +224,68 @@ detail = f'''<div class="detail" style="gap: 0">
 <div class="srow" style="min-height: 66px"><span class="st"><b>外观</b><span>浅色、深色或跟随系统</span></span><span class="sel">跟随系统{icon("down", 12)}</span></div>
 </div>'''
 boards.append(board("PanelBehavior", "设置 · 再次打开时", 880, 580, settings("", detail, nav_on="通用")))
+
+# ---- 共享控件 · 下拉选择与细滚动条 ----
+POPUP = "padding:6px;border-radius:10px;box-shadow:0 8px 24px rgba(30,25,15,.14)"
+SEARCH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></svg>'
+THUMB = "position:absolute;right:2px;width:4px;border-radius:999px;background:color-mix(in srgb,var(--text-2) 40%,transparent)"
+
+
+def control_option(label, detail="", selected=False, active=False, disabled=False, below="", mono=False):
+    """One row of the shared Select popup: active = keyboard / hover row, selected = current value."""
+    bg = "background:var(--selected);" if active else ""
+    fade = "opacity:.4;" if disabled else ""
+    font = "font-family:var(--mono);font-size:12px" if mono else "font-size:13px"
+    sub = f'<span style="display:block;font-size:11px;color:var(--text-2)">{below}</span>' if below else ""
+    end = f'<span class="note">{detail}</span>' if detail else ""
+    return f'<div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 10px;box-sizing:border-box;border-radius:6px;{bg}{fade}"><span style="flex:1;min-width:0;{font}">{label}{sub}</span>{end}{icon("check", 14) if selected else ""}</div>'
+
+
+def search_field(text, typed=False):
+    color, line = ("var(--text)", "var(--accent)") if typed else ("var(--text-3)", "var(--border)")
+    return f'<div style="height:36px;display:flex;align-items:center;gap:8px;padding:0 8px 6px;margin-bottom:4px;box-sizing:border-box;border-bottom:1px solid {line};color:var(--text-2)">{SEARCH}<span style="font-size:13px;color:{color}">{text}</span></div>'
+
+
+reopen = ["回到上次的页面", "超过 5 分钟回到搜索", "总是回到搜索"]
+settings_options = "".join(control_option(label, selected=i == 0, active=i == 1) for i, label in enumerate(reopen))
+action_options = "".join(control_option(label, detail) for label, detail in [("生成二维码", "二维码"), ("识别二维码", "二维码"), ("翻译", "翻译"), ("压缩图片", "图片压缩"), ("hosts 切换", "hosts")])
+model_options = "".join(control_option(mid, below=name, mono=True, selected=mid == "custom-model-b", active=i == 0) for i, (mid, name) in enumerate([("custom-model-a", "自定义模型 A"), ("custom-model-b", "自定义模型 B"), ("custom-model-c", "")]))
+up_options = "".join(control_option(label, selected=label == "系统截图", disabled=label == "钉钉（未安装）") for label in ["系统截图", "微信（未设置）", "QQ（未设置）", "钉钉（未安装）"])
+combobox = lambda text, typed=True: f'<div style="position:relative"><div class="sel mono" style="width:100%;height:32px;font-size:12px;{"" if typed else "color:var(--text-3);"}{"border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)" if typed else ""}">{text}<span style="width:30px;height:30px;margin-right:-10px;display:flex;align-items:center;justify-content:center;color:var(--text-2)">{icon("down", 12)}</span></div></div>'
+inner = f'''<section class="win" style="width:880px;height:780px;padding:28px;gap:24px;box-sizing:border-box">
+<h1 style="font:500 22px var(--serif);margin:0">下拉选择与滚动条</h1>
+<div class="row" style="gap:32px;align-items:flex-start">
+<div class="col" style="width:240px"><span class="lbl">设置行：靠右时右对齐</span>
+<div class="row" style="justify-content:space-between"><span style="font-size:13px">再次打开时</span><span class="sel">回到上次的页面{icon("down", 12)}</span></div>
+<div class="card" style="{POPUP};margin-top:-6px">{settings_options}</div>
+<p class="note">弹层至少 240 宽；按钮靠右放不下时，右边与按钮对齐。暖灰底是键盘 / 悬停行，勾选是当前值。</p></div>
+<div class="col" style="width:280px"><span class="lbl">动作菜单：始终带搜索</span>
+<span class="btn" style="align-self:flex-end">添加热键</span>
+<div class="card" style="{POPUP};margin-top:-6px">{search_field("搜索功能或插件…")}<div style="height:196px;position:relative;padding-right:8px;overflow:hidden"><div class="note" style="font-size:11px;padding:8px 10px 4px">插件功能</div>{action_options}<i style="{THUMB};top:4px;height:90px"></i></div></div>
+<p class="note">按钮不带箭头，弹层与按钮右对齐。按功能名、插件名、分组过滤，多个关键词同时匹配。</p></div>
+<div class="col" style="flex:1"><span class="lbl">模型：可手填的 Combobox</span>
+{combobox("custom-model")}
+<div class="card" style="{POPUP};margin-top:-6px">{model_options}</div>
+<div class="card" style="{POPUP}"><div class="note" style="padding:10px">没有匹配的模型，可继续手动填写</div></div>
+<p class="note">输入即过滤；↑↓ 选中后回车填入 ID，未选中时回车只收起，保留手填值。</p></div>
+</div>
+<div class="row" style="gap:32px;align-items:flex-start">
+<div class="col" style="width:240px"><span class="lbl">下方空间不足：向上展开</span>
+<div class="card" style="{POPUP}">{up_options}</div>
+<span class="sel" style="margin-top:-6px;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)">系统截图{icon("down", 12)}</span>
+<p class="note">弹层不超出窗口，最高 340。禁用项 40% 透明，键盘跳过。</p></div>
+<div class="col" style="width:280px"><span class="lbl">超过 8 项：搜索与无结果</span>
+<span class="sel" style="width:100%">预览配置 24{icon("down", 12)}</span>
+<div class="card" style="{POPUP};margin-top:-6px">{search_field("zzz", typed=True)}<div class="note" style="padding:12px 10px 10px">没有匹配的选项</div></div>
+<p class="note">打开时滚到当前值；空结果时回车不执行任何动作。</p></div>
+<div class="col" style="flex:1"><span class="lbl">尺寸与状态</span>
+<div class="row"><span class="sel">默认 30{icon("down", 12)}</span><span class="sel" style="height:26px;font-size:12px">小号 26{icon("down", 12)}</span></div>
+<div class="row"><span class="sel" style="color:var(--text-2)">请选择协议{icon("down", 12)}</span><span class="sel" style="opacity:.4">禁用{icon("down", 12)}</span></div>
+<span class="lbl" style="margin-top:12px">细滚动条</span>
+<div class="row" style="gap:16px;align-items:stretch"><div class="card" style="width:120px;height:92px;position:relative;overflow:hidden"><div class="note" style="padding:8px 14px 0 10px">长列表、设置页、textarea 共用</div><i style="{THUMB};top:6px;height:40px"></i></div>
+<p class="note" style="flex:1">轨道透明，占 8px；滑块可见宽 4px，取 --text-2 40%，悬停 60%。常驻显示，不随系统自动隐藏。</p></div></div>
+</div></section>'''
+boards.append(board("Controls", "共享控件 · 下拉选择与细滚动条", 880, 780, inner))
 QR = qr_path()
 
 # ---- 二维码 · 生成 ----
@@ -433,6 +496,12 @@ side = f'''<div class="col" style="gap: 16px; width: 360px">
 <div class="srow" style="min-height: 52px"><span class="st"><b style="font-size: 13px">内存</b></span><span class="sw"><i></i></span></div>
 </div>
 <p class="note">弹出面板打开时每秒刷新全部指标。收起后只采集菜单栏已选的 CPU 或内存；未选时停止系统采样。弹窗高度随内容收紧，空间不足时可滚动。</p>
+<span class="lbl" style="margin-top: 8px">截图工具 · 展开</span>
+<div class="col" style="gap: 6px; width: 276px">
+<div class="card" style="{POPUP}">{"".join(control_option(label, selected=label == "QQ", active=label == "微信") for label in ["系统截图", "微信", "QQ", "钉钉（未设置）"])}</div>
+<span class="row" style="height: 30px; padding: 0 8px; border-radius: 6px; background: var(--hover); font-size: 13px">截图工具<span class="sp"></span><span class="note">QQ</span>{icon("chev", 12, 2)}</span>
+</div>
+<p class="note">共享 Select 的整行样式：左边标签，右边当前值和 ›。弹层宽同行宽，按空间向上或向下展开，盖在监控区上方，不改变弹窗高度。</p>
 </div>'''
 boards.append(board("SystemMonitor", "菜单栏 · 系统监控", 760, 780, f'<div class="row" style="align-items: flex-start; gap: 40px">{pop}{side}</div>'))
 
