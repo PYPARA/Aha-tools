@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
+    fs,
+    io::{ErrorKind, Write},
+    os::unix::fs::OpenOptionsExt,
+    path::PathBuf,
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -67,31 +71,53 @@ trait Secrets {
     fn set(&self, id: &str, key: &str) -> Result<(), String>;
     fn delete(&self, id: &str) -> Result<(), String>;
 }
-struct Keychain;
-impl Keychain {
-    fn entry(id: &str) -> Result<keyring::Entry, String> {
-        keyring::Entry::new("com.ahatools.app", &format!("translate:{id}"))
-            .map_err(|_| "无法访问系统钥匙串，请检查钥匙串是否已解锁".into())
+/// API keys live in `translate-keys.json` beside config.json, readable only by the user.
+/// They are kept out of config.json, which is sent to the page.
+struct LocalSecrets(PathBuf);
+impl LocalSecrets {
+    fn new(app: &AppHandle) -> Self {
+        Self(config::data_dir(app).join("translate-keys.json"))
+    }
+    fn read(&self) -> Result<HashMap<String, String>, String> {
+        match fs::read(&self.0) {
+            // An unreadable file behaves like no saved keys; the user is asked to fill them in.
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(HashMap::new()),
+            Err(_) => Err("无法读取本地密钥文件，请检查 AhaTools 数据目录的权限".into()),
+        }
+    }
+    fn write(&self, keys: &HashMap<String, String>) -> Result<(), String> {
+        let bytes = serde_json::to_vec_pretty(keys).map_err(|e| e.to_string())?;
+        let tmp = self.0.with_extension("json.tmp");
+        let _ = fs::remove_file(&tmp);
+        let result = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut f| f.write_all(&bytes))
+            .and_then(|_| fs::rename(&tmp, &self.0));
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        result.map_err(|_| "无法保存密钥文件，请检查 AhaTools 数据目录的权限".into())
     }
 }
-impl Secrets for Keychain {
+impl Secrets for LocalSecrets {
     fn get(&self, id: &str) -> Result<Option<String>, String> {
-        match Self::entry(id)?.get_password() {
-            Ok(key) => Ok(Some(key)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err("无法读取系统钥匙串，请允许 AhaTools 访问后重试".into()),
-        }
+        Ok(self.read()?.remove(id))
     }
     fn set(&self, id: &str, key: &str) -> Result<(), String> {
-        Self::entry(id)?
-            .set_password(key)
-            .map_err(|_| "无法保存密钥，请允许 AhaTools 访问系统钥匙串后重试".into())
+        let mut keys = self.read()?;
+        keys.insert(id.into(), key.into());
+        self.write(&keys)
     }
     fn delete(&self, id: &str) -> Result<(), String> {
-        match Self::entry(id)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err("无法删除钥匙串密钥，配置已保留，请重试".into()),
+        let mut keys = self.read()?;
+        if keys.remove(id).is_none() {
+            return Ok(());
         }
+        self.write(&keys)
     }
 }
 
@@ -242,7 +268,7 @@ pub async fn translate_save_profile(
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = config::WRITE_LOCK.lock().unwrap();
         let mut cfg = config::load(&app);
-        save_profile(&mut cfg, profile, key, &Keychain, |c| {
+        save_profile(&mut cfg, profile, key, &LocalSecrets::new(&app), |c| {
             config::save_json(&app, "config", c)
         })?;
         let _ = app.emit("config-changed", &cfg);
@@ -259,7 +285,7 @@ pub async fn translate_delete_profile(
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = config::WRITE_LOCK.lock().unwrap();
         let mut cfg = config::load(&app);
-        delete_profile(&mut cfg, &profile_id, &Keychain, |c| {
+        delete_profile(&mut cfg, &profile_id, &LocalSecrets::new(&app), |c| {
             config::save_json(&app, "config", c)
         })?;
         let _ = app.emit("config-changed", &cfg);
@@ -269,14 +295,14 @@ pub async fn translate_delete_profile(
     .map_err(|_| "配置删除任务失败".to_string())?
 }
 #[tauri::command]
-pub async fn translate_has_key(profile_id: String) -> Result<bool, String> {
+pub async fn translate_has_key(app: AppHandle, profile_id: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        Keychain
+        LocalSecrets::new(&app)
             .get(&profile_id)
             .map(|v| v.is_some_and(|s| !s.is_empty()))
     })
     .await
-    .map_err(|_| "钥匙串查询失败".to_string())?
+    .map_err(|_| "密钥查询失败".to_string())?
 }
 
 #[tauri::command]
@@ -646,7 +672,7 @@ pub async fn translate_start(
                     base_url: p.base_url.clone(),
                     key: None,
                 },
-                &Keychain,
+                &LocalSecrets::new(&app),
             )?;
             Ok::<_, String>((p, key))
         })
@@ -712,7 +738,7 @@ async fn load_draft(
     draft: ConnectionDraft,
 ) -> Result<(ConnectionDraft, String), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let key = draft_key(&config::load(&app), &draft, &Keychain)?;
+        let key = draft_key(&config::load(&app), &draft, &LocalSecrets::new(&app))?;
         Ok((draft, key))
     })
     .await
@@ -918,6 +944,28 @@ mod tests {
         }
     }
     #[test]
+    fn local_secrets_are_private_and_independent() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let keys = LocalSecrets(dir.path().join("translate-keys.json"));
+        assert_eq!(keys.get("a").unwrap(), None);
+        keys.delete("a").unwrap();
+        keys.set("a", "one").unwrap();
+        keys.set("b", "two").unwrap();
+        keys.set("a", "three").unwrap();
+        assert_eq!(keys.get("a").unwrap().as_deref(), Some("three"));
+        let mode = fs::metadata(&keys.0).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        keys.delete("a").unwrap();
+        assert_eq!(keys.get("a").unwrap(), None);
+        assert_eq!(keys.get("b").unwrap().as_deref(), Some("two"));
+        fs::write(&keys.0, "not json").unwrap();
+        assert_eq!(keys.get("b").unwrap(), None);
+        keys.set("c", "four").unwrap();
+        assert_eq!(keys.get("c").unwrap().as_deref(), Some("four"));
+        assert!(!dir.path().join("translate-keys.json.tmp").exists());
+    }
+    #[test]
     fn configuration_defaults_and_key_rollback() {
         let cfg: Config = serde_json::from_str(r#"{"translate":{"direction":"en-zh"}}"#).unwrap();
         assert!(cfg.translate.profiles.is_empty());
@@ -967,7 +1015,7 @@ mod tests {
         assert_eq!(cfg.translate.active_profile_id, None);
     }
     #[test]
-    fn failed_new_profile_and_keychain_denial_preserve_config() {
+    fn failed_new_profile_and_secret_denial_preserve_config() {
         let mut cfg = Config::default();
         let keys = MemorySecrets::default();
         assert!(

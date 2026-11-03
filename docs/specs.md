@@ -15,7 +15,7 @@
 2. **页面**：`plugins/<id>/<View>.tsx`，只从 `@ahatools/sdk` 引入；在 `src/views.ts` 的 `views` 里登记 `"<id>/<code>"`。功能图标按第 0 项生成到 `src/assets/icons/` 后自动登记，由 SDK 的 `FeatureIcon` 显示。页面拿到 `PluginViewProps`：`onBack`、`setStatus`（写底栏右侧）、`input`（从搜索框带入的文字，例如 `qr hello` 的 `hello`，或 `match` 命中的整段输入）、`content`（本次输入的图片快照或文件路径，仅保留在内存）、`openFeature`（携带 `input` / `content` 切换插件页）。标题栏右侧按钮用 `<PageActions>`。
 3. **插件设置**：写 `plugins/<id>/Settings.tsx`（拿到 `cfg`、`save`），登记到 `src/views.ts` 的 `pluginSettings`，会出现在 设置 → 已安装插件 → 该插件 →「设置」页签。
 4. **不需要页面的功能**：登记到 `src/views.ts` 的 `actions`（例：`screenshot/take`）。
-5. **配置**：加到 `src-tauri/src/config.rs` 的 `Config`（结构体整体有 `#[serde(default)]`，旧文件能读）并在 `Default` 里给默认值，同步 `src/config.ts` 的类型；补「旧配置能读」的测试。密钥一律存钥匙串，不进 config.json。
+5. **配置**：加到 `src-tauri/src/config.rs` 的 `Config`（结构体整体有 `#[serde(default)]`，旧文件能读）并在 `Default` 里给默认值，同步 `src/config.ts` 的类型；补「旧配置能读」的测试。密钥存数据目录下单独的文件（如 `translate-keys.json`，权限 600），不进 config.json、不回传前端；不用系统钥匙串（未签名的包每次重打都会重新弹授权）。
 6. **原生能力**：Rust 模块 + `#[tauri::command]`，在 `src-tauri/src/lib.rs` 的 `generate_handler!` 里注册。耗时命令写成 `async`。调用系统工具优先用 macOS 自带命令（项目里已有 `sips`、`curl`、`screencapture`、`osascript`、`lsappinfo` 的用法）。
 7. **热键**：能被热键触发的功能用 `hotkey::Action::OpenFeature`（插件详情的「设为热键」已经支持），特殊的才新增 `Action` 变体（参考 `OpenWeb`），并在 `plugins/settings/actions.ts` 的 `describeAction` / `actionChoices` 里补文案。
 8. **文案**：中文，短句，说清楚会发生什么；不出现 aha 小写名，统一 AhaTools。
@@ -92,15 +92,15 @@ python3 docs/design/gen_boards.py <画布目录> src/assets/icons
 
 - 插件 `translate/translate`，关键词「翻译 / fy / translate」，文字自动匹配至少 2 字，可独立关闭。
 - `config.translate = { profiles: [{ id, name, protocol, baseUrl, model }], activeProfileId: null, direction: "auto" }`，默认列表为空。协议为 `openai-chat`、`openai-responses`、`anthropic-messages`。所有服务地址、模型与密钥由用户填写。Base URL 含版本前缀，只追加资源路径，不自动补 `/v1`。
-- 每套密钥存系统钥匙串，service `com.ahatools.app`，account `translate:<id>`；不回传原密钥，不写配置和日志。更换协议或地址需重填密钥。配置与密钥保存 / 删除在后端协调，失败保留可恢复状态。
-- 设置页签：配置增删改、当前配置、协议、地址、掩码密钥、模型手填与获取列表、测试连接（首个非空正文耗时）。模型查询失败仍可手填。首次保存自动启用，删除当前配置选第一套剩余配置。原生钥匙串弹窗用 `withPinned`。
+- 每套密钥存数据目录的 `translate-keys.json`（按配置 id，权限 600）；不回传原密钥，不写配置和日志。更换协议或地址需重填密钥。配置与密钥保存 / 删除在后端协调，失败保留可恢复状态。
+- 设置页签：配置增删改、当前配置、协议、地址、掩码密钥、模型手填与获取列表、测试连接（首个非空正文耗时）。模型查询失败仍可手填。首次保存自动启用，删除当前配置选第一套剩余配置。
 - 三种流式适配：Chat `/chat/completions`、Responses `/responses`（`store:false`）、Messages `/messages`（`x-api-key`、`anthropic-version:2023-06-01`）。共用 SSE 解帧，处理 UTF-8 跨块、心跳、截断和错误。连接 10 秒、等待响应头 60 秒；流式阶段连续 60 秒收不到任何数据（含推理增量与心跳）即停止，总时限 15 分钟，不设会截断长输出的整体请求超时；不自动重试或更换配置。
 - `translate_start(id, profileId, text, mode, direction)`、`translate_stop(id)`；`translate-chunk/done/error` 均带请求 ID，只发给调用窗口。取消真正中止 HTTP，每个请求只结束一次。
 - 翻译页左原文右结果，720px 以下上下排列；可直接切换配置并重译。输入停止 400ms 后请求，输入法组词时不发请求，⌘↵ 重译，停止保留部分结果。模式 / 方向 / 配置变化使旧请求失效。面板隐藏继续，离开页面取消。
 - 方向「自动 / 英文→中文 / 中文→英文」；自动含中文译英文，其余译中文。润色保持原语言，解释用中文，这两种模式禁用方向选择。
 - 单个英文词（允许词内连字符 / 撇号）且目标中文时生成 JSON：`phonetic`、`senses[{partOfSpeech,meaning,explanation}]`、`examples[{en,zh}]`、`synonyms`。流式时加载，完成校验再渲染；格式失败显示纯文本。本轮无朗读。
 - ⌘C 有选区复制选区，无选区复制结果。未配置 / 缺密钥提供设置入口，返回恢复内存草稿；原文和结果不写历史。
-- Rust 用本地模拟 HTTP / 密钥存储测试三种协议、模型、取消与失败恢复；Bun 测试请求状态和释义；浏览器 mock 验证深浅色与 880×580 / 600×400；真实接口、钥匙串和剪贴板由作者真机验收。
+- Rust 用本地模拟 HTTP / 密钥存储测试三种协议、模型、取消与失败恢复；Bun 测试请求状态和释义；浏览器 mock 验证深浅色与 880×580 / 600×400；真实接口、密钥持久化和剪贴板由作者真机验收。
 
 ## 3. 图片压缩
 

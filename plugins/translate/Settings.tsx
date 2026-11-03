@@ -145,7 +145,7 @@ export default function Settings({ cfg }: PluginSettingsProps) {
           setEditor(null);
           setModels([]);
           setFeedback({
-            text: "已保存配置，密钥保存在系统钥匙串",
+            text: "已保存配置，密钥保存在本机",
             error: false,
           });
         }
@@ -301,7 +301,7 @@ export default function Settings({ cfg }: PluginSettingsProps) {
               onChange={(e) => change("key", e.target.value)}
             />
             <span className="note translate-field-help">
-              存在系统钥匙串里。更换协议或地址后需重新填写。
+              只保存在本机的 AhaTools 数据目录。更换协议或地址后需重新填写。
             </span>
             <label htmlFor="translate-model">模型</label>
             <div className="translate-model-input">

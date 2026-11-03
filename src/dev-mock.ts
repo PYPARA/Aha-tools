@@ -401,7 +401,7 @@ mockIPC((cmd, args) => {
       if (a.direction) config.translate.direction = a.direction as TranslateDirection;
       queueMicrotask(() => void emit("config-changed", config)); return config;
     case "translate_has_key":
-      if (params.get("translateMock") === "key-error") throw new Error("无法读取系统钥匙串，请允许 AhaTools 访问后重试");
+      if (params.get("translateMock") === "key-error") throw new Error("无法读取本地密钥文件，请检查 AhaTools 数据目录的权限");
       return translationKeys.has(String(a.profileId));
     case "translate_save_profile": {
       if (params.get("translateMock") === "save-error") throw new Error("配置保存失败，原配置已保留");

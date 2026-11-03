@@ -1,6 +1,6 @@
 # AhaTools 任务清单与接手说明
 
-更新于 2026-11-02。骨架功能、热键路由、第二版界面、网页应用、二维码、图片压缩、翻译、hosts 插件、系统监控、超级面板及系统动作已实现，代码在 `main`（二维码功能提交 `a96e380`，待真机验收）。本轮统一了下拉选择、长列表搜索与细滚动条，见下文。GitHub 远程 `origin` 已配置，远端 `main` 已存在。目前只以 `bun run tauri dev` 调试版运行。先把「计划中的功能」做到基本满意，最后再发布正式版（见文末）。后续功能的设计和实现规格见 [specs.md](specs.md)。
+更新于 2026-11-03。骨架功能、热键路由、第二版界面、网页应用、二维码、图片压缩、翻译、hosts 插件、系统监控、超级面板及系统动作已实现，代码在 `main`（二维码功能提交 `a96e380`，待真机验收）。本轮统一了下拉选择、长列表搜索与细滚动条，见下文。GitHub 远程 `origin` 已配置，远端 `main` 已存在。目前只以 `bun run tauri dev` 调试版运行。先把「计划中的功能」做到基本满意，最后再发布正式版（见文末）。后续功能的设计和实现规格见 [specs.md](specs.md)。
 
 ## 当前状态
 
@@ -28,7 +28,7 @@
 | 插件详情页（关键词 / 自动匹配 / 设置），截图设置在截图插件的「设置」页签 | 完成 | 浏览器预览核对 |
 | 功能图标（彩色渐变 SVG，二维码生成 / 识别分别显示） | 完成 | 已接入首页、搜索结果、插件页标题、插件列表 / 详情、所有指令；浏览器核对深浅色，15 项图标检查通过 |
 | 网页应用（内置 DeepSeek，可自己加网站；独立常驻窗口，关掉只是收起；登录和窗口位置保留；新窗口链接用默认浏览器打开；自动使用网站图标） | 完成 | 单元测试搜索；浏览器预览设置页签；真机待确认 |
-| 翻译（多套自定义配置、三种协议、模型获取、流式翻译 / 润色 / 解释、单词释义、钥匙串密钥） | 实现完成，待真机验收 | Rust 本地 HTTP / 密钥存储测试、Bun 生命周期测试、浏览器深浅色与两种尺寸通过；见下文 |
+| 翻译（多套自定义配置、三种协议、模型获取、流式翻译 / 润色 / 解释、单词释义、本地密钥文件） | 实现完成，待真机验收 | Rust 本地 HTTP / 密钥存储测试、Bun 生命周期测试、浏览器深浅色与两种尺寸通过；见下文 |
 | 二维码（实时生成、四档容错、复制图片、保存 1024px PNG；剪贴板 / 拖图单码识别、位置标记、复制文字和打开网址） | 实现完成，待真机验收 | Rust 与 Bun 测试通过；浏览器核对深浅色、880×580 和 600×400、生成→复制→识别及错误恢复；真机项见下文 |
 | 图片压缩（PNG / JPEG / WebP、本地队列、批次重压、覆盖 / 另存 / 复制文件） | 实现完成，待真机验收 | Rust 引擎、导出与宿主测试，Bun 状态测试和构建通过；浏览器核对深浅色、两种尺寸及主分支文件附件联动；见下文 |
 | hosts 切换（多方案编辑、合并应用、管理员授权、DNS 刷新与移除标记段恢复） | 实现完成，待真机验收 | 19 项 Rust 测试；浏览器核对深浅色、两种尺寸、校验、离页保护和错误恢复；未修改真实系统 hosts，真机项见下文 |
@@ -43,6 +43,10 @@
 **第二版界面已实现**：搜索面板 760×500，空状态显示最近使用和已固定；进入设置或插件页时窗口放大到 880×580（`set_panel_large`，保持顶边和水平中心不动）；设置侧栏为通用、全局热键、超级面板、已安装插件、所有指令、关于；截图是独立插件，它的设置在插件详情的「设置」页签。以后的翻译等插件同样把设置放在自己的「设置」页签（`src/views.ts` 的 `pluginSettings`）。
 
 **功能图标已接入**：采用设计稿方向 A，使用 `src/assets/icons/` 下的 20 个 SVG（本轮新增图片工具、保存和复制三个图标）。`src/feature-icons.ts` 自动登记资源并按「插件-功能 → 插件 → external」选图标，`src/views.ts` 重新导出注册表，SDK 的 `FeatureIcon` 统一渲染。资源表与插件页面分开，避免共享 UI 循环引入页面。显示尺寸：搜索 / 所有指令 32px、首页 40px、插件页标题 30px、插件列表 26px、插件详情 44px。单个网页应用继续用网站图标，收藏路径和小按钮继续用线条图标。浏览器假数据补齐了二维码的两个入口；浅色深色和 15 项图标检查通过，`cargo test` 与 `bun run build` 通过。
+
+### 翻译密钥改存本地（2026-11-03）
+
+作者决定不用系统钥匙串：没有固定签名时，每次重新打包都会弹钥匙串授权。密钥改存 `~/Library/Application Support/com.ahatools.app/translate-keys.json`（`{ "<配置 id>": "<key>" }`，权限 600），仍不进 `config.json`、不回传前端。去掉 `keyring` 依赖，`translate.rs` 的 `LocalSecrets` 实现原 `Secrets` 接口，保存 / 删除的回滚逻辑不变；文件损坏按没有密钥处理，提示重新填写。没有从钥匙串迁移：之前在调试版存过的密钥需要在翻译设置里重填一次，旧钥匙串项（service `com.ahatools.app`）可在「钥匙串访问」里手动删除。设置页说明和设计稿注释改为「保存在本机」。`cargo test` 120 项通过、5 项跳过，`bun test` 41 项、`bun run build` 通过；浏览器核对翻译设置页深浅色。
 
 ### 复审修复：二维码之后的功能（2026-11-02）
 
@@ -171,22 +175,22 @@
 - 搜索 `fy hello` / 「翻译」进入；两字以上任意文字在普通结果后匹配翻译，可在插件详情的「自动匹配」关闭。沿用插件详情的热键设置。
 - 默认没有服务配置。在「已安装插件 → 翻译 → 设置」或翻译页「配置服务」新增配置：名称、协议、Base URL、模型、API Key。支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages；服务地址与模型均自填，同一种协议可有多套。Base URL 包含所需版本前缀，只追加 `/chat/completions`、`/responses`、`/messages` 或 `/models`，不自动补 `/v1`。
 - 模型可「获取模型」后选择，也可手填；查询失败仍可手填。Anthropic 列表支持分页。「测试连接」显示首个非空正文耗时，结果仅对应本次草稿，修改字段即失效。
-- 配置在 `config.translate`，密钥在系统钥匙串（service `com.ahatools.app`、account `translate:<id>`）。密钥不回传前端、不写配置 / 日志，已保存只显示掩码；更换协议或地址需重填。后端保存 / 删除协调钥匙串和配置文件，文件写失败回滚密钥，配置文件使用临时文件替换。翻译使用单独的选择命令，在原配置上修改，避免切换时覆盖其他配置。
+- 配置在 `config.translate`，密钥在数据目录的 `translate-keys.json`（按配置 id 存，权限 600，临时文件替换写入；2026-11-03 起不再用系统钥匙串，见上文「翻译密钥改存本地」）。密钥不回传前端、不写配置 / 日志，已保存只显示掩码；更换协议或地址需重填。后端保存 / 删除协调密钥文件和配置文件，配置写失败回滚密钥，配置文件使用临时文件替换。翻译使用单独的选择命令，在原配置上修改，避免切换时覆盖其他配置。
 - 翻译页可选当前配置并立即重译；不自动尝试其他服务。输入停止 400ms 后发送，输入法组词时暂停，⌘↵ 立即重译。支持自动 / 英译中 / 中译英，润色保留原语言，解释使用中文。单个英文词（含词内连字符或撇号）且目标中文时显示音标、词性、释义、双语例句与近义词；本轮没有朗读。词典 JSON 格式不正确时保留原始文本。
 - 停止保留部分结果，同一输入不自行重发；离开翻译页会取消 HTTP，面板暂时隐藏则继续。监听器在请求前注册，每个请求独立 ID，事件只发回调用窗口，过期分片忽略。连接超时 10 秒、无正文等待 60 秒、总时限 180 秒。
 - ⌘C 有文字选区时保留系统复制，无选区复制结果；单词复制为可读的释义文本。进入设置前的原文 / 模式只保存在内存，返回恢复，新搜索入口携带的原文优先；使用历史不会保存原文。
-- 插件通过 SDK 调用原生命令与事件。`FeatureTarget.returnTo` / `pluginSettingsTarget` 支持从插件设置返回来源页；`withPinned` 支持重叠调用，防止并行钥匙串操作提前解除面板固定。设置窄屏收窄两列导航，翻译在 720px 以下上下排列。
-- 浏览器默认预览为空配置；`?translateMock=ready|empty|missing-key|key-error|error|slow|invalid-word|model-error|model-slow|test-slow|save-error` 切换场景。假数据仅开发浏览器加载，不调用真实服务或钥匙串。
+- 插件通过 SDK 调用原生命令与事件。`FeatureTarget.returnTo` / `pluginSettingsTarget` 支持从插件设置返回来源页；`withPinned` 支持重叠调用，防止并行的原生操作提前解除面板固定。设置窄屏收窄两列导航，翻译在 720px 以下上下排列。
+- 浏览器默认预览为空配置；`?translateMock=ready|empty|missing-key|key-error|error|slow|invalid-word|model-error|model-slow|test-slow|save-error` 切换场景。假数据仅开发浏览器加载，不调用真实服务或读写密钥文件。
 - 合并主分支后复核：Rust 61 项通过、2 项按原设置跳过；二维码与翻译 Bun 32 项通过；生产构建通过；翻译浏览器 61 项通过，覆盖深浅色、880×580 / 600×400、配置切换、设置返回与异步失败恢复；另有 5 项集成检查通过，确认隐藏继续请求、重开回搜索取消请求、功能热键新文字优先及设置返回恢复草稿。
 - 当前工作区的浏览器预览使用 `bun run dev --port 1422`，因为 1420 运行着另一检出的开发服务；没有替换该实例。恢复当前检出的原生调试时仍使用 `bun run tauri dev`。浏览器验收脚本与截图在本机忽略目录 `output/playwright/`。
 
 真机待作者确认：
 
-- [ ] 在应用内填写真实配置并保存，首次钥匙串授权、拒绝后重试、重启后保留密钥都正常；更换地址 / 协议必须重填密钥，删除配置会删除对应钥匙串项。
+- [ ] 在应用内填写真实配置并保存，不出现钥匙串弹窗，重启及重新打包后保留密钥；更换地址 / 协议必须重填密钥，删除配置会从 `translate-keys.json` 删除对应项。
 - [ ] 用实际服务分别验证 Chat Completions / Responses / Messages 的流式翻译、模型列表（不支持时手填）和测试连接首字耗时。
 - [ ] 服务失败后手动切换备用配置能重译；输出时停止、离开、收起再唤出均符合预期。
 - [ ] 原文选区复制、无选区 ⌘C、按钮复制及单词释义能在其他 macOS 应用正确粘贴。
-- [ ] 插件热键、中文输入法、系统钥匙串弹窗后焦点恢复，以及 Esc 返回均正常。
+- [ ] 插件热键、中文输入法后焦点恢复，以及 Esc 返回均正常。
 
 ### hosts 插件（2026-10-30）
 
@@ -274,7 +278,7 @@
 | --- | --- | --- | --- | --- |
 | 0 | 功能图标 | 每个功能一个彩色圆角方块图标，SVG 在 `src/assets/icons/` 自动登记 | FeatureIcons | 完成，深浅色已核对 |
 | 1 | 二维码 | 生成（实时、复制图片、保存 PNG）+ 剪贴板 / 拖图单码识别 | QrGenerate、QrScan | 实现完成，待真机验收 |
-| 2 | 翻译 | 多套自定义服务、三种协议、流式输出、单词释义；key 存钥匙串 | TranslateText、TranslateWord、TranslateSettings | 实现完成，待真机验收 |
+| 2 | 翻译 | 多套自定义服务、三种协议、流式输出、单词释义；key 存本地文件 | TranslateText、TranslateWord、TranslateSettings | 实现完成，待真机验收 |
 | 3 | 图片压缩 | 先压到临时目录，再选覆盖原图 / 另存 / 复制所有；带批次历史 | Compress | 实现完成，待真机验收 |
 | 4 | 超级面板 | 鼠标旁弹出，按上下文（访达选中、选中文字）列动作；我的面板九宫格；自定义命令动作；配套取色、显示桌面、锁屏、截图识字 | SuperPanelHome、SuperPanelFinder、SuperPanelText、SuperPanelSettings、OcrResult | 首版完成，待真机验收；翻译 / 压缩联动后续接入 |
 | 5 | hosts 切换 | 多方案合并写入标记段，管理员授权，刷新 DNS | Hosts、HostsStates | 实现完成，待真机验收 |
@@ -321,7 +325,7 @@ src-tauri/src/
   screenshot.rs   截图路由与截图期间的窗口保护：系统截图或转发给选中的应用
   clipboard.rs    显式粘贴时读取访达文件 URL；截图期间读取剪贴板版本号
   plugins/        插件注册、搜索汇总和拼音匹配（mod.rs）、快捷启动和应用图标（launcher.rs）、网页应用搜索（webapps.rs）、二维码图片读写（qrcode.rs）、hosts 校验及授权写入（hosts.rs，测试在 hosts/tests.rs）
-  plugins/translate.rs 自定义翻译配置 / 钥匙串、三种协议流式请求、模型列表和连接测试
+  plugins/translate.rs 自定义翻译配置 / 本地密钥文件、三种协议流式请求、模型列表和连接测试
   config.rs       配置读写（config_get / config_set 命令，保存后立即生效）
 src/
   App.tsx         搜索面板界面，以及插件页的外框（标题栏、底栏）
@@ -355,7 +359,7 @@ docs/             本文档、实现规格 specs.md、设计规范、design/ 设
 ### 关键约束和坑
 
 - 所有命名统一用 AhaTools，不用 aha，避免和本机另一个 Aha 应用（bundle id `app.aha.desktop.next`，数据在 `~/Library/Application Support/aha*` 和 `~/.aha-next`）混淆。bundle id 是 `com.ahatools.app`，程序名 `ahatools`，插件接口别名 `@ahatools/sdk`。
-- 数据只存在 `~/Library/Application Support/com.ahatools.app/`（`config.json`、`launcher.json`、`usage.json`、`window.json`、`webapps.json`、`hosts.json`、`hosts.original`，以后的外部插件放 `plugins/`）；应用图标缓存在 `~/Library/Caches/com.ahatools.app/icons`；网页缓存在 `~/Library/Caches/com.ahatools.app` 和 `~/Library/WebKit/com.ahatools.app`，由系统自动生成。不要在用户主目录下建隐藏文件夹。改 bundle id 会换数据目录，`config.rs` 里有从旧目录 `com.aha.tools` 一次性迁移的逻辑。
+- 数据只存在 `~/Library/Application Support/com.ahatools.app/`（`config.json`、`launcher.json`、`usage.json`、`window.json`、`webapps.json`、`hosts.json`、`hosts.original`、`translate-keys.json`，以后的外部插件放 `plugins/`）；应用图标缓存在 `~/Library/Caches/com.ahatools.app/icons`；网页缓存在 `~/Library/Caches/com.ahatools.app` 和 `~/Library/WebKit/com.ahatools.app`，由系统自动生成。不要在用户主目录下建隐藏文件夹。改 bundle id 会换数据目录，`config.rs` 里有从旧目录 `com.aha.tools` 一次性迁移的逻辑。
 - 菜单栏图标刷新必须用 `set_icon_with_as_template`：`set_icon` 会丢掉模板标记，图标在深色菜单栏上变成黑字看不见。
 - 独占热键用的是事件拦截，需要「辅助功能」权限；没授权时自动退回共享模式，授权后无需重启即可切换。从终端跑 dev 时，权限会算到启动它的终端程序头上。
 - 热键检测只能发现独占注册的热键和系统快捷键，见「已知问题」。
