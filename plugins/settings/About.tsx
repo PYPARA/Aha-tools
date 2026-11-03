@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke, openPath } from "@ahatools/sdk";
 import Row from "./Row";
+import appIcon from "../../src/assets/app-icon.png";
 
 export default function About() {
   const [version, setVersion] = useState("");
@@ -17,9 +18,8 @@ export default function About() {
   return (
     <>
       <div className="detail-head" style={{ marginBottom: 12 }}>
-        <span className="tile xl" aria-hidden="true" style={{ fontFamily: "var(--serif)", fontSize: 20 }}>
-          A
-        </span>
+        {/* The PNG keeps the macOS icon margins; the negative margin lines its body up with 44px tiles. */}
+        <img src={appIcon} width={54} height={54} alt="" style={{ margin: -5, flexShrink: 0 }} />
         <span>
           <strong>AhaTools</strong>
           <span className="note">轻量的菜单栏工具箱 · 版本 {version}</span>

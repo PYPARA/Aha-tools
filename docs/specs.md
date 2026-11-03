@@ -268,6 +268,8 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
 
 设计：[AppIcon.html](design/AppIcon.html)。三个方向里作者选定了**衬线 A**（2026-10-29）：米白渐变圆角方形，中间是衬线大写 A（New York 风格，近黑 `#1D1C1A`），右上角一颗墨蓝 `#3A5A8C` 四角火花。接下来画 1024×1024 正式稿（macOS 圆角方形，边距按苹果模板），用 `bun run tauri icon <png>` 生成 `src-tauri/icons/` 下的各尺寸文件。不使用任何 Claude / Anthropic 品牌元素。
 
+**已完成（2026-11-03）**：母版脚本 `scripts/app-icon.swift`，产物 `docs/design/app-icon-1024.png`，做法见 HANDOFF「应用图标」。
+
 ## 9. 小项
 
 - 设计：[PanelBehavior.html](design/PanelBehavior.html)。本项已实现，真实多屏排列待作者验收。

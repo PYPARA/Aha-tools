@@ -260,7 +260,7 @@
 
 | 问题 | 影响 | 建议处理 |
 | --- | --- | --- |
-| 没有开发者证书签名，每次重新打包后「辅助功能」授权会失效 | 独占热键退回共享模式，要在系统设置里重新勾选 | 用固定证书签名，或接受每次更新后重新授权 |
+| 正式版只有本机自签名证书，没有苹果开发者签名和公证 | 只能在作者这台电脑上用；换电脑或证书丢失后要重新授权「辅助功能」 | 用 `bun run release` 打包，证书在 `~/Library/Application Support/AhaTools Signing/`，别删 |
 | 热键占用检测有盲区 | 以非独占方式注册热键的程序（不少 Electron 应用）、用事件拦截的程序（如 Karabiner）都查不到；「未发现占用」不等于空闲 | 靠热键路由统一接管，不再依赖检测 |
 | 代按第三方应用依赖对方的设置 | 微信、QQ、钉钉、uTools 要先在各自设置里把快捷键改成暗号键（⌃⌘1/2/3/0；最初用 ⌃⌥⇧⌘，QQ 录下来只剩 ⌘⌃，已改默认并自动迁移未确认的旧值）；对方升级后可能被重置；有的应用不收某些修饰键，对方记下的和暗号键不一致时，把暗号键改成对方显示的组合 | 用户勾选「已设好」（`relayApps[].ready`）之前，截图退回系统截图并通知、转发直接提示，不会按了没反应；「5 秒后代按」帮助录入 |
 | 截图转发目标没在运行时退回系统截图 | 用系统通知提示 | 有意为之 |
@@ -268,7 +268,6 @@
 | 只有资源目录里有 .icns 的应用能显示真实图标 | 图标只放在 Assets.car 里的应用显示首字占位 | 改用 NSWorkspace 取图标 |
 | 菜单栏图标要读系统字体文件 `SFNS.ttf` | 系统改了字体位置会退回纯文字显示 | 改用系统文字接口绘制，或内置字体 |
 | 网速只统计 Wi‑Fi、有线、USB 共享等真实网卡 | 开 VPN 时和 eul 的数字不同 | 有意为之，避免重复计算；需要时再做成选项 |
-| 应用图标还是 Tauri 默认图标 | 在「应用程序」和授权弹窗里不好认 | 已选「衬线 A」方向，见「计划中的功能」第 8 项 |
 
 ## 计划中的功能
 
@@ -284,7 +283,7 @@
 | 5 | hosts 切换 | 多方案合并写入标记段，管理员授权，刷新 DNS | Hosts、HostsStates | 实现完成，待真机验收 |
 | 6 | 系统监控 | 弹出面板加 CPU / 内存 / 电池 / 磁盘；菜单栏可选显示 | SystemMonitor | 实现完成，待真机验收 |
 | 7 | 外部插件 | 从插件目录加载 HTML 插件，受限接口，内置 / 外部分组管理 | ExternalPlugins | 未开始 |
-| 8 | 应用图标 | 已选「衬线 A」，出 1024px 正式稿并导出各尺寸 | AppIcon | 已选方向，未出正式稿 |
+| 8 | 应用图标 | 「衬线 A」1024px 母版 + 各尺寸 | AppIcon | 完成（2026-11-03），待在访达 / 程序坞里确认 |
 | 9 | 小项 | 搜索面板跟随鼠标所在屏幕；「再次打开时」设置；多屏菜单栏弹窗定位 | PanelBehavior | 实现完成，待多屏真机验收 |
 
 已完成：截图热键路由、⌥Space 整合（转发给 uTools）、热键设置、拼音搜索、真实应用图标、网页应用、功能图标、二维码、图片压缩、翻译、hosts 插件、系统监控、超级面板与系统动作（待真机验收）。下一项是外部插件。
@@ -376,10 +375,24 @@ docs/             本文档、实现规格 specs.md、设计规范、design/ 设
 
 等「计划中的功能」做到基本满意再发布（2026-10-29 决定）。调试版依附在终端上，关掉终端或重启电脑就没了；发布后按顺序做完这些，才能卸载 eul。
 
-- [ ] 换上定稿的应用图标（见「计划中的功能」）
-- [ ] 在项目目录运行 `bun run tauri build`，产物是 `src-tauri/target/release/bundle/macos/AhaTools.app`
-- [ ] 把 AhaTools.app 拷进 `/Applications`，退出 dev，打开正式版（没有开发者签名，首次打开可能要右键 → 打开）
+- [x] 换上定稿的应用图标（见「计划中的功能」）
+- [x] 在项目目录运行 `bun run release`（打包并签名，见下文「打包与签名」），产物是 `src-tauri/target/release/bundle/macos/AhaTools.app`
+- [ ] 把 AhaTools.app 拷进 `/Applications`，退出 dev，打开正式版（自签名，不是苹果认可的开发者签名；本机构建没有隔离标记，一般可以直接打开）
 - [ ] 在正式版的弹出面板里打开「开机自动启动」：启动项记录的是当时那个程序的路径，在 dev 版里开会指向调试程序
 - [ ] 给正式版授权「辅助功能」，独占 ⌥Space 才会生效；dev 版的授权不会沿用
 - [ ] 观察一两天：网速一直正常、重启后会自动出来，再卸载 eul
 - [ ] 向已配置的 GitHub 远程 `origin` 推送，本地后续功能整合提交尚未推送到远端 `main`
+
+### 打包与签名
+
+- 以后都用 `bun run release`（`scripts/release.sh`）打包，不要直接 `bun run tauri build`：后者只有临时签名，每次重打包「辅助功能」授权都会失效。
+- 脚本第一次运行时生成自签名代码签名证书「AhaTools Self-Signed」（20 年有效），放在 `~/Library/Application Support/AhaTools Signing/signing.keychain-db`（单独的钥匙串文件，空密码，目录权限 700；`certificate.pem` 是公钥副本）。不放登录钥匙串、不加入钥匙串搜索列表、不设系统信任。之后每次复用同一张证书，签名的 designated requirement 是 `identifier "com.ahatools.app" and certificate leaf = H"…"`，所以重打包后授权保留。
+- 证书删了或换电脑：脚本会生成新证书，正式版需要重新授权「辅助功能」等一次。
+- 脚本只打 `.app`（`--bundles app`），不出 DMG：DMG 里的 App 是签名前的版本。不开 hardened runtime、不公证，只供本机使用。
+- 当前版本号仍是 0.1.0（`tauri.conf.json`、`Cargo.toml`、`package.json` 三处）。
+
+### 应用图标（2026-11-03）
+
+- 「衬线 A」母版由 `scripts/app-icon.swift` 用 CoreGraphics 绘制，输出 [app-icon-1024.png](design/app-icon-1024.png)：824pt 圆角方形（圆角 22.5%）居中、四周 100pt 留给阴影；米白渐变 `#FFFFFF → #EDEAE2`、细描边；系统 New York 中等字重的「A」，光学尺寸固定为 36（默认的展示档横线太细，16px 下会消失）；墨蓝 `#3A5A8C` 四角火花。坐标按设计稿 168 画布换算。
+- 改图标：改脚本 → `swift scripts/app-icon.swift docs/design/app-icon-1024.png` → `bun run tauri icon docs/design/app-icon-1024.png`，然后删掉它额外生成的 `src-tauri/icons/android`、`ios`、`64x64.png`（桌面版不用）→ `bun run release`。
+- 设置 →「关于 AhaTools」的头像也换成了这张图标（`src/assets/app-icon.png`，即 256px 版本）。
