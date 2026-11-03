@@ -409,7 +409,8 @@ docs/             本文档、实现规格 specs.md、设计规范、design/ 设
 - 以后都用 `bun run release`（`scripts/release.sh`）打包，不要直接 `bun run tauri build`：后者只有临时签名，每次重打包「辅助功能」授权都会失效。
 - 脚本第一次运行时生成自签名代码签名证书「AhaTools Self-Signed」（20 年有效），放在 `~/Library/Application Support/AhaTools Signing/signing.keychain-db`（单独的钥匙串文件，空密码，目录权限 700；`certificate.pem` 是公钥副本）。不放登录钥匙串、不加入钥匙串搜索列表、不设系统信任。之后每次复用同一张证书，签名的 designated requirement 是 `identifier "com.ahatools.app" and certificate leaf = H"…"`，所以重打包后授权保留。
 - 证书删了或换电脑：脚本会生成新证书，正式版需要重新授权「辅助功能」等一次。
-- 脚本只打 `.app`（`--bundles app`），不出 DMG：DMG 里的 App 是签名前的版本。不开 hardened runtime、不公证，只供本机使用。
+- 脚本只打 `.app`（`--bundles app`），不出 DMG：DMG 里的 App 是签名前的版本。签名后用 `ditto` 输出 `src-tauri/target/release/bundle/AhaTools-<版本>-<架构>.zip`，直接上传到 GitHub Release。不开 hardened runtime、不公证：别人下载后要在「系统设置 → 隐私与安全性」点「仍要打开」或去掉隔离属性，README 的「安装」写了步骤。
+- README 的截图在 `docs/screenshots/`，是用 headless Chromium（Playwright 缓存里的 `chrome-headless-shell`，`--force-device-scale-factor=2 --virtual-time-budget=8000`）截的浏览器预览（假数据），界面变了需要重截。功能页用 `?open=<插件>/<功能>&input=…` 直接打开，例如 `?translateMock=ready&open=translate/translate&input=…`、`?open=hosts/hosts`、`?ocrMock=success`；超级面板用 `?view=super&superMock=text|folder`。
 - 当前版本号仍是 0.1.0（`tauri.conf.json`、`Cargo.toml`、`package.json` 三处）。
 
 ### 应用图标（2026-11-03）

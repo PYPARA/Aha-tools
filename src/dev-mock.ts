@@ -305,6 +305,8 @@ Object.assign(window, { __AHATOOLS_SUPER_MOCK__: {
 } });
 if (params.get("page") === "settings") pendingRequest = { id: ++requestId, plugin: "settings", feature: "general", input: "superpanel" };
 if (params.has("ocrMock")) pendingRequest = { id: ++requestId, plugin: "system", feature: "ocr", input: "1", viewOnly: true };
+// ?open=<plugin>/<feature>[&input=…]: open a feature page directly (README screenshots, quick checks).
+if (params.get("open")) { const [plugin, feature] = params.get("open")!.split("/"); pendingRequest = { id: ++requestId, plugin, feature, input: params.get("input") ?? undefined }; }
 type SystemScenario = "normal" | "pressure" | "low-battery" | "no-battery" | "partial-error" | "sampling" | "charged" | "not-charging" | "no-estimate";
 let systemScenario = (params.get("sysmonMock") ?? "normal") as SystemScenario;
 let systemSequence = 0;

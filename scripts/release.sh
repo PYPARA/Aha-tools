@@ -62,4 +62,11 @@ codesign --force --deep --sign "$NAME" --keychain "$KEYCHAIN" --timestamp=none "
 codesign --verify --deep --strict "$APP"
 codesign --display --requirements - "$APP" 2>&1 | grep designated
 
+VERSION=$(sed -nE 's/^  "version": "([^"]+)".*/\1/p' src-tauri/tauri.conf.json)
+ZIP="src-tauri/target/release/bundle/AhaTools-$VERSION-$(uname -m).zip"
+echo "==> 打包 zip（用于 GitHub Release）"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+
 echo "==> 完成：$APP"
+echo "    $ZIP"
