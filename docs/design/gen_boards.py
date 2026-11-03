@@ -603,63 +603,174 @@ chip = lambda text, ic="": f'<span class="row" style="gap: 6px; min-width: 0"><s
 
 mine = [("截图", "shot"), ("二维码", "qr"), ("翻译", "tr"), ("取色", "drop"), ("截图识字", "ocr"), ("DeepSeek", "D"), ("显示桌面", "desk"), ("锁屏", "lock2"), ("添加", "plus")]
 ICONS["shot"] = '<path d="M7 3v14h14M3 7h14v14"></path>'
-p1 = sp_shell(chip("我的面板", "star"), sp_grid(mine))
-inner = f'''<div class="row" style="align-items: flex-start; gap: 36px">{desk_with(p1)}
+# ---- 超级面板第二版（2026-11-03）：按插件「自动匹配」列功能，固定走右键，高度随内容 ----
+ICON_DIR = Path(__file__).resolve().parents[2] / "src/assets/icons"
+ICONS.update({
+    "term": '<rect x="3.5" y="5" width="17" height="14" rx="2"></rect><path d="M7.5 10l3 2.5-3 2.5M12.5 15h4"></path>',
+    "newfile": '<path d="M6.5 3.5h7l4 4v13h-11z"></path><path d="M12 11v6M9 14h6"></path>',
+    "code": '<path d="M9 8l-4 4 4 4M15 8l4 4-4 4"></path>',
+    "pin": '<path d="M9 4h6l-1 5 3 3v2H7v-2l3-3zM12 14v6"></path>',
+    "more": '<circle cx="6" cy="12" r="1.2"></circle><circle cx="12" cy="12" r="1.2"></circle><circle cx="18" cy="12" r="1.2"></circle>',
+})
+
+
+def ficon(key, size=26):
+    """A real feature icon from src/assets/icons, so boards match the app."""
+    svg = (ICON_DIR / f"{key}.svg").read_text().strip()
+    return svg.replace("<svg ", f'<svg width="{size}" height="{size}" style="display: block; flex-shrink: 0" aria-hidden="true" ', 1)
+
+
+def site(letter, size=26):
+    """Stand-in for a web app favicon."""
+    return f'<span style="width: {size}px; height: {size}px; border-radius: {size * .24:.0f}px; background: #4D6BFE; color: #fff; display: flex; align-items: center; justify-content: center; font-size: {size * .46:.0f}px; font-weight: 600; flex-shrink: 0">{letter}</span>'
+
+
+def line_tile(name, size=26):
+    """System actions keep the quiet line style; feature icons carry the colour."""
+    return f'<span class="tile" style="width: {size}px; height: {size}px; border-radius: {size * .26:.0f}px">{icon(name, size * .58)}</span>'
+
+
+PINS = [("截图", ficon("screenshot", 34)), ("生成二维码", ficon("qrcode", 34)), ("取色", ficon("system-colorpicker", 34)),
+        ("截图识字", ficon("system-ocr", 34)), ("DeepSeek", site("D", 34)), ("显示桌面", ficon("system-desktop", 34)), ("锁屏", ficon("system-lock", 34))]
+PINS_SM = [("截图", ficon("screenshot", 24)), ("生成二维码", ficon("qrcode", 24)), ("取色", ficon("system-colorpicker", 24)), ("截图识字", ficon("system-ocr", 24)),
+           ("DeepSeek", site("D", 24)), ("显示桌面", ficon("system-desktop", 24)), ("锁屏", ficon("system-lock", 24))]
+
+
+def sp2_shell(context, content, foot="⌥⇧ Space 呼出 · ↑↓ 选择 · ↵ 执行 · esc 关闭"):
+    """Width fixed at 300; height follows the content (at most 460, then the middle scrolls)."""
+    return f'''<section class="win" style="width: 300px; border-radius: 12px">
+<header class="row" style="height: 44px; padding: 0 8px 0 12px; gap: 8px; border-bottom: 1px solid var(--border); flex-shrink: 0">{context}<span class="sp"></span>
+<button type="button" class="ib" style="width: 26px; height: 26px" aria-label="打开搜索面板">{icon("search", 15)}</button><button type="button" class="ib" style="width: 26px; height: 26px" aria-label="超级面板设置">{icon("gear", 15)}</button></header>
+{content}
+<footer class="row" style="height: 28px; padding: 0 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-3); flex-shrink: 0">{foot}</footer>
+</section>'''
+
+
+def sp2_context(mark, text):
+    return f'<span class="row" style="gap: 8px; min-width: 0">{mark}<span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{text}</span></span>'
+
+
+def sp2_grid(pins, add=True, hover=None):
+    """「我的面板」: four columns, up to 12. 「＋」 opens the search panel to pin from there."""
+    cells = ""
+    for i, (name, ic) in enumerate(pins):
+        bg = " background: var(--selected);" if i == 0 else (" background: var(--hover);" if i == hover else "")
+        cells += f'<span style="height: 70px; border-radius: 9px;{bg} display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 11px; text-align: center; white-space: nowrap">{ic}{name}</span>'
+    if add:
+        cells += f'<span style="height: 70px; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: var(--text-2)"><span class="tile" style="width: 34px; height: 34px; border-radius: 9px; border-style: dashed; background: transparent">{icon("plus", 16)}</span>固定</span>'
+    return f'<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 8px">{cells}</div>'
+
+
+def sp2_group(label, rows, first_selected=False):
+    """A labelled group of rows. Each row: (mark, title, meta)."""
+    out = f'<div style="padding: 4px 6px 2px"><div class="note" style="font-size: 11px; padding: 2px 8px 2px; color: var(--text-3)">{label}</div>'
+    for i, (mark, title, meta) in enumerate(rows):
+        bg = "background: var(--selected); " if first_selected and i == 0 else ""
+        out += f'<span class="row" style="{bg}height: 32px; padding: 0 8px; border-radius: 7px; gap: 10px">{mark}<span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{title}</span><span class="note" style="font-size: 11px; white-space: nowrap">{meta}</span></span>'
+    return out + "</div>"
+
+
+def sp2_strip(pins):
+    """「我的面板」 under context actions: one row of five, icon plus name, never scrolls.
+    Four pins and 「全部」, which switches the panel to the full grid."""
+    cells = ""
+    for name, ic in pins[:4]:
+        cells += f'<span style="min-width: 0; height: 50px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px">{ic}<span style="max-width: 100%; font-size: 10.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{name}</span></span>'
+    cells += f'<span style="min-width: 0; height: 50px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px"><span class="tile" style="width: 24px; height: 24px; border-radius: 6px">{icon("more", 14)}</span><span style="font-size: 10.5px; color: var(--text-2)">全部 {len(pins)}</span></span>'
+    return f'<div style="padding: 4px 6px 6px; border-top: 1px solid var(--border)"><div class="note" style="font-size: 11px; padding: 2px 8px 0; color: var(--text-3)">我的面板</div><div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px">{cells}</div></div>'
+
+
+def native_menu(items, at=None, active=0):
+    """A macOS context menu, drawn to explain right-click actions."""
+    pos = f"position: absolute; left: {at[0]}px; top: {at[1]}px; " if at else ""
+    rows = ""
+    for i, item in enumerate(items):
+        if item == "-":
+            rows += '<span style="display: block; height: 1px; margin: 4px 8px; background: var(--border)"></span>'
+            continue
+        text, key = item if isinstance(item, tuple) else (item, "")
+        on = "background: var(--accent); color: var(--on-accent); " if i == active else ""
+        rows += f'<span class="row" style="{on}height: 22px; padding: 0 10px; margin: 0 5px; border-radius: 4px; font-size: 13px"><span class="sp">{text}</span><span style="opacity: .6; font-size: 12px">{key}</span></span>'
+    return f'<div style="{pos}min-width: 190px; padding: 5px 0; border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px rgba(0,0,0,.2), 0 0 0 1px var(--border); color: var(--text)">{rows}</div>'
+
+
+def sp2_board(panel, title, notes, extra="", cursor_at=(300, 50)):
+    return f'''<div class="row" style="align-items: flex-start; gap: 36px">{desk_with(panel + extra, cursor_at)}
 <div class="col" style="width: 300px; gap: 12px; padding-top: 6px">
-<b style="font-size: 15px; font-weight: 500">没有可识别的内容时</b>
-<p class="note">按 ⌥⇧ Space（可改）或长按鼠标右键，面板出现在鼠标旁边，显示「我的面板」：自己挑的常用功能，九宫格。</p>
-<p class="note">格子里可以放任何指令：插件功能、网页应用、应用、收藏的路径、系统动作（取色、显示桌面、锁屏）。右键格子可以移除或调整顺序，「添加」打开指令列表。</p>
-<p class="note">右上角放大镜打开搜索面板，齿轮打开「设置 · 超级面板」。点功能后面板自动关闭；点面板外也关闭。</p>
+<b style="font-size: 15px; font-weight: 500">{title}</b>
+{"".join(f'<p class="note">{n}</p>' for n in notes)}
 </div></div>'''
+
+
+# 首页：没有可识别的内容
+home = sp2_shell(sp2_context(ficon("superpanel", 22), "我的面板"), sp2_grid(PINS, hover=5))
+search_menu = native_menu([("固定到首页", "⌘D"), "固定到超级面板", "-", "从「最近使用」中删除"], active=1)
+cell_menu = native_menu(["移到最前", "从超级面板移除"], active=1)
+inner = sp2_board(home, "没有可识别的内容时：我的面板", [
+    "四列，最多 12 个，顺序与设置里一致；名字用功能的全名（「生成二维码」），和搜索、设置一致。窗口宽 300，高度跟内容走，空位不留白。",
+    "<b>怎么固定</b>：主要在搜索面板里，对任意结果（插件功能、网页应用、应用、收藏路径）右键 →「固定到超级面板」：",
+    f'</p>{search_menu}<p class="note">',
+    "超级面板上有上下文时，对匹配出来的功能右键也能「固定到超级面板」。末尾的「固定」格子打开搜索面板，并提示「右键结果即可固定」。",
+    f'右键已固定的格子：</p>{cell_menu}<p class="note">右上角放大镜打开搜索面板，齿轮打开「设置 · 超级面板」。点功能后面板自动关闭；点面板外、esc 也关闭。',
+])
 boards.append(board("SuperPanelHome", "超级面板 · 我的面板", 1100, 540, inner))
 
-p2 = sp_shell(chip("访达 · 设计稿", "folder"), sp_list([
-    ("压缩目录下所有图片", "zip", "13 张"), ("复制路径", "path", "~/Documents/设计稿"), ("在终端中打开", "term", ""),
-    ("用 VS Code 打开", "code", "自定义"), ("用 Claude Code 打开", "term", "自定义"), ("新建文件…", "file+", ""), ("收藏到快捷启动", "star", ""),
-]) + '<div style="flex: 1"></div>' + f'<div class="row" style="padding: 6px 14px 10px; gap: 6px"><span class="note" style="font-size: 11px">我的面板</span><span class="sp"></span>' + "".join(f'<span class="tile sm">{icon(i, 13)}</span>' for i in ["shot", "qr", "tr", "drop", "ocr"]) + '</div>')
-inner = f'''<div class="row" style="align-items: flex-start; gap: 36px">{desk_with(p2)}
-<div class="col" style="width: 300px; gap: 12px; padding-top: 6px">
-<b style="font-size: 15px; font-weight: 500">访达里选中了文件夹</b>
-<p class="note">呼出时先看最前面的应用：是访达，就读出选中的项目（没选中时用当前窗口的文件夹），列出能对它做的事。标题显示应用和名字。</p>
-<p class="note">内置动作按选中的类型出现：文件夹 → 压缩目录下所有图片；图片文件 → 压缩图片、识别二维码；任何文件 → 复制路径、在终端中打开、收藏。</p>
-<p class="note">标「自定义」的是用户在设置里加的命令动作，例如 <span class="mono">code {{path}}</span>、<span class="mono">cd {{dir}} &amp;&amp; claude</span>。</p>
-<p class="note">「我的面板」缩成底部一排小图标，仍然一点就用。↑↓ 选择，↵ 执行。</p>
-</div></div>'''
+# 访达：选中文件夹
+finder = sp2_shell(sp2_context(line_tile("folder", 22), "访达 · 设计稿"),
+    sp2_group("匹配的功能", [(ficon("compress", 24), "压缩图片", "13 张")], first_selected=True)
+    + sp2_group("文件", [(line_tile("copy", 24), "复制路径", ""), (line_tile("term", 24), "在终端中打开", ""), (line_tile("newfile", 24), "新建空白文件", "未命名.txt"), (line_tile("star", 24), "收藏到快捷启动", "")])
+    + sp2_group("自定义动作", [(line_tile("code", 24), "用 VS Code 打开", ""), (line_tile("term", 24), "用 Claude Code 打开", "")])
+    + sp2_strip(PINS_SM))
+match_menu = native_menu(["固定到超级面板", "-", "插件设置…"], at=(150, 90), active=0)
+inner = sp2_board(finder, "访达里选中了文件 / 文件夹", [
+    "<b>匹配的功能</b>：和搜索面板拖入文件用同一套规则——各插件清单里的「自动匹配」（文件类型、数量、图片）。文件夹按里面的文件匹配，例如有图片就出现「压缩图片 · 13 张」；「识别二维码」只收一张图片，所以选文件夹时不出现。在插件详情里关掉「自动匹配」的功能不出现。以后装的插件也自动出现，不用改超级面板。",
+    "<b>文件</b>：AhaTools 自带的文件操作，各用自己的线条图标；只在适用时出现（新建文件只给单个文件夹，终端要求同一个父目录）。",
+    "<b>自定义动作</b>：设置里启用、并且适用于当前类型的命令。",
+    "底部是「我的面板」：一行五格，图标下面带名字，不滚动。放前 4 个固定项，第 5 格「全部 N」切换到完整网格（esc 或返回键回到上下文动作）；固定项不超过 5 个时直接全部显示。右键匹配的功能可以固定。",
+], extra=match_menu, cursor_at=(300, 30))
 boards.append(board("SuperPanelFinder", "超级面板 · 访达选中文件夹", 1100, 540, inner))
 
-p3 = sp_shell(chip("Safari · 选中 42 个字", "globe"), f'''<div style="margin: 10px 10px 4px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); display: flex; flex-direction: column; gap: 6px">
-<span class="note" style="font-size: 11px">翻译 · 自填模型</span>
-<span style="font-size: 13px; line-height: 1.55">Tauri 让你用网页前端构建更小、更快、更安全的桌面应用。</span>
-<span class="row"><span class="sp"></span><button type="button" class="btn sm g">复制</button><button type="button" class="btn sm g">展开</button></span></div>''' + sp_list([
-    ("问 DeepSeek", "ask", "网页应用"), ("生成二维码", "qr", ""), ("在搜索面板中打开", "search", ""), ("复制为纯文本", "copy", ""),
-]))
-inner = f'''<div class="row" style="align-items: flex-start; gap: 36px">{desk_with(p3)}
-<div class="col" style="width: 300px; gap: 12px; padding-top: 6px">
-<b style="font-size: 15px; font-weight: 500">任何应用里选中了文字</b>
-<p class="note">读选中文字：先用辅助功能接口读（不碰剪贴板），读不到再模拟一次 ⌘C 并在读完后恢复原剪贴板。</p>
-<p class="note">翻译直接在面板顶部给出结果（流式），不用再进翻译页面；「展开」进入完整的翻译页面。</p>
-<p class="note">其余是对文字能做的事：交给网页应用、生成二维码、带进搜索面板（等于在搜索框粘贴，匹配到的插件都能用）。文字是网址时多一项「在浏览器中打开」。</p>
-</div></div>'''
+# 选中文字
+text = sp2_shell(sp2_context(line_tile("globe", 22), "Safari · 选中 37 个字"),
+    '<div style="margin: 8px 10px 2px; padding: 8px 10px; border-radius: 8px; background: var(--sunken)"><div style="font-size: 12px; line-height: 1.5; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">Tauri lets you build smaller, faster, and more secure desktop applications with a web frontend.</div></div>'
+    + sp2_group("匹配的功能", [(ficon("translate", 24), "翻译", "点按后翻译"), (ficon("qrcode", 24), "生成二维码", ""), (site("D", 24), "问 DeepSeek", "复制后打开")], first_selected=True)
+    + sp2_group("文字", [(line_tile("search", 24), "在搜索面板中打开", ""), (line_tile("copy", 24), "复制为纯文本", "")])
+    + sp2_strip(PINS_SM))
+inner = sp2_board(text, "任何应用里选中了文字", [
+    "顶部灰底显示选中的内容（最多两行），确认读到的是什么。读取方式不变：先用辅助功能接口，读不到再代按 ⌘C 并恢复剪贴板。",
+    "<b>匹配的功能</b>：按插件清单的文字匹配（最少字数、正则），例如翻译、生成二维码；每个网页应用一项「问 …」。选中的是网址时多一项「在浏览器中打开」。",
+    "<b>文字</b>：带进搜索面板（等于在搜索框粘贴，所有匹配都能用）、复制为纯文本。",
+    "<b>不会自动翻译</b>：呼出面板时不发任何请求，选中的文字也不会发给翻译服务。点「翻译」或选中它按 ↵ 才开始；本版进入翻译页并带入文字，第二步再把结果直接显示在面板里，同样是点了才翻译。",
+])
 boards.append(board("SuperPanelText", "超级面板 · 选中文字", 1100, 540, inner))
 
-PLS = ["截图|截", "二维码|码", "翻译|译", "网页应用|网", "图片压缩|压"]
-nav_sp = settings("", "", nav_on="超级面板")
-detail = f'''<div class="detail" style="gap: 14px">
-<h1 style="margin: 0; font-family: var(--serif); font-size: 22px; font-weight: 500">超级面板</h1>
-<div>
-<div class="srow"><span class="st"><b>呼出热键</b><span>面板出现在鼠标旁边</span></span><span class="btn mono" style="min-width: 110px; font-size: 12px">⌥⇧ Space</span><span class="sw on"><i></i></span></div>
-<div class="srow"><span class="st"><b>长按鼠标右键呼出</b><span>按住约 0.4 秒；短按仍是普通右键菜单</span></span><span class="sw"><i></i></span></div>
+# 设置
+def sp2_pin_cell(name, ic, hover=False):
+    badge = f'<span style="position: absolute; top: 3px; right: 3px; width: 16px; height: 16px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--text-2); display: flex; align-items: center; justify-content: center">{icon("x", 10, 2)}</span>' if hover else ""
+    bg = " background: var(--hover);" if hover else ""
+    return f'<span style="position: relative; height: 70px; border-radius: 9px;{bg} display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 11px; white-space: nowrap">{ic}{name}{badge}</span>'
+
+
+pin_cells = "".join(sp2_pin_cell(n, ic, hover=(i == 2)) for i, (n, ic) in enumerate(PINS))
+pin_cells += f'<span style="height: 70px; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: var(--text-2)"><span class="tile" style="width: 34px; height: 34px; border-radius: 9px; border-style: dashed; background: transparent">{icon("plus", 16)}</span>添加</span>'
+cmd = "osascript -e 'on run argv' -e 'tell application &quot;Terminal&quot;' …"
+detail = f'''<div class="detail" style="gap: 12px; overflow: hidden">
+<div><h1 style="margin: 0; font-family: var(--serif); font-size: 22px; font-weight: 500">超级面板</h1><p class="note" style="margin-top: 2px">在鼠标旁边处理选中的文字和文件</p></div>
+<div class="card" style="padding: 0 14px">
+<div class="srow" style="min-height: 52px"><span class="st"><b>呼出热键</b><span>面板出现在鼠标旁边</span></span><span class="btn mono" style="min-width: 100px; font-size: 12px">⌥⇧ Space</span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 52px"><span class="st"><b>长按鼠标右键呼出</b><span>按住约 0.4 秒；短按和右键拖动不受影响</span></span><span class="sw on"><i></i></span></div>
+<div class="srow" style="min-height: 52px"><span class="st"><b>匹配的功能</b><span>按各插件的「自动匹配」开关决定是否出现</span></span><button type="button" class="btn sm">在已安装插件中管理</button></div>
 </div>
-<span class="row"><span class="lbl">我的面板</span><span class="sp"></span><span class="note">拖动排序 · 最多 12 个</span></span>
-<div class="row" style="gap: 6px; flex-wrap: wrap">{"".join(f'<span class="row" style="height: 30px; padding: 0 8px 0 4px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); gap: 6px; font-size: 12px"><span class="tile sm" style="width: 22px; height: 22px">{icon(i, 12) if i in ICONS else i}</span>{n}</span>' for n, i in mine[:-1])}<button type="button" class="btn sm a">{icon("plus", 13)}添加</button></div>
-<span class="row" style="margin-top: 4px"><span class="lbl">自定义动作</span><span class="sp"></span><button type="button" class="btn sm">{icon("plus", 13)}新建动作</button></span>
-<div class="card">
-<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px; border-bottom: 1px solid var(--border)"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 VS Code 打开</b><span class="mono" style="font-size: 11px">code {{path}}</span></span><span class="chip">文件 · 文件夹</span><span class="sw sm on"><i></i></span></div>
-<div class="row" style="min-height: 52px; padding: 0 14px; gap: 12px"><span class="st" style="gap: 2px"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px">osascript -e 'on run argv' -e 'tell application &quot;Terminal&quot; to do script (&quot;cd &quot; &amp; quoted form of (item 1 of argv) &amp; &quot; &amp;&amp; claude&quot;)' -e 'end run' {{dir}}</span></span><span class="chip">文件夹</span><span class="sw sm on"><i></i></span></div>
+<span class="row" style="margin-top: 2px"><span class="lbl">我的面板</span><span class="sp"></span><span class="note">{len(PINS)} / 12 · 拖动排序</span></span>
+<div class="card" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 6px">{pin_cells}</div>
+<p class="note" style="margin-top: -4px">也可以在搜索结果上右键「固定到超级面板」。悬停格子出现 × 移除。</p>
+<span class="row" style="margin-top: 2px"><span class="lbl">自定义动作</span><span class="sp"></span><button type="button" class="btn sm">{icon("plus", 13)}新建动作</button></span>
+<div class="card" style="padding: 0 14px">
+<div class="srow" style="min-height: 52px; gap: 12px"><span class="st" style="min-width: 0"><b style="font-size: 13px">用 VS Code 打开</b><span class="mono" style="font-size: 11px">code {{path}}</span></span><span class="chip">文件 · 文件夹 · 图片</span><span class="sw sm on"><i></i></span><button type="button" class="ib" style="width: 24px; height: 24px" aria-label="更多">{icon("more", 15)}</button></div>
+<div class="srow" style="min-height: 52px; gap: 12px"><span class="st" style="min-width: 0"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{cmd}</span></span><span class="chip">文件夹</span><span class="sw sm"><i></i></span><button type="button" class="ib" style="width: 24px; height: 24px" aria-label="更多">{icon("more", 15)}</button></div>
 </div>
-<p class="note">占位符须单独作为参数，不要加引号。可用 <span class="mono">{{path}}</span> 选中项、<span class="mono">{{dir}}</span> 所在文件夹、<span class="mono">{{text}}</span> 选中文字；用系统 shell 执行，不弹终端。</p>
 </div>'''
-sp_settings = settings("", detail, nav_on="超级面板").replace('<span class="i">所有指令</span>', '<span class="i">所有指令</span>').replace('<span class="i">全局热键</span>', '<span class="i">全局热键</span>\n<span class="i on">超级面板</span>', 1)
+sp_settings = settings("", detail, nav_on="超级面板").replace('<span class="i">全局热键</span>', '<span class="i">全局热键</span>\n<span class="i on">超级面板</span>', 1)
 boards.append(board("SuperPanelSettings", "设置 · 超级面板", 880, 580, sp_settings))
 
 # ---- 超级面板首版补充 ----

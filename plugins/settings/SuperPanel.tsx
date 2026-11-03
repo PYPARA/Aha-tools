@@ -6,7 +6,7 @@ import type { SectionProps } from "./Settings";
 const TYPES = [["file", "文件"], ["folder", "文件夹"], ["image", "图片"], ["text", "文字"]] as const;
 const identity = (i: SearchItem) => `${i.plugin}/${JSON.stringify(i.action.type === "feature" ? { type: "feature", feature: i.action.feature } : i.action)}`;
 
-export default function SuperPanelSettings({ cfg, save, manifests }: SectionProps) {
+export default function SuperPanelSettings({ cfg, save, manifests, onOpenPlugins }: SectionProps & { onOpenPlugins: () => void }) {
   const settings = cfg.superPanel;
   const [editing, setEditing] = useState<CustomAction | null>(null);
   const [editorError, setEditorError] = useState("");
@@ -17,6 +17,8 @@ export default function SuperPanelSettings({ cfg, save, manifests }: SectionProp
   const [trusted, setTrusted] = useState(true);
   const [saving, setSaving] = useState(false);
   const dragging = useRef<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const [more, setMore] = useState<string | null>(null);
   const editor = useRef<HTMLElement>(null);
   const binding = cfg.hotkeys.findIndex((b) => b.action.type === "superPanel");
   const hotkey = cfg.hotkeys[binding];
@@ -31,6 +33,11 @@ export default function SuperPanelSettings({ cfg, save, manifests }: SectionProp
     return () => { live = false; };
   }, [settings.pinned]);
   useEffect(() => { void invoke<{ trusted: boolean }>("hotkey_status").then((s) => setTrusted(s.trusted)); }, [settings.longPressRight]);
+  useEffect(() => {
+    if (!more) return;
+    const close = (e: MouseEvent) => { if (!(e.target as Element).closest?.(".super-more")) setMore(null); };
+    window.addEventListener("mousedown", close); return () => window.removeEventListener("mousedown", close);
+  }, [more]);
   useEffect(() => {
     let stale = false;
     const timer = setTimeout(() => { if (query.trim()) void invoke<SearchItem[]>("search", { query }).then((r) => { if (!stale) setResults(r); }); }, 120);
@@ -64,35 +71,59 @@ export default function SuperPanelSettings({ cfg, save, manifests }: SectionProp
       setEditing(null);
     } catch (e) { setEditorError(String(e)); } finally { setSaving(false); }
   };
+  const remove = (i: number) => update({ pinned: settings.pinned.filter((_, j) => j !== i) });
   return <>
-    <div className="content-head"><span><h1 className="page-h1">超级面板</h1><span className="note">在鼠标旁使用选中文字和文件</span></span></div>
-    <div className="card">
-      <Row title="呼出热键" desc="面板出现在鼠标所在的屏幕">
+    <div className="content-head"><span><h1 className="page-h1">超级面板</h1><span className="note">在鼠标旁边处理选中的文字和文件</span></span></div>
+    <div className="super-card">
+      <Row title="呼出热键" desc="面板出现在鼠标旁边">
         <HotkeyRecorder value={hotkey?.accelerator ?? ""} onChange={(accelerator) => updateBinding({ accelerator, enabled: true })} />
         <Switch label="启用超级面板热键" checked={hotkey?.enabled ?? false} disabled={!hotkey?.accelerator} onChange={(enabled) => updateBinding({ enabled })} />
       </Row>
-      <Row title="长按鼠标右键呼出" desc="按住约 0.4 秒；短按和右键拖动保持原有操作">
+      <Row title="长按鼠标右键呼出" desc="按住约 0.4 秒；短按和右键拖动不受影响">
         <Switch label="长按鼠标右键呼出" checked={settings.longPressRight} onChange={(longPressRight) => update({ longPressRight })} />
+      </Row>
+      <Row title="匹配的功能" desc="按各插件的「自动匹配」开关决定是否出现">
+        <button type="button" className="btn sm" onClick={onOpenPlugins}>在已安装插件中管理</button>
       </Row>
     </div>
     {!trusted && <div className="banner">读取选中文字和长按右键需要辅助功能权限。<button className="btn ghost sm" onClick={() => void invoke("hotkey_request_access")}>去授权</button></div>}
     {hotkey && !hotkey.enabled && cfg.hotkeys.some((b, i) => i !== binding && b.enabled && b.accelerator === hotkey.accelerator) && <div className="banner">呼出热键与其他动作重复，请更换后启用。</div>}
-    <div className="super-section-head"><h2>我的面板</h2><span className="note">拖动排序 · {settings.pinned.length} / 12</span><button className="btn sm" disabled={settings.pinned.length >= 12} onClick={() => setAdding((v) => !v)}>添加功能</button></div>
-    <div className="super-pins" aria-label="固定功能排序">{settings.pinned.map((item, i) => <div className="super-pin" key={identity(item)} draggable
-      onDragStart={() => { dragging.current = i; }} onDragEnd={() => { dragging.current = null; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (dragging.current !== null) move(dragging.current, i); dragging.current = null; }}>
-      <PinIcon item={item} cfg={cfg} />
-      <span className="super-pin-name">{item.title}{available[i] === false && <small className="bad-text">已失效</small>}</span>
-      <button className="icon-btn sm" disabled={i === 0} aria-label={`前移${item.title}`} onClick={() => move(i, i - 1)}>←</button>
-      <button className="icon-btn sm" disabled={i === settings.pinned.length - 1} aria-label={`后移${item.title}`} onClick={() => move(i, i + 1)}>→</button>
-      <button className="icon-btn sm" aria-label={`移除${item.title}`} onClick={() => update({ pinned: settings.pinned.filter((_, j) => j !== i) })}><CloseIcon /></button>
-    </div>)}</div>
-    {settings.pinned.length === 0 && <p className="note">添加常用功能，下次呼出就能直接使用。</p>}
+    <div className="super-section-head"><h2>我的面板</h2><span className="note">{settings.pinned.length} / 12 · 拖动排序</span></div>
+    <div className="super-card super-pin-grid" aria-label="我的面板，拖动排序">{settings.pinned.map((item, i) => <div className="super-pin-cell" key={identity(item)} draggable tabIndex={0}
+      aria-label={`${item.title}，第 ${i + 1} 个。⌥← ⌥→ 移动，Delete 移除`} data-dragging={dragOver === i ? "over" : undefined}
+      onDragStart={(e) => { dragging.current = i; e.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { dragging.current = null; setDragOver(null); }}
+      onDragOver={(e) => { e.preventDefault(); if (dragging.current !== null && dragging.current !== i) setDragOver(i); }} onDragLeave={() => setDragOver((v) => v === i ? null : v)}
+      onDrop={(e) => { e.preventDefault(); if (dragging.current !== null) move(dragging.current, i); dragging.current = null; setDragOver(null); }}
+      onKeyDown={(e) => {
+        if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); move(i, i - 1); }
+        else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); move(i, i + 1); }
+        else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(i); }
+      }}>
+      <PinIcon item={item} cfg={cfg} size={34} />
+      <span className="super-pin-name">{item.title}</span>
+      {available[i] === false && <small className="bad-text">已失效</small>}
+      <button type="button" className="super-pin-x" aria-label={`移除${item.title}`} onClick={() => remove(i)}><CloseIcon size={10} /></button>
+    </div>)}
+      {settings.pinned.length < 12 && <button type="button" className="super-pin-cell super-pin-add" aria-expanded={adding} onClick={() => setAdding((v) => !v)}><span className="tile">＋</span><span className="super-pin-name">添加</span></button>}
+    </div>
+    <p className="note super-hint">也可以在搜索结果上右键「固定到超级面板」。悬停格子出现 × 移除。</p>
     {adding && <div className="super-picker"><label>搜索应用、指令或收藏路径<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="输入名称…" /></label>
       <div className="super-picker-results">{candidates.map((item) => <button key={identity(item)} className="super-pick" disabled={settings.pinned.length >= 12} onClick={() => add(item)}><PinIcon item={item} cfg={cfg} /><span>{item.title}<small>{item.subtitle}</small></span><span>＋</span></button>)}{!candidates.length && <p className="note">没有可添加的结果</p>}</div>
       <button className="btn ghost sm" onClick={() => setAdding(false)}>完成</button></div>}
-    <div className="super-section-head"><h2>自定义动作</h2><button className="btn sm" onClick={() => { setEditing({ id: crypto.randomUUID(), name: "", command: "", when: ["file", "folder"], enabled: false }); setEditorError(""); }}>新建动作</button></div>
-    <div className="card">{settings.actions.map((a) => <div key={a.id} className="super-custom-row"><button className="super-custom-edit" onClick={() => { setEditing({ ...a, when: [...a.when] }); setEditorError(""); }}><b>{a.name}</b><code>{a.command}</code><small>{a.when.map((t) => TYPES.find(([k]) => k === t)?.[1]).join(" · ")}</small></button><Switch label={`启用${a.name}`} checked={a.enabled} onChange={(enabled) => update({ actions: settings.actions.map((x) => x.id === a.id ? { ...x, enabled } : x) })} /><button className="icon-btn sm" aria-label={`删除${a.name}`} onClick={() => update({ actions: settings.actions.filter((x) => x.id !== a.id) })}><CloseIcon /></button></div>)}</div>
-    <p className="note">命令在后台执行。支持 {"{path}、{dir}、{text}、{name}"}，占位符单独作为参数，不要加引号。需要长期运行时，请让命令打开终端。</p>
+    <div className="super-section-head"><h2>自定义动作</h2><button className="btn sm" onClick={() => { setEditing({ id: crypto.randomUUID(), name: "", command: "", when: ["file", "folder"], enabled: false }); setEditorError(""); }}>＋ 新建动作</button></div>
+    {settings.actions.length > 0 && <div className="super-card">{settings.actions.map((a) => <div key={a.id} className="super-custom-row">
+      <button className="super-custom-edit" onClick={() => { setEditing({ ...a, when: [...a.when] }); setEditorError(""); }}><b>{a.name}</b><code>{a.command}</code></button>
+      <span className="chip">{a.when.map((t) => TYPES.find(([k]) => k === t)?.[1]).join(" · ")}</span>
+      <Switch label={`启用${a.name}`} checked={a.enabled} onChange={(enabled) => update({ actions: settings.actions.map((x) => x.id === a.id ? { ...x, enabled } : x) })} />
+      <span className="super-more">
+        <button className="icon-btn sm" aria-label={`${a.name}的更多操作`} aria-expanded={more === a.id} onClick={() => setMore((v) => v === a.id ? null : a.id)}><MoreIcon /></button>
+        {more === a.id && <span className="super-more-menu" role="menu">
+          <button type="button" role="menuitem" onClick={() => { setMore(null); setEditing({ ...a, when: [...a.when] }); setEditorError(""); }}>编辑</button>
+          <button type="button" role="menuitem" className="bad-text" onClick={() => { setMore(null); update({ actions: settings.actions.filter((x) => x.id !== a.id) }); }}>删除</button>
+        </span>}
+      </span>
+    </div>)}</div>}
+    <p className="note super-hint">命令在后台执行，支持 {"{path}、{dir}、{text}、{name}"}；占位符单独作为参数，不要加引号。需要长期运行时，请让命令打开终端。</p>
     {editing && <section ref={editor} className="super-editor" role="dialog" aria-label="编辑动作" aria-modal="true" onKeyDown={(e) => { if (e.key === "Tab") {
       const items = editor.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea');
       if (items?.length) { const first=items[0], last=items[items.length-1]; if (e.shiftKey && document.activeElement===first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement===last) { e.preventDefault(); first.focus(); } }
@@ -107,8 +138,11 @@ export default function SuperPanelSettings({ cfg, save, manifests }: SectionProp
   </>;
 }
 
-function PinIcon({ item, cfg }: { item: SearchItem; cfg: Config }) {
-  if (item.action.type === "openPath") return item.kind === "app" ? <AppIcon path={item.action.path} name={item.title} /> : <span className="tile"><PathIcon kind={item.icon as "file" | "folder" | "link"} /></span>;
-  if (item.action.type === "openWeb") { const id = item.action.id; const url = cfg.webApps.find((w) => w.id === id)?.url; if (url) return <WebIcon url={url} name={item.title} />; }
-  return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={26} />;
+const MoreIcon = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="18" cy="12" r="1.5" /></svg>;
+
+function PinIcon({ item, cfg, size = 26 }: { item: SearchItem; cfg: Config; size?: number }) {
+  const large = size > 30;
+  if (item.action.type === "openPath") return item.kind === "app" ? <AppIcon path={item.action.path} name={item.title} large={large} /> : <span className="tile"><PathIcon kind={item.icon as "file" | "folder" | "link"} /></span>;
+  if (item.action.type === "openWeb") { const id = item.action.id; const url = cfg.webApps.find((w) => w.id === id)?.url; if (url) return <WebIcon url={url} name={item.title} large={large} />; }
+  return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={size} />;
 }

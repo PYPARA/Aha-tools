@@ -53,7 +53,7 @@ impl Default for Settings {
     fn default() -> Self {
         let mut pinned = vec![
             feature("screenshot", "take", "截图"),
-            feature("qrcode", "generate", "二维码"),
+            feature("qrcode", "generate", "生成二维码"),
             feature("system", "colorpicker", "取色"),
             feature("system", "ocr", "截图识字"),
         ];
@@ -133,9 +133,15 @@ pub fn validate_settings(cfg: &mut Settings) -> Result<(), String> {
 pub struct Entry {
     id: String,
     title: String,
+    /// Short note on the right of a row, e.g. 「13 张」.
     subtitle: String,
     plugin: String,
     feature: String,
+    /// "match" | "files" | "text" | "custom" for context rows, "pin" for 我的面板.
+    group: String,
+    /// Line icon for AhaTools' own actions; empty means the feature / item icon.
+    icon: String,
+    /// What 「固定到超级面板」 would pin, and the icon source for apps and web apps.
     item: Option<SearchItem>,
 }
 #[derive(Clone, Default, Serialize)]
@@ -157,6 +163,8 @@ enum Run {
     Ask(String, String),
     Item(SearchItem),
     Custom(String, Option<String>),
+    /// The 「固定」 cell: the search panel, with a hint that results pin on right-click.
+    PinHint,
 }
 struct Session {
     snapshot: Snapshot,
@@ -165,6 +173,8 @@ struct Session {
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static OPENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Where the panel was called up, so a height change can re-place it beside the pointer.
+static CURSOR: Mutex<(f64, f64)> = Mutex::new((0., 0.));
 
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let w = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html?view=super".into()))
@@ -239,6 +249,8 @@ pub fn toggle(app: &AppHandle) {
             let Some(w) = app2.get_webview_window(LABEL) else {
                 return;
             };
+            // Placed for the tallest panel first; the page reports its real height next.
+            *CURSOR.lock().unwrap() = cursor;
             crate::window_position::place_at_cursor(&w, cursor, (WIDTH, HEIGHT));
             let snapshot = session.snapshot.clone();
             *SESSION.lock().unwrap() = Some(session);
@@ -290,131 +302,81 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
     let cfg = config::load(app);
     let mut actions = vec![];
     let mut runners = vec![];
-    let mut add =
-        |key: &str, title: &str, subtitle: &str, plugin: &str, feature: &str, run: Run| {
-            actions.push(Entry {
-                id: key.into(),
-                title: title.into(),
-                subtitle: subtitle.into(),
-                plugin: plugin.into(),
-                feature: feature.into(),
-                item: None,
-            });
-            runners.push((key.into(), run));
+    let mut settings_runners = vec![];
+    let mut add = |key: String, group: &str, title: &str, subtitle: &str, icon: &str, item: Option<SearchItem>, run: Run| {
+        let (plugin, feature) = match &item {
+            Some(SearchItem { plugin, action: ItemAction::Feature { feature, .. }, .. }) => (plugin.clone(), feature.clone()),
+            Some(i) => (i.plugin.clone(), String::new()),
+            None => (String::new(), String::new()),
         };
-    if ctx.kind == "files" {
-        if ctx.paths.len() == 1 && context::is_image(&ctx.paths[0]) {
-            add(
-                "qr",
-                "识别二维码",
-                "选中的图片",
-                "qrcode",
-                "scan",
-                Run::Feature(
-                    "qrcode".into(),
-                    "scan".into(),
-                    Some(serde_json::json!({"paths":ctx.paths}).to_string()),
-                ),
-            );
-        }
-        add(
-            "copy",
-            "复制路径",
-            &format!("{} 个项目", ctx.paths.len()),
-            "launcher",
-            "",
-            Run::Copy(ctx.paths.join("\n")),
-        );
-        if let Some(dir) = &ctx.dir {
-            add(
-                "terminal",
-                "在终端中打开",
-                "所在文件夹",
-                "launcher",
-                "",
-                Run::Terminal(dir.clone()),
-            );
-            if ctx.paths.len() == 1 && Path::new(&ctx.paths[0]).is_dir() {
-                add(
-                    "new",
-                    "新建空白文件",
-                    "未命名.txt",
-                    "launcher",
-                    "",
-                    Run::NewFile(dir.clone()),
-                );
+        actions.push(Entry {
+            id: key.clone(),
+            title: title.into(),
+            subtitle: subtitle.into(),
+            plugin,
+            feature,
+            group: group.into(),
+            icon: icon.into(),
+            item: item.map(|mut i| {
+                normalize_pin(&mut i);
+                i
+            }),
+        });
+        runners.push((key, run));
+    };
+    let text = ctx.text.as_deref().filter(|_| ctx.kind == "text");
+    let paths: &[String] = if ctx.kind == "files" { &ctx.paths } else { &[] };
+    // 匹配的功能: plugin manifests decide, exactly like the search panel's 自动匹配.
+    for (i, mut item) in app.state::<Registry>().context_matches(text, paths).into_iter().enumerate() {
+        if let ItemAction::Feature { input, .. } = &mut item.action {
+            if input.is_none() && !paths.is_empty() {
+                *input = Some(serde_json::json!({ "paths": paths }).to_string());
             }
         }
-        add(
-            "save",
-            "收藏到快捷启动",
-            "保留全部选中项目",
-            "launcher",
-            "",
-            Run::Save(ctx.paths.clone()),
-        );
-    } else if let Some(text) = &ctx.text {
+        let (title, note) = item.title.split_once(" · ").map_or((item.title.clone(), String::new()), |(t, n)| (t.into(), n.into()));
+        let note = if item.plugin == "translate" { "点按后翻译".into() } else { note };
+        let settings = Run::Feature("settings".into(), "general".into(), Some(format!("plugins/{}", item.plugin)));
+        settings_runners.push((format!("plugin-settings:{}", item.plugin), settings));
+        add(format!("match:{i}"), "match", &title, &note, "", Some(item.clone()), Run::Item(item));
+    }
+    if let Some(text) = text {
         for web in &cfg.web_apps {
-            add(
-                &format!("ask:{}", web.id),
-                &format!("问 {}", web.name),
-                "复制文字并打开网页应用",
-                "webapps",
-                "",
-                Run::Ask(web.id.clone(), text.clone()),
-            );
+            let item = SearchItem {
+                title: web.name.clone(),
+                subtitle: web.url.clone(),
+                plugin: "webapps".into(),
+                kind: ItemKind::Feature,
+                icon: Some(web.url.clone()),
+                score: 0,
+                action: ItemAction::OpenWeb { id: web.id.clone() },
+            };
+            add(format!("ask:{}", web.id), "match", &format!("问 {}", web.name), "复制后打开", "", Some(item), Run::Ask(web.id.clone(), text.into()));
         }
-        add(
-            "qr",
-            "生成二维码",
-            "选中的文字",
-            "qrcode",
-            "generate",
-            Run::Feature("qrcode".into(), "generate".into(), Some(text.clone())),
-        );
-        add(
-            "search",
-            "在搜索面板中打开",
-            "带入选中文字",
-            "launcher",
-            "",
-            Run::Query(text.clone()),
-        );
-        add(
-            "copy",
-            "复制为纯文本",
-            "去掉文字格式",
-            "launcher",
-            "",
-            Run::Copy(text.clone()),
-        );
         if is_http(text) {
-            add(
-                "url",
-                "在浏览器中打开",
-                text.trim(),
-                "webapps",
-                "",
-                Run::Item(SearchItem {
-                    action: ItemAction::OpenPath {
-                        path: text.trim().into(),
-                    },
-                    ..feature("webapps", "", "打开网址")
-                }),
-            );
+            let url = text.trim().to_string();
+            add("url".into(), "match", "在浏览器中打开", "", "globe", None, Run::Item(SearchItem {
+                action: ItemAction::OpenPath { path: url },
+                ..feature("webapps", "", "打开网址")
+            }));
         }
+        add("search".into(), "text", "在搜索面板中打开", "", "search", None, Run::Query(text.into()));
+        add("copy".into(), "text", "复制为纯文本", "", "copy", None, Run::Copy(text.into()));
+    }
+    if !paths.is_empty() {
+        let count = if paths.len() > 1 { format!("{} 项", paths.len()) } else { String::new() };
+        add("copy".into(), "files", "复制路径", &count, "copy", None, Run::Copy(paths.join("\n")));
+        if let Some(dir) = &ctx.dir {
+            add("terminal".into(), "files", "在终端中打开", "", "terminal", None, Run::Terminal(dir.clone()));
+            if paths.len() == 1 && Path::new(&paths[0]).is_dir() {
+                add("new".into(), "files", "新建空白文件", "未命名.txt", "newfile", None, Run::NewFile(dir.clone()));
+            }
+        }
+        add("save".into(), "files", "收藏到快捷启动", "", "star", None, Run::Save(paths.to_vec()));
     }
     for a in &cfg.super_panel.actions {
         if applies(a, &ctx) {
             if let Ok(cmd) = crate::superpanel_commands::expand(&a.command, &ctx) {
-                add(
-                    &format!("custom:{}", a.id),
-                    &a.name,
-                    "自定义动作",
-                    "external",
-                    "",
-                    Run::Custom(cmd, ctx.dir.clone()),
-                );
+                add(format!("custom:{}", a.id), "custom", &a.name, "", "command", None, Run::Custom(cmd, ctx.dir.clone()));
             }
         }
     }
@@ -423,6 +385,12 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
         if !item_available(app, item) {
             continue;
         }
+        // Older configs saved short titles (「二维码」); show the feature's full name.
+        let item = &{
+            let mut item = item.clone();
+            normalize_pin(&mut item);
+            item
+        };
         let key = format!("pin:{i}");
         pinned.push(Entry {
             id: key.clone(),
@@ -433,11 +401,15 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
                 ItemAction::Feature { feature, .. } => feature.clone(),
                 _ => String::new(),
             },
+            group: "pin".into(),
+            icon: String::new(),
             item: Some(item.clone()),
         });
         runners.push((key, Run::Item(item.clone())));
     }
+    runners.extend(settings_runners);
     runners.push(("search-panel".into(), Run::Query(String::new())));
+    runners.push(("pin-hint".into(), Run::PinHint));
     runners.push((
         "settings".into(),
         Run::Feature(
@@ -530,6 +502,12 @@ fn execute(app: &AppHandle, run: Run) -> Result<(), String> {
             }
         }
         Run::Custom(cmd, dir) => crate::superpanel_commands::execute(&cmd, dir.as_deref())?,
+        Run::PinHint => {
+            crate::panel::open_query(app, String::new());
+            // After the panel's own show / reset handling, which clears its messages.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let _ = app.emit_to("panel", "panel-flash", "右键任意结果，选「固定到超级面板」");
+        }
     }
     Ok(())
 }
@@ -592,6 +570,57 @@ pub fn superpanel_remove_pin(app: AppHandle, index: usize) -> Result<(), String>
     }
     config::config_set(app, cfg).map(|_| ())
 }
+/// The page's natural height. The window follows it, up to HEIGHT, still beside the pointer.
+#[tauri::command]
+pub fn superpanel_resize(app: AppHandle, height: f64) {
+    if !height.is_finite() || height <= 0.0 {
+        return;
+    }
+    let height = height.ceil().min(HEIGHT);
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = app.run_on_main_thread(move || {
+            let cursor = *CURSOR.lock().unwrap();
+            crate::window_position::place_at_cursor(&w, cursor, (WIDTH, height));
+        });
+    }
+}
+fn same_pin(a: &SearchItem, b: &SearchItem) -> bool {
+    a.plugin == b.plugin && a.action == b.action
+}
+/// Pins `item` to 我的面板, or removes it when already there. Returns whether it is pinned.
+fn toggle_pin(pinned: &mut Vec<SearchItem>, mut item: SearchItem) -> Result<bool, String> {
+    normalize_pin(&mut item);
+    if item.plugin == "superpanel" {
+        return Err("超级面板不能固定到自己".into());
+    }
+    if let Some(i) = pinned.iter().position(|p| same_pin(p, &item)) {
+        pinned.remove(i);
+        return Ok(false);
+    }
+    if pinned.len() >= 12 {
+        return Err("我的面板最多放 12 个功能，请先移除一个".into());
+    }
+    pinned.push(item);
+    Ok(true)
+}
+#[tauri::command]
+pub fn superpanel_toggle_pin(app: AppHandle, item: SearchItem) -> Result<bool, String> {
+    let mut cfg = config::load(&app);
+    let pinned = toggle_pin(&mut cfg.super_panel.pinned, item)?;
+    config::config_set(app, cfg)?;
+    Ok(pinned)
+}
+/// 「移到最前」 from the panel's right-click menu; `index` is the cell's place in the saved list.
+#[tauri::command]
+pub fn superpanel_pin_first(app: AppHandle, index: usize) -> Result<(), String> {
+    let mut cfg = config::load(&app);
+    if index >= cfg.super_panel.pinned.len() {
+        return Err("这个功能已不在我的面板里".into());
+    }
+    let item = cfg.super_panel.pinned.remove(index);
+    cfg.super_panel.pinned.insert(0, item);
+    config::config_set(app, cfg).map(|_| ())
+}
 #[tauri::command]
 pub fn superpanel_validate_command(command: String) -> Result<(), String> {
     crate::superpanel_commands::validate(&command)
@@ -645,6 +674,26 @@ mod tests {
         cfg.pinned.push(cfg.pinned[0].clone());
         validate_settings(&mut cfg).unwrap();
         assert_eq!(cfg.pinned.len(), 7);
+    }
+    #[test]
+    fn pins_toggle_by_identity_and_stop_at_twelve() {
+        let mut pinned = vec![];
+        let mut qr = feature("qrcode", "generate", "为「hi」生成二维码");
+        if let ItemAction::Feature { input, .. } = &mut qr.action {
+            *input = Some("hi".into());
+        }
+        assert!(toggle_pin(&mut pinned, qr.clone()).unwrap());
+        // Pinned without the selected text, under the feature's own name.
+        assert_eq!(pinned[0].title, "生成二维码");
+        assert_eq!(pinned[0].action, ItemAction::Feature { feature: "generate".into(), input: None });
+        assert!(!toggle_pin(&mut pinned, qr).unwrap());
+        assert!(pinned.is_empty());
+        assert!(toggle_pin(&mut pinned, feature("superpanel", "open", "超级面板")).is_err());
+        for i in 0..12 {
+            toggle_pin(&mut pinned, SearchItem { action: ItemAction::OpenPath { path: format!("/tmp/{i}") }, ..feature("launcher", "", "x") }).unwrap();
+        }
+        assert!(toggle_pin(&mut pinned, feature("system", "lock", "锁屏")).is_err());
+        assert_eq!(pinned.len(), 12);
     }
     #[test]
     fn custom_actions_require_all_types_and_context() {

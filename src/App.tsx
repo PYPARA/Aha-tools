@@ -128,7 +128,11 @@ export default function App() {
 
   const [webUrls, setWebUrls] = useState<Map<string, string>>(new Map());
   const loadHome = () => invoke<Home>("usage_home").then(setHome);
-  const loadWebUrls = (cfg: Config) => setWebUrls(new Map((cfg.webApps ?? []).map((w) => [w.id, w.url])));
+  const [superPins, setSuperPins] = useState<SearchItem[]>([]);
+  const loadWebUrls = (cfg: Config) => {
+    setWebUrls(new Map((cfg.webApps ?? []).map((w) => [w.id, w.url])));
+    setSuperPins(cfg.superPanel?.pinned ?? []);
+  };
   const loadHotkey = () =>
     invoke<Binding[]>("hotkey_bindings").then((bs) => {
       const b = bs.find((b) => b.enabled && b.action.type === "togglePanel");
@@ -171,6 +175,8 @@ export default function App() {
       }),
       listen<Target & { query?: string }>("open-feature", (e) => receiveRequest(e.payload)),
       listen<Target & { query?: string }>("panel-query", (e) => receiveRequest(e.payload)),
+      // The super panel's 「固定」 cell explains how to pin from here.
+      listen<string>("panel-flash", (e) => setFlash(e.payload)),
       listen<Config>("config-changed", (e) => {
         loadHotkey();
         loadWebUrls(e.payload);
@@ -203,7 +209,7 @@ export default function App() {
 
   useEffect(() => {
     if (!flash) return;
-    const t = setTimeout(() => setFlash(""), 2000);
+    const t = setTimeout(() => setFlash(""), Math.min(5000, 1200 + Array.from(flash).length * 120));
     return () => clearTimeout(t);
   }, [flash]);
 
@@ -309,6 +315,16 @@ export default function App() {
     loadHome();
   };
 
+  const superKey = (i: SearchItem) => `${i.plugin}/${JSON.stringify(i.action.type === "feature" ? { type: "feature", feature: i.action.feature } : i.action)}`;
+  const toggleSuperPin = async (item: SearchItem) => {
+    try {
+      const pinned = await invoke<boolean>("superpanel_toggle_pin", { item });
+      setFlash(pinned ? `已固定到超级面板「${item.title}」` : `已从超级面板移除「${item.title}」`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const forget = async (item: SearchItem) => {
     await invoke("usage_forget", { item });
     setFlash(`已从最近使用中删除「${item.title}」`);
@@ -321,6 +337,10 @@ export default function App() {
     const pinned = pinnedKeys.has(pinKey(item));
     const entries = [
       { text: pinned ? "取消固定" : "固定到首页", accelerator: "CmdOrCtrl+D", action: () => togglePin(item) },
+      ...(item.plugin === "superpanel" ? [] : [{
+        text: superPins.some((p) => superKey(p) === superKey(item)) ? "从超级面板移除" : "固定到超级面板",
+        action: () => toggleSuperPin(item),
+      }]),
       ...(inRecent ? [{ text: "从「最近使用」中删除", action: () => forget(item) }] : []),
     ];
     try {

@@ -332,6 +332,38 @@ impl Registry {
         items
     }
 
+    /// Features whose manifest `match` accepts the super panel's context: text, or files.
+    /// Same rules and 「自动匹配」 switches as the search panel, in manifest order.
+    pub fn context_matches(&self, text: Option<&str>, paths: &[String]) -> Vec<SearchItem> {
+        let disabled = OPTIONS.read().unwrap().disabled_matches.clone();
+        if !paths.is_empty() {
+            return self.content_results(&MatchContent::Files { paths: paths.to_vec() }, "", &disabled);
+        }
+        let Some(text) = text.map(str::trim).filter(|t| !t.is_empty()) else {
+            return vec![];
+        };
+        let mut items = vec![];
+        for m in &self.manifests {
+            for f in &m.features {
+                if disabled.contains(&format!("{}/{}", m.id, f.code))
+                    || !f.matches.as_ref().is_some_and(|mt| mt.accepts(text))
+                {
+                    continue;
+                }
+                items.push(SearchItem {
+                    title: f.explain.clone(),
+                    subtitle: m.name.clone(),
+                    score: 0,
+                    plugin: m.id.clone(),
+                    kind: ItemKind::Feature,
+                    icon: None,
+                    action: ItemAction::Feature { feature: f.code.clone(), input: Some(text.to_string()) },
+                });
+            }
+        }
+        items
+    }
+
     fn content_results(&self, content: &MatchContent, query: &str, disabled: &[String]) -> Vec<SearchItem> {
         let matcher = SkimMatcherV2::default().ignore_case();
         let query = query.trim();
@@ -526,6 +558,22 @@ mod tests {
         assert!(!r.search_with_disabled("x", &[]).iter().any(|i| i.plugin == "translate"));
         assert!(!r.search_with_disabled(query, &["translate/translate".into()]).iter().any(|i| i.plugin == "translate"));
         assert_eq!(r.search_with_disabled("fy hello", &["translate/translate".into()])[0].plugin, "translate");
+    }
+
+    #[test]
+    fn context_matches_follow_manifest_rules() {
+        let registry = Registry::new();
+        let text: Vec<_> = registry.context_matches(Some("hello world"), &[]).iter().map(|i| format!("{}/{}", i.plugin, i.title)).collect();
+        assert!(text.contains(&"translate/翻译".to_string()), "{text:?}");
+        assert!(text.contains(&"qrcode/生成二维码".to_string()), "{text:?}");
+        // One character is below translate's minLength.
+        assert!(!registry.context_matches(Some("a"), &[]).iter().any(|i| i.plugin == "translate"));
+        assert!(registry.context_matches(Some("   "), &[]).is_empty());
+        let image = registry.context_matches(None, &["/tmp/a.png".into()]);
+        assert!(image.iter().any(|i| i.plugin == "qrcode" && i.title == "识别二维码"), "{:?}", image.iter().map(|i| &i.title).collect::<Vec<_>>());
+        assert!(image.iter().all(|i| i.plugin != "translate"));
+        let two = registry.context_matches(None, &["/tmp/a.png".into(), "/tmp/b.png".into()]);
+        assert!(!two.iter().any(|i| i.plugin == "qrcode"));
     }
 
     #[test]

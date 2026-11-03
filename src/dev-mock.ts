@@ -209,7 +209,7 @@ let config: Config = {
   ],
   superPanel: {
     longPressRight: false,
-    pinned: [feature("screenshot", "take", "截图", "截图"), feature("qrcode", "generate", "二维码", "二维码"), feature("system", "colorpicker", "取色", "系统动作"), feature("system", "ocr", "截图识字", "系统动作"),
+    pinned: [feature("screenshot", "take", "截图", "截图"), feature("qrcode", "generate", "生成二维码", "二维码"), feature("system", "colorpicker", "取色", "系统动作"), feature("system", "ocr", "截图识字", "系统动作"),
       { title: "DeepSeek", subtitle: "网页应用", score: 0, plugin: "webapps", kind: "feature", icon: "https://chat.deepseek.com", action: { type: "openWeb", id: "deepseek" } } as SearchItem,
       feature("system", "desktop", "显示桌面", "系统动作"), feature("system", "lock", "锁屏", "系统动作")],
     actions: [
@@ -273,17 +273,27 @@ function navigateQuery(query: string) {
 }
 function superState() {
   const paths = superScenario === "folder" ? ["/Users/me/Documents/设计稿"] : superScenario === "image" ? ["/Users/me/Documents/二维码.png"] : superScenario === "multi" ? ["/Users/me/Documents/图.png", "/Users/me/Documents/备注.txt"] : superScenario === "file" ? ["/Users/me/Documents/说明.txt"] : [];
-  const text = superScenario === "url" ? "https://example.com" : superScenario === "text" ? "Build something useful with AhaTools." : undefined;
+  const text = superScenario === "url" ? "https://example.com" : superScenario === "text" ? "Tauri lets you build smaller, faster, and more secure desktop applications with a web frontend." : undefined;
   const context = { kind: paths.length ? "files" : text ? "text" : "none", appName: paths.length ? "访达" : "Safari", paths, text, notice: superScenario === "permission" ? "无法读取访达。请在系统设置 → 隐私与安全性 → 自动化中允许 AhaTools 控制访达" : undefined };
-  const row = (id: string, title: string, subtitle: string, plugin: string, feature = "") => ({ id, title, subtitle, plugin, feature });
+  const row = (id: string, group: string, title: string, subtitle: string, plugin = "", feature = "", icon = "", item?: SearchItem) => ({ id, group, title, subtitle, plugin, feature, icon, item });
+  const featureItem = (plugin: string, code: string, title: string): SearchItem => ({ title, subtitle: "", score: 0, plugin, kind: "feature", action: { type: "feature", feature: code } });
+  const images = superScenario === "folder" ? 13 : paths.filter((p) => /\.(png|jpe?g|webp)$/i.test(p)).length;
+  const kinds = paths.map((p) => /\.(png|jpe?g|webp)$/i.test(p) ? "image" : /\.[^/]+$/.test(p) ? "file" : "folder");
+  const custom = config.superPanel.actions.filter((x) => x.enabled && (text ? x.when.includes("text") : paths.length > 0 && kinds.every((k) => x.when.includes(k) || (k === "image" && x.when.includes("file")))))
+    .map((x) => row(`custom:${x.id}`, "custom", x.name, "", "", "", "command"));
   const actions = paths.length ? [
-    ...(superScenario === "image" ? [row("qr", "识别二维码", "选中的图片", "qrcode", "scan")] : []),
-    row("copy", "复制路径", `${paths.length} 个项目`, "launcher"), row("terminal", "在终端中打开", "所在文件夹", "launcher"),
-    ...(superScenario === "folder" ? [row("new", "新建空白文件", "未命名.txt", "launcher")] : []), row("save", "收藏到快捷启动", "保留全部选中项目", "launcher"),
+    ...(images ? [row("match:0", "match", "压缩图片", `${images} 张`, "compress", "compress", "", featureItem("compress", "compress", "压缩图片"))] : []),
+    ...(superScenario === "image" ? [row("match:1", "match", "识别二维码", "", "qrcode", "scan", "", featureItem("qrcode", "scan", "识别二维码"))] : []),
+    row("copy", "files", "复制路径", paths.length > 1 ? `${paths.length} 项` : "", "", "", "copy"), row("terminal", "files", "在终端中打开", "", "", "", "terminal"),
+    ...(superScenario === "folder" ? [row("new", "files", "新建空白文件", "未命名.txt", "", "", "newfile")] : []), row("save", "files", "收藏到快捷启动", "", "", "", "star"), ...custom,
   ] : text ? [
-    ...config.webApps.map((w) => row(`ask:${w.id}`, `问 ${w.name}`, "复制文字并打开网页应用", "webapps")), row("qr", "生成二维码", "选中的文字", "qrcode", "generate"), row("search", "在搜索面板中打开", "带入选中文字", "launcher"), row("copy", "复制为纯文本", "去掉文字格式", "launcher"), ...(superScenario === "url" ? [row("url", "在浏览器中打开", text, "webapps")] : []),
+    ...(Array.from(text).length >= 2 ? [row("match:0", "match", "翻译", "点按后翻译", "translate", "translate", "", featureItem("translate", "translate", "翻译"))] : []),
+    row("match:1", "match", "生成二维码", "", "qrcode", "generate", "", featureItem("qrcode", "generate", "生成二维码")),
+    ...config.webApps.map((w) => row(`ask:${w.id}`, "match", `问 ${w.name}`, "复制后打开", "webapps", "", "", { title: w.name, subtitle: w.url, score: 0, plugin: "webapps", kind: "feature", icon: w.url, action: { type: "openWeb", id: w.id } } as SearchItem)),
+    ...(superScenario === "url" ? [row("url", "match", "在浏览器中打开", "", "", "", "globe")] : []),
+    row("search", "text", "在搜索面板中打开", "", "", "", "search"), row("copy", "text", "复制为纯文本", "", "", "", "copy"), ...custom,
   ] : [];
-  const pinned = config.superPanel.pinned.map((item, i) => ({ ...row(`pin:${i}`, item.title, item.subtitle, item.plugin, item.action.type === "feature" ? item.action.feature : ""), item }));
+  const pinned = config.superPanel.pinned.map((item, i) => row(`pin:${i}`, "pin", item.title, item.subtitle, item.plugin, item.action.type === "feature" ? item.action.feature : "", "", item));
   return { requestId: superRequest, context, actions, pinned };
 }
 Object.assign(window, { __AHATOOLS_SUPER_MOCK__: {
@@ -576,6 +586,16 @@ mockIPC((cmd, args) => {
       return null;
     }
     case "superpanel_remove_pin": config.superPanel.pinned.splice(Number(a.index), 1); void emit("config-changed", config); return null;
+    case "superpanel_pin_first": { const [item] = config.superPanel.pinned.splice(Number(a.index), 1); if (item) config.superPanel.pinned.unshift(item); void emit("config-changed", config); return null; }
+    case "superpanel_toggle_pin": {
+      const item = a.item as SearchItem; const key = (i: SearchItem) => `${i.plugin}/${JSON.stringify(i.action.type === "feature" ? { type: "feature", feature: i.action.feature } : i.action)}`;
+      const at = config.superPanel.pinned.findIndex((p) => key(p) === key(item));
+      if (at >= 0) config.superPanel.pinned.splice(at, 1);
+      else if (config.superPanel.pinned.length >= 12) throw new Error("我的面板最多放 12 个功能，请先移除一个");
+      else config.superPanel.pinned.push({ ...item, score: 0, action: item.action.type === "feature" ? { type: "feature", feature: item.action.feature } : item.action });
+      void emit("config-changed", config); return at < 0;
+    }
+    case "superpanel_resize": (window as unknown as { __superHeight?: number }).__superHeight = Number(a.height); return null;
     case "superpanel_run": {
       if (Number(a.requestId) !== superRequest || superConsumed) throw new Error("上下文已更新，请重新呼出");
       if (params.get("superError") === "run") throw new Error("无法执行动作（预览错误）");
@@ -584,7 +604,9 @@ mockIPC((cmd, args) => {
       if (id === "settings") navigate("settings", "general", "superpanel");
       else if (id === "search-panel" || id === "search") navigateQuery(id === "search" ? s.context.text ?? "" : "");
       else if (id === "copy") clipboardText = s.context.text ?? s.context.paths.join("\n");
-      else if (id === "qr") navigate("qrcode", s.context.kind === "files" ? "scan" : "generate", s.context.kind === "files" ? JSON.stringify({ paths: s.context.paths }) : s.context.text);
+      else if (id === "pin-hint") { navigateQuery(""); setTimeout(() => void emit("panel-flash", "右键任意结果，选「固定到超级面板」"), 300); }
+      else if (id.startsWith("plugin-settings:")) navigate("settings", "general", `plugins/${id.split(":")[1]}`);
+      else if (id.startsWith("match:")) { const e = s.actions.find((x) => x.id === id); if (e?.item?.action.type === "feature") navigate(e.plugin, e.feature, s.context.kind === "files" ? JSON.stringify({ paths: s.context.paths }) : s.context.text); }
       return null;
     }
     case "system_ocr_get": return a.jobId && a.jobId !== ocrJob.id ? null : ocrJob;

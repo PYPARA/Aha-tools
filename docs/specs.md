@@ -137,6 +137,12 @@ python3 docs/design/gen_boards.py <画布目录> src/assets/icons
 
 **首版已实现（2026-10-30）**：本轮调整以此段为准。翻译和图片压缩不作为前置；主分支的独立插件已保留，超级面板的对应上下文动作及流式翻译预览后续接入；默认七项不含翻译。选中文字备用方案保存 / 恢复所有可读取的剪贴板项目和格式，无法完整保存时跳过。OCR 成功自动复制，并通过 `viewOnly` 打开可选择文字的结果页。自定义命令占位符仅允许独立、未加引号的参数，禁止嵌入脚本；默认 Claude Code 示例改用 Terminal + AppleScript 参数，不再使用嵌套命令字符串。多选只在父目录相同时提供唯一 `dir`，新建文件仅用于单个目录。长按右键独立于独占热键，移动超过 6pt 恢复右键拖动。详见 HANDOFF 的实现及真机验收记录。
 
+**第二版（2026-11-03，已实现，待真机验收）**：参考 uTools，设计稿 SuperPanelHome / Finder / Text / Settings 已更新。
+- 上下文动作不再写死：「匹配的功能」复用插件清单的 `match`（与搜索面板 `content_results` 同一套，尊重插件的「自动匹配」开关），其后是 AhaTools 自带的「文件」/「文字」操作和「自定义动作」，分组显示；选中文字时顶部显示两行原文。翻译只在用户点「翻译」后才发请求，不自动翻译。
+- 固定主要走右键：搜索结果右键加「固定到超级面板」；超级面板里右键匹配的功能可固定，右键固定格子可「移到最前 / 从超级面板移除」；末尾「固定」格子打开搜索面板并提示右键固定。
+- 窗口宽 300、高度随内容（最多 460，中间滚动）；我的面板四列、名称用功能全名；有上下文时底部「我的面板」一行五格、图标带名字、不滚动：前 4 个固定项加「全部 N」（切到完整网格），不超过 5 个时全部显示；系统动作用线条图标，插件功能用彩色图标。
+- 设置页：三行设置卡片（热键、长按右键、匹配的功能入口），我的面板改成与面板一致的网格（拖动排序、悬停 × 移除、末尾「添加」），自定义动作行加「更多」菜单。
+
 补充静态设计：[OcrResult.html](design/OcrResult.html)、[SuperPanelCommand.html](design/SuperPanelCommand.html)、[SuperPanelUnavailable.html](design/SuperPanelUnavailable.html)。
 
 设计：[SuperPanelHome.html](design/SuperPanelHome.html)、[SuperPanelFinder.html](design/SuperPanelFinder.html)、[SuperPanelText.html](design/SuperPanelText.html)、[SuperPanelSettings.html](design/SuperPanelSettings.html)。
@@ -186,7 +192,7 @@ pub struct Context { app_name: String, bundle_id: String, kind: Kind /* None | F
   - **图片文件**：再多压缩图片、识别二维码（读文件）。
   - **任何文件**：复制路径、在终端中打开（所在目录）、收藏到快捷启动。
   - **文字**：
-    - 翻译：面板顶部直接流式显示结果，复用 `translate_start`；「展开」进入翻译页面；
+    - 翻译：**不自动翻译**，呼出时不发请求、不把文字发给翻译服务；用户点「翻译」（或选中按 ↵）后才开始。首版进入翻译页并带入文字；之后在面板内流式显示结果，复用 `translate_start`，「展开」进入翻译页面；
     - 问网页应用：每个网页应用一项。先把文字写进剪贴板，再 `webapps::open`，然后提示「已复制，粘贴即可」；不往网页注入脚本；
     - 生成二维码；
     - 在搜索面板中打开：显示面板并把文字填进搜索框，新增事件 `panel-query`；

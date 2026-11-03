@@ -110,7 +110,7 @@ export default function Settings({ onBack, input }: PluginViewProps) {
           )}
           {props && section === "general" && <General {...props} />}
           {props && section === "hotkeys" && <Hotkeys {...props} />}
-          {props && section === "superpanel" && <SuperPanel {...props} />}
+          {props && section === "superpanel" && <SuperPanel {...props} onOpenPlugins={() => setSection("plugins")} />}
           {props && section === "commands" && <Commands {...props} onOpenPlugin={openPlugin} />}
           {section === "about" && <About />}
         </div>
