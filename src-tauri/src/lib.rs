@@ -45,7 +45,8 @@ pub fn run() {
             let cfg = config::load(app.handle());
             plugins::configure(&cfg);
             usage::init(app.handle());
-            clipboard_watch::start();
+            clipboard_watch::start(app.handle().clone());
+            plugins::clipboard_history::init(app.handle());
 
             let launcher = Launcher::new(app.handle().clone());
             let mut registry = Registry::new();
@@ -97,6 +98,13 @@ pub fn run() {
             plugins::network::network_ping_stop,
             plugins::network::network_dns,
             plugins::network::network_ports,
+            plugins::clipboard_history::clipboard_history_list,
+            plugins::clipboard_history::clipboard_history_get,
+            plugins::clipboard_history::clipboard_history_image,
+            plugins::clipboard_history::clipboard_history_use,
+            plugins::clipboard_history::clipboard_history_pin,
+            plugins::clipboard_history::clipboard_history_delete,
+            plugins::clipboard_history::clipboard_history_clear,
             panel::set_panel_pinned,
             panel::set_panel_large,
             plugins::list_plugins,

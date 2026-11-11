@@ -29,6 +29,8 @@ import Translate from "../plugins/translate/Translate";
 import Processes from "../plugins/processes/Processes";
 import { views as networkViews } from "../plugins/network/Network";
 import Json from "../plugins/json/Json";
+import ClipboardHistory from "../plugins/clipboard/History";
+import ClipboardSettings from "../plugins/clipboard/Settings";
 import TranslateSettings from "../plugins/translate/Settings";
 
 export { featureIcons, featureIconKey } from "./feature-icons";
@@ -46,6 +48,7 @@ export const views: Record<string, ComponentType<PluginViewProps>> = {
   "processes/processes": Processes,
   ...networkViews,
   "json/format": Json,
+  "clipboard/history": ClipboardHistory,
 };
 
 /** Views that draw the whole window themselves (no page header or footer). */
@@ -102,4 +105,5 @@ export const pluginSettings: Record<string, ComponentType<PluginSettingsProps>> 
   screenshot: ScreenshotSettings,
   webapps: WebAppsSettings,
   translate: TranslateSettings,
+  clipboard: ClipboardSettings,
 };

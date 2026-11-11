@@ -1,0 +1,13 @@
+{
+  "id": "clipboard",
+  "name": "剪贴板历史",
+  "version": "0.1.0",
+  "description": "保存复制过的文字、图片和文件，搜索后再次粘贴",
+  "features": [
+    {
+      "code": "history",
+      "explain": "剪贴板历史",
+      "cmds": ["剪贴板", "剪贴板历史", "粘贴板", "clipboard", "jtb", "history"]
+    }
+  ]
+}

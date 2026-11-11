@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 
 use objc2::rc::autoreleasepool;
 use objc2_app_kit::{NSPasteboard, NSWorkspace};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum ClipKind {
     Text,
@@ -33,6 +34,20 @@ struct State {
 }
 
 static STATE: Mutex<State> = Mutex::new(State { count: -1, copied: None, own: -1 });
+
+/// A copy for 剪贴板历史 to read, noted when it happened (the app in front then).
+#[derive(Clone, Debug)]
+pub struct Pending {
+    pub count: isize,
+    pub kind: ClipKind,
+    pub bundle: Option<String>,
+    pub app: Option<String>,
+}
+static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
+
+pub fn is_own(count: isize) -> bool {
+    STATE.lock().unwrap().own == count
+}
 
 /// What the pasteboard holds, from its type list alone; None for nothing useful or private.
 fn classify(types: &[String], from_ahatools: bool) -> Option<ClipKind> {
@@ -67,19 +82,29 @@ fn poll() {
             return;
         }
         let types: Vec<String> = board.types().map(|t| t.iter().map(|t| t.to_string()).collect()).unwrap_or_default();
-        let front = NSWorkspace::sharedWorkspace()
-            .frontmostApplication()
-            .and_then(|app| app.bundleIdentifier())
-            .is_some_and(|id| id.to_string() == "com.ahatools.app");
-        state.copied = classify(&types, front).map(|kind| (Instant::now(), kind));
+        let front = NSWorkspace::sharedWorkspace().frontmostApplication();
+        let bundle = front.as_ref().and_then(|app| app.bundleIdentifier()).map(|id| id.to_string());
+        let ours = bundle.as_deref() == Some("com.ahatools.app");
+        state.copied = classify(&types, ours).map(|kind| (Instant::now(), kind));
+        // History keeps copies made inside AhaTools too, but never its own writes.
+        if let Some(kind) = classify(&types, false) {
+            let app = front.and_then(|a| a.localizedName()).map(|n| n.to_string());
+            PENDING.lock().unwrap().push(Pending { count, kind, bundle, app });
+        }
     });
 }
 
-pub fn start() {
+pub fn start(app: AppHandle) {
     poll();
-    thread::spawn(|| loop {
+    PENDING.lock().unwrap().clear();
+    thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(500));
         poll();
+        let pending: Vec<Pending> = std::mem::take(&mut *PENDING.lock().unwrap());
+        // Only the latest can still be read; earlier ones were copied over already.
+        if let Some(last) = pending.into_iter().last() {
+            crate::plugins::clipboard_history::record(&app, last);
+        }
     });
 }
 

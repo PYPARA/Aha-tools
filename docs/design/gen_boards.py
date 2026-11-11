@@ -975,6 +975,34 @@ json_body = '''<div class="body" style="flex-direction: column; gap: 12px">
 </div></div>'''
 boards.append(board("Json", "JSON 工具 · 格式错误定位", 880, 580, page(880, 580, "code", "格式化 JSON", "JSON 工具", '<span class="btn sm">复制结果</span>', json_body, "esc 返回搜索", "⌘C 复制结果")))
 
+# ---- 剪贴板历史（优化计划阶段 F） ----
+def clip_row(mark, name, meta, on=False, pin=False):
+    bg = "background: var(--selected);" if on else ""
+    tag = '<span class="chip">固定</span>' if pin else ""
+    return (f'<div class="row" style="height: 46px; padding: 0 8px; border-radius: 6px; {bg}"><span class="tile sm">{icon(mark, 13)}</span>'
+            f'<span style="flex: 1; display: flex; flex-direction: column; min-width: 0"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{name}</span>'
+            f'<span class="note" style="font-size: 11px">{meta}</span></span>{tag}</div>')
+clip_rows = "".join([
+    clip_row("code", "ssh deploy@10.0.3.21 -p 2222", "终端 · 12:38", pin=True),
+    clip_row("globe", "https://github.com/tauri-apps/tauri/releases", "Safari · 刚刚", on=True),
+    clip_row("img", "图片 · 1280 × 720", "截图 · 10 分钟前"),
+    clip_row("folder", "首页.png 等 2 个文件", "访达 · 昨天 17:38"),
+])
+clip_body = f'''<div class="body" style="flex-direction: column; gap: 12px">
+<span class="row" style="gap: 12px"><span class="sel" style="width: 260px; justify-content: flex-start; color: var(--text-3)">{icon("search", 14)}搜索复制过的内容</span><span class="seg"><span class="on">全部</span><span>文字</span><span>图片</span><span>文件</span></span></span>
+<div class="row" style="flex: 1; align-items: stretch; gap: 16px">
+<div style="flex: 5; border-top: 1px solid var(--border)">{clip_rows}</div>
+<div style="flex: 6; display: flex; flex-direction: column; gap: 12px"><div style="flex: 1; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); display: flex; flex-direction: column"><span style="flex: 1">https://github.com/tauri-apps/tauri/releases</span><span class="note">来自 Safari · 刚刚 · 44 字</span></div>
+<span class="row" style="gap: 8px"><span class="btn p sm">粘贴</span><span class="btn sm">{icon("copy", 13)}复制</span><span class="btn g sm">固定</span><span class="btn g sm" style="color: var(--bad)">删除</span></span></div>
+</div></div>'''
+intro = '''<div class="body" style="align-items: center; justify-content: center"><div style="max-width: 460px; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 12px">
+<b style="font-family: var(--serif); font-size: 20px; font-weight: 500">记下复制过的内容</b>
+<p class="note">开启后，复制的文字、图片和文件会保存在这台 Mac 上，可以搜索后再次粘贴。</p>
+<p class="note">· 内容不加密地保存在 AhaTools 数据目录，只有你的账户能读取，不会上传。<br>· 1Password、钥匙串等密码管理器复制的内容和标记为隐私的复制不会保存。<br>· 默认最多 500 条、保留 30 天，固定的记录不受限制；随时可以暂停或清空。</p>
+<span class="row"><span class="btn p">开启剪贴板历史</span><span class="btn g">设置</span></span></div></div>'''
+actions = '<span class="btn g sm">暂停记录</span><span class="btn g sm">清空</span><span class="btn g sm">设置</span>'
+boards.append(board("ClipboardHistory", "剪贴板历史 · 列表与首次开启", 1820, 580, f'<div class="row" style="align-items: flex-start; gap: 40px">{page(880, 580, "copy", "剪贴板历史", "剪贴板历史", actions, clip_body, "esc 返回搜索", "↵ 粘贴 · ⌘C 复制 · ⌘P 固定 · ⌘⌫ 删除")}{page(880, 580, "copy", "剪贴板历史", "默认关闭，开启前说明保存方式", "", intro, "esc 返回搜索", "")}</div>'))
+
 # ---- canvas.json ----
 if STATIC:
     print("\n".join(b["file"] for b in boards))

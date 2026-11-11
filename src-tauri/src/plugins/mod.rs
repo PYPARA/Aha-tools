@@ -7,6 +7,7 @@
 //! Built-in plugins are compiled in. External plugins (loaded from disk at runtime)
 //! will use the same manifest format.
 
+pub mod clipboard_history;
 pub mod detect;
 pub mod hosts;
 pub mod launcher;
@@ -44,6 +45,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/processes/plugin.json"),
     include_str!("../../../plugins/network/plugin.json"),
     include_str!("../../../plugins/json/plugin.json"),
+    include_str!("../../../plugins/clipboard/plugin.json"),
     include_str!("../../../plugins/superpanel/plugin.json"),
 ];
 

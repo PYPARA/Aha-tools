@@ -37,6 +37,7 @@ pub struct Config {
     pub web_search: String,
     /// Answers with the caller's public IP as plain text (网络工具).
     pub public_ip_url: String,
+    pub clipboard_history: ClipboardHistory,
     /// Preserve unrelated/future fields when migrating and saving the config.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -134,6 +135,37 @@ pub enum PanelReopen {
     #[default]
     #[serde(other)]
     Resume,
+}
+
+/// 剪贴板历史: off until the user turns it on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ClipboardHistory {
+    pub enabled: bool,
+    pub max_items: u32,
+    pub max_days: u32,
+    /// Bundle ids whose copies are never kept (password managers).
+    pub excluded_apps: Vec<String>,
+}
+
+impl Default for ClipboardHistory {
+    fn default() -> Self {
+        ClipboardHistory {
+            enabled: false,
+            max_items: 500,
+            max_days: 30,
+            excluded_apps: [
+                "com.1password.1password",
+                "com.agilebits.onepassword7",
+                "com.bitwarden.desktop",
+                "com.apple.keychainaccess",
+                "com.apple.Passwords",
+                "com.lastpass.LastPass",
+            ]
+            .map(String::from)
+            .to_vec(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -293,6 +325,7 @@ impl Default for Config {
             clipboard_auto_paste: 5,
             web_search: "https://www.google.com/search?q={q}".into(),
             public_ip_url: "https://api.ipify.org".into(),
+            clipboard_history: ClipboardHistory::default(),
             extra: Default::default(),
             translate: TranslateConfig::default(),
         }
@@ -419,6 +452,8 @@ mod tests {
         assert_eq!(cfg.translate, TranslateConfig::default());
         assert_eq!(cfg.panel_reopen, PanelReopen::Resume);
         assert_eq!(cfg.clipboard_auto_paste, 5);
+        assert!(!cfg.clipboard_history.enabled);
+        assert!(cfg.clipboard_history.excluded_apps.iter().any(|a| a.contains("1password")));
         assert!(cfg.web_search.contains("{q}"));
         let off: Config = serde_json::from_str(r#"{"clipboardAutoPaste":0,"webSearch":"https://cn.bing.com/search?q={q}"}"#).unwrap();
         assert_eq!(off.clipboard_auto_paste, 0);

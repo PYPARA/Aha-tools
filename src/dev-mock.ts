@@ -18,6 +18,7 @@ import superpanel from "../plugins/superpanel/plugin.json";
 import processes from "../plugins/processes/plugin.json";
 import network from "../plugins/network/plugin.json";
 import json from "../plugins/json/plugin.json";
+import clipboardPlugin from "../plugins/clipboard/plugin.json";
 
 import compress from "../plugins/compress/plugin.json";
 import type { CompressionBatch, CompressionItem, ExportAction, ExportResult } from "../plugins/compress/model";
@@ -28,7 +29,7 @@ import { isWord } from "../plugins/translate/core";
 
 import imageTools from "../plugins/images/plugin.json";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, imageTools, translate, hosts, system, processes, network, json, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, imageTools, translate, hosts, system, processes, network, json, clipboardPlugin, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
@@ -235,6 +236,7 @@ let config: Config = {
   clipboardAutoPaste: 5,
   webSearch: "https://www.google.com/search?q={q}",
   publicIpUrl: "https://api.ipify.org",
+  clipboardHistory: { enabled: params.get("clipMock") !== "off", maxItems: 500, maxDays: 30, excludedApps: ["com.1password.1password", "com.apple.Passwords"] },
   disabledMatches: [] as string[],
   translate: {
     profiles: params.get("translateMock") && params.get("translateMock") !== "empty" ? [
@@ -284,6 +286,19 @@ function navigate(plugin: string, feature: string, input?: string, viewOnly = fa
 function navigateQuery(query: string) {
   pendingRequest = { id: ++requestId, plugin: "", feature: "", query };
   void emit("panel-query", pendingRequest);
+}
+const clipNow = Math.floor(Date.now() / 1000);
+let clipEntries = [
+  { id: "c1", kind: "text", text: "https://github.com/tauri-apps/tauri/releases", paths: [], image: null, app: "Safari", at: clipNow - 40, pinned: false, truncated: false },
+  { id: "c2", kind: "image", text: "", paths: [], image: { file: "c2.png", width: 1280, height: 720 }, app: "截图", at: clipNow - 600, pinned: false, truncated: false },
+  { id: "c3", kind: "text", text: "ssh deploy@10.0.3.21 -p 2222", paths: [], image: null, app: "终端", at: clipNow - 3600 * 5, pinned: true, truncated: false },
+  { id: "c4", kind: "files", text: "", paths: ["/Users/me/Documents/设计稿/首页.png", "/Users/me/Documents/设计稿/设置.png"], image: null, app: "访达", at: clipNow - 86400, pinned: false, truncated: false },
+  { id: "c5", kind: "text", text: Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 行：AhaTools 会记下复制过的长文本，列表只显示开头，右侧预览完整内容。`).join("\n"), paths: [], image: null, app: "备忘录", at: clipNow - 86400 * 3, pinned: false, truncated: false },
+];
+/** A small generated picture for the clipboard image preview. */
+function qrMockImageUrl() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#3A5A8C"/><circle cx="90" cy="90" r="46" fill="#93B1E3"/><rect x="160" y="54" width="120" height="72" rx="10" fill="#EDEAE2"/></svg>`;
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 const mockAddresses = [
   { interface: "en0", label: "Wi-Fi", ip: "192.168.1.23", v6: false },
@@ -541,6 +556,21 @@ mockIPC((cmd, args) => {
     }
     case "list_plugins":
       return manifests;
+    case "clipboard_history_list":
+      return params.get("clipMock") === "empty" || params.get("clipMock") === "off" ? [] : clipEntries.map((e) => e.text.length > 400 ? { ...e, text: e.text.slice(0, 400), truncated: true } : e);
+    case "clipboard_history_get": return clipEntries.find((e) => e.id === a.id) ?? null;
+    case "clipboard_history_image": return clipEntries.some((e) => e.id === a.id && e.kind === "image") ? qrMockImageUrl() : null;
+    case "clipboard_history_use": {
+      const entry = clipEntries.find((e) => e.id === a.id);
+      if (!entry) throw new Error("这条记录已删除");
+      clipboardText = entry.kind === "text" ? entry.text : entry.paths.join("\n");
+      clipEntries = [{ ...entry, at: Math.floor(Date.now() / 1000) }, ...clipEntries.filter((e) => e !== entry)];
+      executed.push(`clipboard:${a.paste ? "paste" : "copy"}:${entry.id}`);
+      return a.paste ? "已粘贴" : "已复制";
+    }
+    case "clipboard_history_pin": clipEntries = clipEntries.map((e) => e.id === a.id ? { ...e, pinned: Boolean(a.pinned) } : e); return null;
+    case "clipboard_history_delete": clipEntries = clipEntries.filter((e) => e.id !== a.id); return null;
+    case "clipboard_history_clear": clipEntries = clipEntries.filter((e) => e.pinned && !a.pinnedToo); return null;
     case "network_local":
       if (params.get("netMock") === "offline") return { addresses: [], gateway: null, gatewayInterface: null };
       return { addresses: mockAddresses, gateway: "192.168.1.1", gatewayInterface: "en0" };

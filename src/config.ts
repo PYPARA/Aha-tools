@@ -40,6 +40,8 @@ export interface Config {
   webSearch: string;
   /** Answers with the caller's public IP as plain text (网络工具). */
   publicIpUrl: string;
+  /** 剪贴板历史: off until turned on. */
+  clipboardHistory: { enabled: boolean; maxItems: number; maxDays: number; excludedApps: string[] };
   /** Content matches switched off, as "<plugin>/<feature>". */
   disabledMatches: string[];
   webApps: WebApp[];
