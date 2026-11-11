@@ -942,6 +942,39 @@ inner = f'''<div class="row" style="align-items: flex-start; gap: 28px">
 </div>'''
 boards.append(board("SceneMatching", "搜索面板 · 场景匹配", 1620, 440, inner))
 
+# ---- 网络工具与 JSON（优化计划阶段 E） ----
+def net_tabs(on):
+    return '<span class="seg">' + "".join(f'<span class="{"on" if t == on else ""}">{t}</span>' for t in ["本机 IP", "Ping", "DNS 查询", "端口占用"]) + "</span>"
+def net_row(label, value, kind=""):
+    return (f'<div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">{label}</span>'
+            f'<span class="mono" style="flex: 1">{value}</span><span class="note">{kind}</span><span class="ib" style="width: 26px; height: 26px">{icon("copy", 14)}</span></div>')
+ip_body = f'''<div class="body" style="flex-direction: column; gap: 10px">
+<span class="row"><b class="note" style="font-weight: 500">本机地址</b><span class="sp"></span><span class="btn g sm">刷新</span></span>
+<div style="border-top: 1px solid var(--border)">{net_row('Wi-Fi <span class="note">· en0</span>', "192.168.1.23", "IPv4")}{net_row('Wi-Fi <span class="note">· en0</span>', "2408:8207:6c40:1d0::a1", "IPv6")}{net_row('VPN <span class="note">· utun4</span>', "198.18.0.1", "IPv4")}{net_row('默认网关 <span class="note">· en0</span>', "192.168.1.1")}</div>
+<b class="note" style="font-weight: 500; margin-top: 6px">公网 IP</b>
+<div class="row" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px"><span class="note" style="flex: 1">点按查询，会向 api.ipify.org 发送一次请求</span><span class="btn sm">查询公网 IP</span></div>
+</div>'''
+bars = "".join(f'<i style="display:block;width:14px;height:{h}%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i>' for h in [72, 88, 64, 96, 70, 80, 61])
+ping_body = f'''<div class="body" style="flex-direction: column; gap: 12px">
+<span class="row"><span class="sel mono" style="flex: 1">github.com</span><span class="btn">停止</span></span>
+<span class="row" style="gap: 28px">{"".join(f'<span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">{k}</span><span style="font-size:15px">{v}</span></span>' for k, v in [("已发送", "7"), ("收到", "6"), ("丢包", '<span style="color: var(--warn)">14.3%</span>'), ("平均", "39.2 ms"), ("最快 / 最慢", "29.4 / 46.9 ms")])}</span>
+<span class="row" style="align-items: flex-end; gap: 4px; height: 48px">{bars}</span>
+<pre class="mono" style="margin: 0; flex: 1; padding: 10px 12px; border-radius: 8px; background: var(--sunken); font-size: 11.5px; line-height: 1.6">PING github.com (140.82.112.3): 56 data bytes
+64 bytes from 140.82.112.3: icmp_seq=0 ttl=52 time=38.000 ms
+Request timeout for icmp_seq 1
+64 bytes from 140.82.112.3: icmp_seq=2 ttl=52 time=46.184 ms</pre></div>'''
+boards.append(board("Network", "网络工具 · 本机 IP 与 Ping", 1820, 580, f'<div class="row" style="align-items: flex-start; gap: 40px">{page(880, 580, "globe", "本机 IP", "网络工具", net_tabs("本机 IP"), ip_body, "esc 返回搜索", "")}{page(880, 580, "globe", "Ping", "网络工具", net_tabs("Ping"), ping_body, "esc 返回搜索", "")}</div>'))
+json_body = '''<div class="body" style="flex-direction: column; gap: 12px">
+<span class="row" style="gap: 16px"><span class="seg"><span class="on">格式化</span><span>压缩</span><span>转义</span><span>去转义</span></span><span class="sel">2 个空格</span><span class="note">键名排序</span><span class="sw sm"><i></i></span><span class="note">树形查看</span><span class="sw sm"><i></i></span></span>
+<div class="row" style="flex: 1; align-items: stretch; gap: 12px">
+<pre class="mono" style="flex: 1; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 12px">{
+  "name": "AhaTools"
+  "version": 1
+}</pre>
+<div style="flex: 1; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; align-items: flex-start"><span style="color: var(--bad)">第 3 行第 3 列：缺少逗号：上一项后面需要逗号</span><span class="btn sm">定位到出错处</span></div>
+</div></div>'''
+boards.append(board("Json", "JSON 工具 · 格式错误定位", 880, 580, page(880, 580, "code", "格式化 JSON", "JSON 工具", '<span class="btn sm">复制结果</span>', json_body, "esc 返回搜索", "⌘C 复制结果")))
+
 # ---- canvas.json ----
 if STATIC:
     print("\n".join(b["file"] for b in boards))

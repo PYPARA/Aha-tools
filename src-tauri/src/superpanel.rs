@@ -264,6 +264,8 @@ pub fn toggle(app: &AppHandle) {
 }
 pub fn item_available(app: &AppHandle, item: &SearchItem) -> bool {
     match &item.action {
+        // Answers are worked out at search time; they're never pinned.
+        ItemAction::Copy { .. } => false,
         ItemAction::OpenWeb { id } => config::load(app).web_apps.iter().any(|w| &w.id == id),
         ItemAction::OpenPath { path } => {
             tauri::Url::parse(path).is_ok()
@@ -521,8 +523,14 @@ fn execute(app: &AppHandle, run: Run) -> Result<(), String> {
             crate::relay::notify("已复制，粘贴即可");
         }
         Run::Item(item) => {
+            if let ItemAction::Copy { text } = &item.action {
+                context::write_text(text)?;
+                crate::relay::notify("已复制");
+                return Ok(());
+            }
             crate::usage::usage_record(app.clone(), item.clone(), None)?;
             match item.action {
+                ItemAction::Copy { .. } => {}
                 ItemAction::OpenPath { path } => crate::plugins::open_path(app.clone(), path)?,
                 ItemAction::OpenWeb { id } => crate::webapps::open(app, &id)?,
                 ItemAction::Feature { feature, input } => {

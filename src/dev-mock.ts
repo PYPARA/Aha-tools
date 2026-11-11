@@ -16,6 +16,8 @@ import qrcode from "../plugins/qrcode/plugin.json";
 import system from "../plugins/system/plugin.json";
 import superpanel from "../plugins/superpanel/plugin.json";
 import processes from "../plugins/processes/plugin.json";
+import network from "../plugins/network/plugin.json";
+import json from "../plugins/json/plugin.json";
 
 import compress from "../plugins/compress/plugin.json";
 import type { CompressionBatch, CompressionItem, ExportAction, ExportResult } from "../plugins/compress/model";
@@ -26,7 +28,7 @@ import { isWord } from "../plugins/translate/core";
 
 import imageTools from "../plugins/images/plugin.json";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, imageTools, translate, hosts, system, processes, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, imageTools, translate, hosts, system, processes, network, json, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
@@ -232,6 +234,7 @@ let config: Config = {
   panelReopen: "resume",
   clipboardAutoPaste: 5,
   webSearch: "https://www.google.com/search?q={q}",
+  publicIpUrl: "https://api.ipify.org",
   disabledMatches: [] as string[],
   translate: {
     profiles: params.get("translateMock") && params.get("translateMock") !== "empty" ? [
@@ -281,6 +284,19 @@ function navigate(plugin: string, feature: string, input?: string, viewOnly = fa
 function navigateQuery(query: string) {
   pendingRequest = { id: ++requestId, plugin: "", feature: "", query };
   void emit("panel-query", pendingRequest);
+}
+const mockAddresses = [
+  { interface: "en0", label: "Wi-Fi", ip: "192.168.1.23", v6: false },
+  { interface: "en0", label: "Wi-Fi", ip: "2408:8207:6c40:1d0::a1", v6: true },
+  { interface: "utun4", label: "VPN", ip: "198.18.0.1", v6: false },
+];
+const pings = new Map<string, ReturnType<typeof setTimeout>>();
+function finishPing(id: string, host: string, sent: number, received: number) {
+  pings.delete(id);
+  void emit("network-ping", { id, line: `--- ${host} ping statistics ---` });
+  void emit("network-ping", { id, line: `${sent} packets transmitted, ${received} packets received, ${(100 - received / sent * 100).toFixed(1)}% packet loss` });
+  void emit("network-ping", { id, line: "round-trip min/avg/max/stddev = 29.461/38.204/46.913/6.012 ms" });
+  void emit("network-ping-done", { id, ok: received > 0 });
 }
 /** A rough copy of detect.rs for the preview: which kinds of text this is. */
 function mockKinds(text: string): string[] {
@@ -525,6 +541,50 @@ mockIPC((cmd, args) => {
     }
     case "list_plugins":
       return manifests;
+    case "network_local":
+      if (params.get("netMock") === "offline") return { addresses: [], gateway: null, gatewayInterface: null };
+      return { addresses: mockAddresses, gateway: "192.168.1.1", gatewayInterface: "en0" };
+    case "network_public_ip":
+      if (params.get("netMock") === "error") throw new Error("查询公网 IP 失败：连接超时（预览错误）");
+      return new Promise((resolve) => setTimeout(() => resolve("203.0.113.42"), 400));
+    case "network_ping_start": {
+      const id = String(a.id); const host = String(a.host).trim().replace(/^https?:\/\//, "").split(/[/:]/)[0];
+      if (!/^[\w.-]+$/.test(host) || host.startsWith("-")) throw new Error("请输入域名或 IP 地址，例如 github.com 或 1.1.1.1");
+      const lossy = params.get("netMock") === "lossy";
+      const lines = [`PING ${host} (140.82.112.3): 56 data bytes`, ...Array.from({ length: 10 }, (_, i) => lossy && i % 3 === 1
+        ? `Request timeout for icmp_seq ${i}` : `64 bytes from 140.82.112.3: icmp_seq=${i} ttl=52 time=${(38 + Math.sin(i) * 9).toFixed(3)} ms`)];
+      let n = 0;
+      const tick = () => {
+        if (!pings.has(id)) return;
+        if (n < lines.length) { void emit("network-ping", { id, line: lines[n++] }); pings.set(id, setTimeout(tick, 120)); return; }
+        finishPing(id, host, lines.length - 1, lossy ? 7 : 10);
+      };
+      pings.set(id, setTimeout(tick, 80));
+      return host;
+    }
+    case "network_ping_stop": {
+      const id = String(a.id);
+      if (pings.has(id)) { clearTimeout(pings.get(id)); finishPing(id, "github.com", 3, 3); }
+      return null;
+    }
+    case "network_dns": {
+      const host = String(a.host).trim();
+      if (!/^[\w.-]+$/.test(host)) throw new Error("请输入域名或 IP 地址，例如 github.com 或 1.1.1.1");
+      return new Promise((resolve) => setTimeout(() => resolve({
+        host, server: a.server ?? null, system: params.get("netMock") === "hosts" ? ["127.0.0.1"] : ["140.82.112.3"],
+        hostsFile: params.get("netMock") === "hosts" ? [`127.0.0.1 ${host}`] : [],
+        records: [{ kind: "A", values: ["140.82.112.3"] }, { kind: "AAAA", values: [] }, { kind: "CNAME", values: [] },
+          { kind: "MX", values: ["1 aspmx.l.google.com.", "5 alt1.aspmx.l.google.com."] }, { kind: "TXT", values: ['"v=spf1 include:_spf.google.com ~all"'] }],
+      }), 300));
+    }
+    case "network_ports":
+      return params.get("netMock") === "empty" ? [] : [
+        { port: 1420, address: "127.0.0.1", pid: 50123, process: "node", user: "me" },
+        { port: 3000, address: "*", pid: 50200, process: "node", user: "me" },
+        { port: 5432, address: "127.0.0.1", pid: 812, process: "postgres", user: "me" },
+        { port: 7890, address: "127.0.0.1", pid: 940, process: "verge-mihomo", user: "me" },
+        { port: 14013, address: "127.0.0.1", pid: 1366, process: "WeChat", user: "me" },
+      ].filter((r) => !quitPids.includes(r.pid));
     case "processes_snapshot": {
       const scenario = params.get("procMock") ?? "normal";
       if (scenario === "error") throw new Error("无法读取进程列表：ps 不可用（预览错误）");
@@ -620,7 +680,11 @@ mockIPC((cmd, args) => {
       const hits = apps
         .filter((x) => (x.title + x.subtitle).toLowerCase().includes(q))
         .map((x) => ({ ...x, score: 50, plugin: "launcher", action: { type: "openPath", path: x.path } }));
-      return [...webHits, ...features, ...hits].sort((x, y) => y.score - x.score);
+      // 网络工具 answers 「ip」 right in the list.
+      const answers = ["ip", "内网ip", "本机ip", "局域网ip"].includes(q.replace(/\s/g, "")) ? mockAddresses.filter((a) => !a.v6).map((a, i) => ({
+        title: a.ip, subtitle: `内网 IP · ${a.label} (${a.interface})`, score: 5_100 - i, plugin: "network", kind: "feature", action: { type: "copy", text: a.ip },
+      })) : [];
+      return [...answers, ...webHits, ...features, ...hits].sort((x, y) => y.score - x.score);
     }
     case "netspeed_snapshot": {
       const history = Array.from({ length: 60 }, (_, i) => [

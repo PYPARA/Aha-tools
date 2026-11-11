@@ -35,6 +35,8 @@ pub struct Config {
     pub clipboard_auto_paste: u32,
     /// Web search for 「没有找到」, with `{q}` for the query.
     pub web_search: String,
+    /// Answers with the caller's public IP as plain text (网络工具).
+    pub public_ip_url: String,
     /// Preserve unrelated/future fields when migrating and saving the config.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -290,6 +292,7 @@ impl Default for Config {
             web_apps: default_web_apps(),
             clipboard_auto_paste: 5,
             web_search: "https://www.google.com/search?q={q}".into(),
+            public_ip_url: "https://api.ipify.org".into(),
             extra: Default::default(),
             translate: TranslateConfig::default(),
         }

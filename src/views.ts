@@ -27,6 +27,8 @@ import Compress from "../plugins/compress/Compress";
 import Hosts from "../plugins/hosts/Hosts";
 import Translate from "../plugins/translate/Translate";
 import Processes from "../plugins/processes/Processes";
+import { views as networkViews } from "../plugins/network/Network";
+import Json from "../plugins/json/Json";
 import TranslateSettings from "../plugins/translate/Settings";
 
 export { featureIcons, featureIconKey } from "./feature-icons";
@@ -42,6 +44,8 @@ export const views: Record<string, ComponentType<PluginViewProps>> = {
   "hosts/hosts": Hosts,
   "translate/translate": Translate,
   "processes/processes": Processes,
+  ...networkViews,
+  "json/format": Json,
 };
 
 /** Views that draw the whole window themselves (no page header or footer). */

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>网络工具 · 本机 IP 与 Ping</title>
+<!-- 由 docs/design/gen_boards.py --static 生成 -->
+<style>body{margin:0}
+.t-light{--desk:#E6E3DA;--bg:#FAF9F6;--surface:#FFFFFF;--sunken:#F3F2EC;--hover:rgba(120,113,100,.08);--selected:rgba(120,113,100,.14);--border:rgba(40,36,30,.11);--border-strong:rgba(40,36,30,.22);--text:#1D1C1A;--text-2:#6B6860;--text-3:#A3A096;--ok:#4C7A3D;--warn:#9A5B13;--bad:#A8402F;--on-accent:#FFFFFF;--menubar:rgba(250,249,246,.82);--shadow:0 18px 50px rgba(30,25,15,.18),0 0 0 1px rgba(40,36,30,.11)}
+.t-dark{--desk:#141413;--bg:#262522;--surface:#302F2B;--sunken:#1F1E1C;--hover:rgba(255,250,240,.06);--selected:rgba(255,250,240,.10);--border:rgba(255,250,240,.10);--border-strong:rgba(255,250,240,.20);--text:#EEEDE8;--text-2:#A9A69C;--text-3:#76736B;--ok:#8FC27A;--warn:#E3A85A;--bad:#F08B78;--on-accent:#16202F;--menubar:rgba(38,37,34,.86);--shadow:0 18px 50px rgba(0,0,0,.5),0 0 0 1px rgba(255,250,240,.10)}
+.t-light,.t-dark{--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;--serif:ui-serif,"New York","Songti SC",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;--accent-soft:color-mix(in srgb,var(--accent) 12%,transparent);font-family:var(--sans);color:var(--text)}
+input::placeholder,textarea::placeholder{color:var(--text-3)}
+.win{border-radius:14px;background:var(--bg);box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;font-size:13px;flex-shrink:0}
+.head{height:64px;flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--border)}
+.ib{width:30px;height:30px;border-radius:8px;border:none;background:transparent;color:var(--text-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0}
+.tile{width:30px;height:30px;box-sizing:border-box;border-radius:8px;background:var(--sunken);border:1px solid var(--border);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px}
+.tile.xl{width:44px;height:44px;border-radius:11px}
+.tile.sm{width:26px;height:26px;border-radius:7px;font-size:11px}
+.ttl{flex:1;display:flex;flex-direction:column;gap:1px}.ttl b{font-family:var(--serif);font-size:19px;font-weight:500;line-height:1.2}.ttl span{font-size:11px;color:var(--text-2)}
+.body{flex:1;min-height:0;display:flex;gap:20px;padding:20px 28px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.foot{height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-top:1px solid var(--border);font-size:11px;color:var(--text-2)}
+.btn{height:30px;padding:0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-family:inherit;font-size:13px;color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;flex-shrink:0}
+.btn.p{border:none;background:var(--accent);color:var(--on-accent);font-weight:500}
+.btn.g{border:none;background:transparent;color:var(--text-2)}
+.btn.a{border:none;background:transparent;color:var(--accent)}
+.btn.sm{height:26px;padding:0 10px;font-size:12px}
+.inp{height:30px;box-sizing:border-box;padding:0 10px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-family:inherit;font-size:13px;color:var(--text);outline:none;min-width:0}
+.ta{box-sizing:border-box;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:inherit;font-size:14px;line-height:1.65;color:var(--text);outline:none;resize:none;margin:0}
+.note{font-size:12px;color:var(--text-2);line-height:1.5;margin:0}
+.lbl{font-size:12px;font-weight:600;color:var(--text-2)}
+.row{display:flex;align-items:center;gap:10px}
+.sp{flex:1}
+.seg{display:inline-flex;padding:3px;border-radius:8px;background:var(--sunken);gap:2px;flex-shrink:0}.seg span{height:24px;padding:0 12px;border-radius:6px;display:flex;align-items:center;font-size:12px;color:var(--text-2)}.seg span.on{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.08);color:var(--text);font-weight:500}
+.dot{width:7px;height:7px;border-radius:4px;display:inline-block;flex-shrink:0}
+.sw{width:36px;height:22px;box-sizing:border-box;padding:2px;border-radius:11px;background:var(--border-strong);display:flex;flex-shrink:0}.sw.on{background:var(--accent);justify-content:flex-end}.sw i{width:18px;height:18px;border-radius:9px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.sw.sm{width:30px;height:18px}.sw.sm i{width:14px;height:14px}
+.card{border-radius:10px;border:1px solid var(--border);background:var(--surface)}
+.mono{font-family:var(--mono)}
+.chip{height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:999px;background:var(--sunken);border:1px solid var(--border);font-size:11px;color:var(--text-2)}
+.strip{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px 0 14px;border-radius:10px;background:var(--sunken)}
+.sel{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px 0 12px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);font-size:13px;flex-shrink:0}
+.sel{color:var(--text);font-family:inherit}
+.side{width:208px;flex-shrink:0;background:var(--sunken);border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
+.side .h{display:flex;align-items:center;gap:8px;padding:2px 6px 14px}.side .h b{font-family:var(--serif);font-size:18px;font-weight:500}
+.side .g{padding:14px 10px 6px;font-size:11px;color:var(--text-2)}
+.side .i{display:flex;align-items:center;height:34px;padding:0 10px 0 36px;border-radius:8px;font-size:13px}
+.side .i.on,.plist .i.on{background:var(--selected);font-weight:500}
+.plist{width:184px;flex-shrink:0;padding:14px 8px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
+.plist .i{display:flex;align-items:center;gap:10px;height:40px;padding:0 8px;border-radius:8px}
+.plist .g{padding:10px 8px 4px;font-size:11px;color:var(--text-2)}
+.detail{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;padding:28px 30px;overflow:hidden}
+.dh{display:flex;align-items:center;gap:14px}.dh b{font-family:var(--serif);font-size:22px;font-weight:500;line-height:1.2;display:block}
+.srow{display:flex;align-items:center;gap:20px;min-height:58px;border-bottom:1px solid var(--border)}
+.srow:last-child{border-bottom:none}
+.st{flex:1;display:flex;flex-direction:column;gap:3px}.st b{font-size:14px;font-weight:500}.st span{font-size:12px;color:var(--text-2);line-height:1.45}
+.bar{display:block;height:6px;border-radius:3px;background:var(--sunken);overflow:hidden}.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;padding:0 10px 8px;font-size:12px;font-weight:500;color:var(--text-2)}
+td{height:46px;padding:0 10px;border-top:1px solid var(--border)}
+</style><div style="width:3800px;display:flex"><div class="t-light" style="width:1900px;height:688px;box-sizing:border-box;padding:40px;background:var(--desk);display:flex;flex-direction:column;gap:12px;--accent:#3A5A8C"><div style="font-size:12px;color:var(--text-2)">浅色</div><div class="row" style="align-items: flex-start; gap: 40px"><section class="win" style="width: 880px; height: 580px">
+<header class="head">
+<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span>
+<span class="ttl"><b>本机 IP</b><span>网络工具</span></span>
+<span class="seg"><span class="on">本机 IP</span><span class="">Ping</span><span class="">DNS 查询</span><span class="">端口占用</span></span>
+</header>
+<div class="body" style="flex-direction: column; gap: 10px">
+<span class="row"><b class="note" style="font-weight: 500">本机地址</b><span class="sp"></span><span class="btn g sm">刷新</span></span>
+<div style="border-top: 1px solid var(--border)"><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">Wi-Fi <span class="note">· en0</span></span><span class="mono" style="flex: 1">192.168.1.23</span><span class="note">IPv4</span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">Wi-Fi <span class="note">· en0</span></span><span class="mono" style="flex: 1">2408:8207:6c40:1d0::a1</span><span class="note">IPv6</span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">VPN <span class="note">· utun4</span></span><span class="mono" style="flex: 1">198.18.0.1</span><span class="note">IPv4</span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">默认网关 <span class="note">· en0</span></span><span class="mono" style="flex: 1">192.168.1.1</span><span class="note"></span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div></div>
+<b class="note" style="font-weight: 500; margin-top: 6px">公网 IP</b>
+<div class="row" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px"><span class="note" style="flex: 1">点按查询，会向 api.ipify.org 发送一次请求</span><span class="btn sm">查询公网 IP</span></div>
+</div>
+<footer class="foot"><span>esc 返回搜索</span><span></span></footer>
+</section><section class="win" style="width: 880px; height: 580px">
+<header class="head">
+<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span>
+<span class="ttl"><b>Ping</b><span>网络工具</span></span>
+<span class="seg"><span class="">本机 IP</span><span class="on">Ping</span><span class="">DNS 查询</span><span class="">端口占用</span></span>
+</header>
+<div class="body" style="flex-direction: column; gap: 12px">
+<span class="row"><span class="sel mono" style="flex: 1">github.com</span><span class="btn">停止</span></span>
+<span class="row" style="gap: 28px"><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">已发送</span><span style="font-size:15px">7</span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">收到</span><span style="font-size:15px">6</span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">丢包</span><span style="font-size:15px"><span style="color: var(--warn)">14.3%</span></span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">平均</span><span style="font-size:15px">39.2 ms</span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">最快 / 最慢</span><span style="font-size:15px">29.4 / 46.9 ms</span></span></span>
+<span class="row" style="align-items: flex-end; gap: 4px; height: 48px"><i style="display:block;width:14px;height:72%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:88%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:64%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:96%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:70%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:80%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:61%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i></span>
+<pre class="mono" style="margin: 0; flex: 1; padding: 10px 12px; border-radius: 8px; background: var(--sunken); font-size: 11.5px; line-height: 1.6">PING github.com (140.82.112.3): 56 data bytes
+64 bytes from 140.82.112.3: icmp_seq=0 ttl=52 time=38.000 ms
+Request timeout for icmp_seq 1
+64 bytes from 140.82.112.3: icmp_seq=2 ttl=52 time=46.184 ms</pre></div>
+<footer class="foot"><span>esc 返回搜索</span><span></span></footer>
+</section></div></div>
+<div class="t-dark" style="width:1900px;height:688px;box-sizing:border-box;padding:40px;background:var(--desk);display:flex;flex-direction:column;gap:12px;--accent:#93B1E3"><div style="font-size:12px;color:var(--text-2)">深色</div><div class="row" style="align-items: flex-start; gap: 40px"><section class="win" style="width: 880px; height: 580px">
+<header class="head">
+<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span>
+<span class="ttl"><b>本机 IP</b><span>网络工具</span></span>
+<span class="seg"><span class="on">本机 IP</span><span class="">Ping</span><span class="">DNS 查询</span><span class="">端口占用</span></span>
+</header>
+<div class="body" style="flex-direction: column; gap: 10px">
+<span class="row"><b class="note" style="font-weight: 500">本机地址</b><span class="sp"></span><span class="btn g sm">刷新</span></span>
+<div style="border-top: 1px solid var(--border)"><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">Wi-Fi <span class="note">· en0</span></span><span class="mono" style="flex: 1">192.168.1.23</span><span class="note">IPv4</span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">Wi-Fi <span class="note">· en0</span></span><span class="mono" style="flex: 1">2408:8207:6c40:1d0::a1</span><span class="note">IPv6</span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">VPN <span class="note">· utun4</span></span><span class="mono" style="flex: 1">198.18.0.1</span><span class="note">IPv4</span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div><div class="row" style="height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border)"><span style="width: 180px">默认网关 <span class="note">· en0</span></span><span class="mono" style="flex: 1">192.168.1.1</span><span class="note"></span><span class="ib" style="width: 26px; height: 26px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span></div></div>
+<b class="note" style="font-weight: 500; margin-top: 6px">公网 IP</b>
+<div class="row" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px"><span class="note" style="flex: 1">点按查询，会向 api.ipify.org 发送一次请求</span><span class="btn sm">查询公网 IP</span></div>
+</div>
+<footer class="foot"><span>esc 返回搜索</span><span></span></footer>
+</section><section class="win" style="width: 880px; height: 580px">
+<header class="head">
+<button type="button" class="ib" aria-label="返回搜索"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+<span class="tile" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"></path></svg></span>
+<span class="ttl"><b>Ping</b><span>网络工具</span></span>
+<span class="seg"><span class="">本机 IP</span><span class="on">Ping</span><span class="">DNS 查询</span><span class="">端口占用</span></span>
+</header>
+<div class="body" style="flex-direction: column; gap: 12px">
+<span class="row"><span class="sel mono" style="flex: 1">github.com</span><span class="btn">停止</span></span>
+<span class="row" style="gap: 28px"><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">已发送</span><span style="font-size:15px">7</span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">收到</span><span style="font-size:15px">6</span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">丢包</span><span style="font-size:15px"><span style="color: var(--warn)">14.3%</span></span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">平均</span><span style="font-size:15px">39.2 ms</span></span><span style="display:flex;flex-direction:column"><span class="note" style="font-size:11px">最快 / 最慢</span><span style="font-size:15px">29.4 / 46.9 ms</span></span></span>
+<span class="row" style="align-items: flex-end; gap: 4px; height: 48px"><i style="display:block;width:14px;height:72%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:88%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:64%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:96%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:70%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:80%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i><i style="display:block;width:14px;height:61%;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--accent) 70%,transparent)"></i></span>
+<pre class="mono" style="margin: 0; flex: 1; padding: 10px 12px; border-radius: 8px; background: var(--sunken); font-size: 11.5px; line-height: 1.6">PING github.com (140.82.112.3): 56 data bytes
+64 bytes from 140.82.112.3: icmp_seq=0 ttl=52 time=38.000 ms
+Request timeout for icmp_seq 1
+64 bytes from 140.82.112.3: icmp_seq=2 ttl=52 time=46.184 ms</pre></div>
+<footer class="foot"><span>esc 返回搜索</span><span></span></footer>
+</section></div></div></div></html>

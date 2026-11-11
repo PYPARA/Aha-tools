@@ -38,6 +38,8 @@ export interface Config {
   clipboardAutoPaste: number;
   /** Web search for queries without results, with {q} for the query. */
   webSearch: string;
+  /** Answers with the caller's public IP as plain text (网络工具). */
+  publicIpUrl: string;
   /** Content matches switched off, as "<plugin>/<feature>". */
   disabledMatches: string[];
   webApps: WebApp[];

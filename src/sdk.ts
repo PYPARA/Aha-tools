@@ -19,7 +19,9 @@ export { imageCanvas, imagePng, pixelsFromBlob, hasTextSelection, isEditingTarge
 export type ItemAction =
   | { type: "openPath"; path: string }
   | { type: "openWeb"; id: string }
-  | { type: "feature"; feature: string; input?: string };
+  | { type: "feature"; feature: string; input?: string }
+  /** An answer shown in the list; ↵ copies `text`. */
+  | { type: "copy"; text: string };
 
 export interface SearchItem {
   title: string;

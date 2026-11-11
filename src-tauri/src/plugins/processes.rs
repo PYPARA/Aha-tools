@@ -206,11 +206,13 @@ pub async fn processes_snapshot() -> Result<Snapshot, String> {
     .map_err(|_| "读取进程失败".to_string())?
 }
 
-/// A process the page showed: the path guards against its pid being reused since.
+/// A process the page showed: the path, when known, guards against its pid being reused
+/// since. 端口占用 only knows the pid.
 #[derive(Deserialize, Clone, Debug)]
 pub struct Target {
     pub pid: i32,
-    pub path: String,
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 /// Which of `targets` may be signalled now. Gone ones are skipped; any that may not be
@@ -218,7 +220,7 @@ pub struct Target {
 fn checked(targets: &[Target], live: &[Proc], me: &Me) -> Result<Vec<Proc>, String> {
     let mut out = vec![];
     for t in targets {
-        let Some(p) = live.iter().find(|p| p.pid == t.pid && p.path == t.path) else { continue };
+        let Some(p) = live.iter().find(|p| p.pid == t.pid && t.path.as_ref().is_none_or(|path| *path == p.path)) else { continue };
         if me.protects(p) {
             return Err(format!("「{}」是系统必需的进程，不能结束", file_name(&p.path)));
         }
@@ -330,19 +332,20 @@ mod tests {
     fn quitting_skips_gone_and_reused_pids_and_refuses_system_or_other_users() {
         let live = parse_ps(PS);
         let me = me();
-        let node = Target { pid: 4242, path: "/opt/homebrew/bin/node".into() };
+        let node = Target { pid: 4242, path: Some("/opt/homebrew/bin/node".into()) };
+        assert_eq!(checked(&[Target { pid: 4242, path: None }], &live, &me).unwrap().len(), 1);
         assert_eq!(checked(&[node.clone()], &live, &me).unwrap().len(), 1);
         // Same pid, different program: the old process is gone.
-        let reused = Target { pid: 4242, path: "/usr/bin/other".into() };
+        let reused = Target { pid: 4242, path: Some("/usr/bin/other".into()) };
         assert!(checked(&[reused], &live, &me).unwrap().is_empty());
-        let server = Target { pid: 650, path: live[1].path.clone() };
+        let server = Target { pid: 650, path: Some(live[1].path.clone()) };
         assert!(checked(&[node.clone(), server], &live, &me).unwrap_err().contains("系统必需"));
         let mut other = live.clone();
         other[4].uid = 0;
         assert!(checked(&[node], &other, &me).unwrap_err().contains("其他用户"));
         let mut own = live.clone();
         own[4].path = "/Applications/AhaTools.app/Contents/MacOS/ahatools".into();
-        let own_target = Target { pid: 4242, path: own[4].path.clone() };
+        let own_target = Target { pid: 4242, path: Some(own[4].path.clone()) };
         assert!(checked(&[own_target], &own, &me).is_err());
     }
 

@@ -1,0 +1,35 @@
+{
+  "id": "network",
+  "name": "网络工具",
+  "version": "0.1.0",
+  "description": "本机和公网 IP、ping、DNS 查询、端口占用",
+  "searchProvider": true,
+  "features": [
+    {
+      "code": "ip",
+      "explain": "本机 IP",
+      "cmds": ["ip", "内网ip", "本机ip", "局域网ip", "公网ip", "ipconfig", "ifconfig", "网关"]
+    },
+    {
+      "code": "ping",
+      "explain": "Ping",
+      "cmds": ["ping", "网络延迟"],
+      "match": { "types": ["domain", "ip"] },
+      "matchTitle": "ping {input}"
+    },
+    {
+      "code": "dns",
+      "explain": "DNS 查询",
+      "cmds": ["dns", "nslookup", "dig", "域名解析"],
+      "match": { "types": ["domain"] },
+      "matchTitle": "查询「{input}」的 DNS"
+    },
+    {
+      "code": "port",
+      "explain": "端口占用",
+      "cmds": ["port", "端口", "端口占用", "lsof"],
+      "match": { "types": ["port"] },
+      "matchTitle": "查看端口 {input} 的占用"
+    }
+  ]
+}

@@ -113,7 +113,7 @@ fn counted_name(index: u16, flags: i32) -> Option<String> {
 }
 
 /// Device → port name ("en0" → "Wi-Fi") from `networksetup -listallhardwareports`.
-fn hardware_ports() -> HashMap<String, String> {
+pub(crate) fn hardware_ports() -> HashMap<String, String> {
     let Ok(out) = std::process::Command::new("networksetup")
         .arg("-listallhardwareports")
         .output()

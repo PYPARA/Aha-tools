@@ -350,6 +350,15 @@ export default function App() {
       return;
     }
     // The typed query teaches search which result it should lead to next time.
+    if (item.action.type === "copy") {
+      // An answer in the list (「ip」 → 192.168.1.10): copy it and get out of the way.
+      try {
+        await writeClipboardText(item.action.text);
+        setQuery("");
+        hidePanel();
+      } catch (e) { setError(String(e)); }
+      return;
+    }
     if (item.plugin !== FALLBACK) invoke("usage_record", { item, query: content ? null : query.trim() || null });
     if (item.action.type === "openWeb") {
       setQuery("");
@@ -378,7 +387,7 @@ export default function App() {
   };
 
   const togglePin = async (item: SearchItem | undefined) => {
-    if (!item || item.plugin === FALLBACK || item.plugin === ASK) return;
+    if (!item || item.plugin === FALLBACK || item.plugin === ASK || item.action.type === "copy") return;
     const pinned = await invoke<boolean>("usage_toggle_pin", { item });
     setFlash(pinned ? `已固定「${item.title}」` : `已取消固定「${item.title}」`);
     loadHome();
@@ -403,7 +412,7 @@ export default function App() {
   /** Right-click menu, native like uTools': pin / unpin, and remove from 最近使用. */
   const showItemMenu = async (e: React.MouseEvent, item: SearchItem, inRecent: boolean) => {
     e.preventDefault();
-    if (item.plugin === FALLBACK || item.plugin === ASK) return;
+    if (item.plugin === FALLBACK || item.plugin === ASK || item.action.type === "copy") return;
     const pinned = pinnedKeys.has(pinKey(item));
     const entries = [
       { text: pinned ? "取消固定" : "固定到首页", accelerator: "CmdOrCtrl+D", action: () => togglePin(item) },
@@ -561,7 +570,7 @@ export default function App() {
               <span className="subtitle">{item.subtitle}</span>
             </span>
             {i === selected ? (
-              <span className="go">↵ 打开</span>
+              <span className="go">{item.action.type === "copy" ? "↵ 复制" : "↵ 打开"}</span>
             ) : (
               <span className="key">{i < 9 ? `⌘${i + 1}` : ""}</span>
             )}

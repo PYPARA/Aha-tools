@@ -1,0 +1,14 @@
+{
+  "id": "json",
+  "name": "JSON 工具",
+  "version": "0.1.0",
+  "description": "格式化、压缩、转义 JSON，定位格式错误",
+  "features": [
+    {
+      "code": "format",
+      "explain": "格式化 JSON",
+      "cmds": ["json", "格式化", "jsonformat", "压缩json"],
+      "match": { "types": ["json"] }
+    }
+  ]
+}

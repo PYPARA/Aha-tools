@@ -50,6 +50,7 @@ pub fn run() {
             let launcher = Launcher::new(app.handle().clone());
             let mut registry = Registry::new();
             registry.add_provider(launcher::ID, launcher.clone());
+            registry.add_provider(plugins::network::ID, std::sync::Arc::new(plugins::network::Answers));
             registry.add_provider(
                 plugins::webapps::ID,
                 std::sync::Arc::new(plugins::webapps::WebApps),
@@ -90,6 +91,12 @@ pub fn run() {
             plugins::system::system_ocr_get,
             plugins::processes::processes_snapshot,
             plugins::processes::processes_quit,
+            plugins::network::network_local,
+            plugins::network::network_public_ip,
+            plugins::network::network_ping_start,
+            plugins::network::network_ping_stop,
+            plugins::network::network_dns,
+            plugins::network::network_ports,
             panel::set_panel_pinned,
             panel::set_panel_large,
             plugins::list_plugins,

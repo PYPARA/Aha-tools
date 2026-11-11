@@ -10,6 +10,7 @@
 pub mod detect;
 pub mod hosts;
 pub mod launcher;
+pub mod network;
 pub mod processes;
 pub mod compress;
 pub mod qrcode;
@@ -41,6 +42,8 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/settings/plugin.json"),
     include_str!("../../../plugins/system/plugin.json"),
     include_str!("../../../plugins/processes/plugin.json"),
+    include_str!("../../../plugins/network/plugin.json"),
+    include_str!("../../../plugins/json/plugin.json"),
     include_str!("../../../plugins/superpanel/plugin.json"),
 ];
 
@@ -285,6 +288,8 @@ pub enum ItemAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         input: Option<String>,
     },
+    /// An answer shown right in the list (「ip」 → 192.168.1.10): ↵ copies it.
+    Copy { text: String },
 }
 
 pub trait SearchProvider: Send + Sync {
@@ -303,6 +308,8 @@ const MAX_RESULTS: usize = 30;
 const CMD_WITH_INPUT_SCORE: i64 = 10_000;
 /// Made for this kind of text (a domain → ping): after named requests, before name matches.
 const TYPE_MATCH_SCORE: i64 = 5_000;
+/// A provider's direct answer to the query (「ip」 → this Mac's address): above type matches.
+pub const ANSWER_SCORE: i64 = 5_100;
 /// Content matches ("translate this text") go after every named result.
 const CONTENT_MATCH_SCORE: i64 = -1;
 /// Name matches scoring under this share of the best one are noise ("c" in "Music").

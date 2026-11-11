@@ -319,7 +319,7 @@
 | B | 翻译提速：带入即发、复用连接、缩短防抖、附加请求参数、结果缓存、单词释义流式显示、显示耗时 | 实现完成，待真机验收，见下文 |
 | C | 进程管理：按应用聚合 CPU / 内存，搜索、排序、退出 / 强制结束 | 实现完成，待真机验收，见下文 |
 | D | 场景匹配：自动带入刚复制的内容、按内容类型（网址 / JSON / IP / 域名 / 端口 / 路径）匹配、无结果时给出路 | 实现完成，待真机验收，见下文 |
-| E | 网络工具（本机 / 公网 IP、ping、DNS、端口占用）与 JSON 工具 | 未开始 |
+| E | 网络工具（本机 / 公网 IP、ping、DNS、端口占用）与 JSON 工具 | 实现完成，待真机验收，见下文 |
 | F | 剪贴板历史（默认关闭，本机明文保存） | 未开始 |
 | G | 真机问题收集：`docs/issues.md`，每阶段出正式版过真机确认 | 贯穿 |
 
@@ -393,6 +393,29 @@
 - [ ] 在 AhaTools 里复制结果（翻译、二维码、超级面板复制路径）后再打开面板，不会把它带回来。
 - [ ] 输入 `/Applications`、`https://…` 时第一项分别是「在访达中显示」「在浏览器中打开」且可用。
 - [ ] 输入搜不到的词，「在网上搜索」用所选搜索引擎打开；「问 DeepSeek」打开后可直接粘贴。
+
+#### 阶段 E：网络工具与 JSON（2026-11-11）
+
+- 设计稿：[Network.html](design/Network.html)（本机 IP、Ping）、[Json.html](design/Json.html)（格式错误定位）。
+- **直接答案**：新增 `ItemAction::Copy { text }`，结果行右侧显示「↵ 复制」，回车复制并收起面板；不进最近使用、不能固定。插件可通过 `SearchProvider` 返回 `ANSWER_SCORE`（5100，高于类型匹配）的答案。搜索 `ip`、`内网ip`、`本机ip` 等直接列出本机各网卡的 IPv4。
+- **网络工具**（`plugins/network/`，`src-tauri/src/plugins/network.rs`）：一个页面四个页签，各是独立功能（可单独搜索、绑热键）。
+  - 本机 IP：`getifaddrs` 读 en* / utun* / ppp* 等已启用网卡，不含回环和 fe80 本地链路 IPv6，网卡名用「网络设置」的硬件端口名；默认网关来自 `route -n get default`。公网 IP 点按才查询，服务地址为 `config.publicIpUrl`（默认 `https://api.ipify.org`，返回纯文本）。
+  - Ping：`/sbin/ping -c 10 -i 1 -t 20`（IPv6 用 `ping6`），逐行推送到页面，实时统计发送 / 收到 / 丢包 / 平均 / 最快最慢，柱状图显示每次延迟；「停止」发 SIGINT，ping 仍会打印汇总；离开页面自动停止。适用于域名和 IP（类型匹配，如输入 `github.com` 第一项是「ping github.com」）。
+  - DNS 查询：`dig +short` 并行查 A / AAAA / CNAME / MX / TXT，可指定 DNS 服务器（只接受 IP）；同时给出本机实际解析（含 /etc/hosts、VPN），/etc/hosts 有该域名或两者不一致时提示。
+  - 端口占用：`lsof -nP -iTCP -sTCP:LISTEN -FpcLn` 列出监听端口，可按端口、进程、PID 筛选；「结束」复用 `processes_quit`（`Target.path` 改为可选，只给 PID 时不比对路径）。输入 `3000` 这类端口号会推荐「查看端口 3000 的占用」。
+  - 主机名只接受字母数字和 `.-:_`，不能以 `-` 开头，命令一律参数数组调用。
+- **JSON 工具**（`plugins/json/`，纯前端）：格式化（2 / 4 空格、键名排序、树形查看）、压缩、转义、去转义（去转义后若是 JSON 会再格式化）。WebKit 的 `JSON.parse` 报错不带位置，`model.ts` 的 `findError` 自己走一遍文本，给出行列和中文原因（缺少逗号、单引号、末尾多逗号、注释、未转义换行、多余内容等），「定位到出错处」选中出错字符。超过 2000 个节点时树形改用文本。⌘C 无选区时复制结果。粘贴或带入 JSON（类型 `json`）时「格式化 JSON」排第一。计划里的 Worker 暂未做：1 MB 内的 JSON 在主线程处理没有可感知的卡顿。
+- **假数据**：`?open=network/ip|ping|dns|port`，`&netMock=offline|error|lossy|hosts|empty`；`?open=json/format&input=…`。
+- **验证**：`cargo test` 151 项通过、7 项跳过（新增网卡筛选、路由解析、主机名校验、hosts 行、lsof 解析、ip 答案；本机实测 `cargo test native_addresses -- --ignored` 通过）；`bun test` 61 项（新增 ping 统计、端口筛选、JSON 格式化 / 转义 / 9 种错误定位）；`bun run build` 通过。浏览器核对本机 IP 与公网 IP 查询、带丢包的 ping（深色）、hosts 覆盖提示、端口筛选、JSON 缺逗号定位与树形查看、搜索 `ip` 的答案行。
+
+真机待作者确认：
+
+- [ ] 搜索 `ip` 显示的地址与「系统设置 → 网络」一致，回车后可粘贴；开 VPN 时多一行 VPN 地址。
+- [ ] 公网 IP 查询成功；断网时有错误提示。
+- [ ] ping 一个域名能看到逐行输出，中途停止仍显示汇总；离开页面后活动监视器里没有残留的 ping 进程。
+- [ ] DNS 查询结果与 `dig` 一致；在 hosts 插件里给某域名加方案并应用后，这里提示 /etc/hosts 覆盖。
+- [ ] `bun run tauri dev` 运行时，端口占用能看到 1420，筛选 `1420` 后「结束」可结束对应进程（会结束调试服务，测试完重新启动）。
+- [ ] 复制一段 JSON 后打开面板，「格式化 JSON」排第一，出错时定位准确。
 
 ## 接手指南
 
