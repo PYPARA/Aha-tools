@@ -86,6 +86,8 @@ pub fn run() {
             superpanel::superpanel_pin_first,
             plugins::system::system_run,
             plugins::system::system_ocr_get,
+            plugins::processes::processes_snapshot,
+            plugins::processes::processes_quit,
             panel::set_panel_pinned,
             panel::set_panel_large,
             plugins::list_plugins,

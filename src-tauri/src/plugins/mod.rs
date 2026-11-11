@@ -9,6 +9,7 @@
 
 pub mod hosts;
 pub mod launcher;
+pub mod processes;
 pub mod compress;
 pub mod qrcode;
 pub mod system;
@@ -38,6 +39,7 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/images/plugin.json"),
     include_str!("../../../plugins/settings/plugin.json"),
     include_str!("../../../plugins/system/plugin.json"),
+    include_str!("../../../plugins/processes/plugin.json"),
     include_str!("../../../plugins/superpanel/plugin.json"),
 ];
 

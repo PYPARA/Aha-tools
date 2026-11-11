@@ -214,7 +214,7 @@ export default function MenuPopover() {
 
         <hr />
 
-        <SystemMonitor snapshot={system} />
+        <SystemMonitor snapshot={system} openProcesses={() => invoke("menu_open_feature", { plugin: "processes", feature: "processes" })} />
 
         <hr />
 

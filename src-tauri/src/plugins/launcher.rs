@@ -150,7 +150,7 @@ fn scan_apps() -> Vec<Entry> {
 }
 
 /// Chinese display name of an app bundle, if it has one.
-fn localized_name(app: &Path) -> Option<String> {
+pub(crate) fn localized_name(app: &Path) -> Option<String> {
     let res = app.join("Contents/Resources");
 
     // Apple's own apps: InfoPlist.loctable = { "zh_CN": { "CFBundleDisplayName": .. }, .. }

@@ -1,0 +1,13 @@
+{
+  "id": "processes",
+  "name": "进程管理",
+  "version": "0.1.0",
+  "description": "按应用查看 CPU 和内存占用，退出或强制结束卡住的程序",
+  "features": [
+    {
+      "code": "processes",
+      "explain": "进程管理",
+      "cmds": ["进程", "进程管理", "占用", "卡顿", "结束进程", "强制退出", "活动监视器", "任务管理器", "process", "kill", "top"]
+    }
+  ]
+}

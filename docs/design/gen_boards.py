@@ -807,6 +807,10 @@ FEATURE_ICONS = [
     ("system-ocr", "截图识字", "#2E7AA8", '<rect x="7" y="8" width="10" height="8" rx="1.5"></rect>', '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M9 10.5h6M9 13.5h4"></path>'),
     ("sysmon", "系统监控", "#9A7A34", '<path d="M3 12h4l2-6 4 12 2-6h6v8H3z"></path>', '<path d="M3 12h4l2-6 4 12 2-6h6"></path>'),
     ("external", "外部插件", "#7470A8", ICONS["puzzle"], ICONS["puzzle"]),
+    ("processes", "进程管理", "#5F8A3E", '<rect x="4" y="4" width="16" height="16" rx="2.5"></rect>', '<rect x="4" y="4" width="16" height="16" rx="2.5"></rect><path d="M8 9h8M8 12h5M8 15h7"></path>'),
+    ("network", "网络工具", "#2F7FB5", '<circle cx="12" cy="13" r="7.5"></circle>', '<path d="M4.5 10.5a10.5 10.5 0 0 1 15 0M7.5 13.5a6.3 6.3 0 0 1 9 0"></path><circle cx="12" cy="17" r="1.2"></circle>'),
+    ("json", "JSON 工具", "#8A7230", '<rect x="8.5" y="8" width="7" height="8" rx="1.5"></rect>', '<path d="M9 4H8a2 2 0 0 0-2 2v3.5a2.5 2.5 0 0 1-2 2.5 2.5 2.5 0 0 1 2 2.5V18a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3.5a2.5 2.5 0 0 0 2 2.5 2.5 2.5 0 0 0-2 2.5V18a2 2 0 0 1-2 2h-1"></path>'),
+    ("clipboard", "剪贴板历史", "#946B4A", '<rect x="5" y="5" width="14" height="16" rx="2.5"></rect>', '<rect x="5" y="5" width="14" height="16" rx="2.5"></rect><path d="M9 5V3.5h6V5M9 11h6M9 15h4"></path>'),
 ]
 
 
@@ -875,6 +879,38 @@ inner = f'''<div class="col" style="gap: 18px">
 <div class="row" style="gap: 28px; align-items: flex-start">{demo(b_render)}<p class="note" style="max-width: 420px">底 = 功能色 13%，细边 16%，图形用功能色（和正文色混 22%，深色模式自动变亮）。更贴近界面「一个强调色，省着用」的克制；选它的话用内联 SVG 组件实现，不用图片文件。</p></div>
 </div>'''
 boards.append(board("FeatureIcons", "功能图标 · 两个方向", 1100, 1030, inner))
+
+# ---- 进程管理（优化计划阶段 C） ----
+def proc_row(name, mark, count, cpu, mem, level="", selected=False, child=False, locked=False):
+    color = {"bad": "var(--bad)", "warn": "var(--warn)"}.get(level, "var(--text)")
+    bg = "background: var(--selected);" if selected else ""
+    pad = "padding-left: 46px;" if child else ""
+    tile = "" if child else f'<span class="tile sm">{mark}</span>'
+    acts = ('<span class="row" style="gap: 6px"><button type="button" class="btn sm">退出</button><button type="button" class="btn sm g" style="color: var(--bad)">强制结束</button></span>'
+            if selected else (f'<span class="note" title="属于系统">{icon("lock", 13)}</span>' if locked else ""))
+    sub = f'<span class="note" style="font-size: 11px">{count}</span>' if count else ""
+    return (f'<tr style="{bg}"><td style="{pad}"><span class="row" style="gap: 10px">{tile}<span style="display: flex; flex-direction: column">'
+            f'<span>{name}</span>{sub}</span></span></td><td class="mono" style="color: {color}; text-align: right">{cpu}</td>'
+            f'<td class="mono" style="text-align: right">{mem}</td><td style="text-align: right">{acts}</td></tr>')
+rows = "".join([
+    proc_row("Google Chrome", "G", "▾ 23 个进程", "86.4%", "3.1 GB", "warn", selected=True),
+    proc_row("Google Chrome Helper (Renderer)", "", "", "61.2%", "820 MB", "warn", child=True),
+    proc_row("Google Chrome", "", "", "14.8%", "410 MB", child=True),
+    proc_row("WindowServer", icon("cpu", 13), "系统进程", "32.5%", "118 MB", locked=True),
+    proc_row("微信", "微", "4 个进程", "6.1%", "1.4 GB"),
+    proc_row("Visual Studio Code", "V", "12 个进程", "3.8%", "1.9 GB"),
+    proc_row("node", icon("term", 13), "/opt/homebrew/bin/node", "2.2%", "240 MB"),
+])
+body = f'''<div class="body" style="flex-direction: column; gap: 14px">
+<span class="row" style="gap: 12px"><span class="sel" style="width: 300px; justify-content: flex-start; color: var(--text-3)">{icon("search", 14)}筛选应用、进程或 PID</span><span class="sp"></span>
+<span class="note">CPU 合计 <b class="mono" style="color: var(--text)">38%</b>（10 核）</span><span class="note">内存 <b class="mono" style="color: var(--text)">12.4 / 16 GB</b> · 压力正常</span></span>
+<table><thead><tr><th>名称</th><th style="width: 90px; text-align: right">CPU ▾</th><th style="width: 90px; text-align: right">内存</th><th style="width: 190px"></th></tr></thead><tbody>
+{rows}</tbody></table>
+</div>'''
+boards.append(board("Processes", "进程管理", 880, 580, page(880, 580, "cpu", "进程管理", "系统 · 每 2 秒刷新", '<span class="seg"><span class="on">按应用</span><span>全部进程</span></span>', body,
+    "↑↓ 选择 · → 展开 · ⌘⌫ 退出 · ⌥⌘⌫ 强制结束", "418 个进程")))
+confirm = '''<section class="win" style="width: 880px; padding: 16px 20px"><span class="row" style="gap: 12px"><span style="color: var(--bad)">强制结束「Google Chrome」及 23 个进程？</span><span class="note">未保存的内容会丢失；普通退出会让应用先询问保存。</span><span class="sp"></span><button type="button" class="btn sm">取消</button><button type="button" class="btn sm" style="color: var(--bad); border-color: var(--bad)">强制结束</button></span></section>'''
+boards.append(board("ProcessesConfirm", "进程管理 · 强制结束确认（页面底部）", 880, 70, confirm))
 
 # ---- canvas.json ----
 if STATIC:

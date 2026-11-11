@@ -373,6 +373,11 @@ impl Sampler {
 
 struct NativeCollector;
 
+/// Memory in use right now, for pages other than the menu popover (进程管理).
+pub fn memory_now() -> Result<MemoryInfo, String> {
+    NativeCollector.memory()
+}
+
 unsafe extern "C" {
     // Not exposed by libc, but part of libSystem's public Mach ABI.
     fn mach_port_deallocate(
@@ -522,7 +527,7 @@ fn sysctl_value<T: Default>(name: &std::ffi::CStr) -> Result<T, String> {
     }
 }
 
-fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
+pub(crate) fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new(program)
         .args(args)
         .env("LC_ALL", "C")

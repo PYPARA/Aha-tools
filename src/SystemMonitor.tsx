@@ -23,7 +23,8 @@ function CpuGraph({ history }: { history: SystemSnapshot["cpu"]["history"] }) {
   );
 }
 
-export default function SystemMonitor({ snapshot }: { snapshot: SystemSnapshot }) {
+/** `openProcesses`: the 最忙进程 line opens 进程管理. */
+export default function SystemMonitor({ snapshot, openProcesses }: { snapshot: SystemSnapshot; openProcesses?: () => void }) {
   const { cpu, memory, battery, disk } = snapshot;
   const mem = memory.state === "available" ? memory.data : null;
   const batt = battery.state === "available" ? battery.data : null;
@@ -37,7 +38,8 @@ export default function SystemMonitor({ snapshot }: { snapshot: SystemSnapshot }
         <div className="monitor-line"><span className="monitor-label">CPU</span><span className={cpu.usage.state === "available" ? "monitor-number" : "monitor-note"}>
           {cpu.usage.state === "available" ? `${Math.round(cpu.usage.data)}%` : readingLabel(cpu.usage)}
         </span></div>
-        <span className="monitor-process monitor-note" title={`最忙进程：${busiest}`}>最忙进程：{busiest}</span>
+        <button type="button" className="monitor-process monitor-note" title={`最忙进程：${busiest} · 点按打开进程管理`}
+          onClick={openProcesses}>最忙进程：{busiest}</button>
         <CpuGraph history={cpu.history} />
       </div>
       <div className="monitor-metric">

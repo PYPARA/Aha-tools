@@ -15,6 +15,7 @@ import webapps from "../plugins/webapps/plugin.json";
 import qrcode from "../plugins/qrcode/plugin.json";
 import system from "../plugins/system/plugin.json";
 import superpanel from "../plugins/superpanel/plugin.json";
+import processes from "../plugins/processes/plugin.json";
 
 import compress from "../plugins/compress/plugin.json";
 import type { CompressionBatch, CompressionItem, ExportAction, ExportResult } from "../plugins/compress/model";
@@ -25,7 +26,7 @@ import { isWord } from "../plugins/translate/core";
 
 import imageTools from "../plugins/images/plugin.json";
 
-const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, imageTools, translate, hosts, system, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
+const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, compress, imageTools, translate, hosts, system, processes, superpanel, settings].map((m) => ({ searchProvider: false, ...m }));
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
@@ -272,6 +273,33 @@ function navigateQuery(query: string) {
   pendingRequest = { id: ++requestId, plugin: "", feature: "", query };
   void emit("panel-query", pendingRequest);
 }
+const quitPids: number[] = [];
+/** 进程管理: a few apps with helpers, a system process and a lone CLI tool. */
+function mockProcesses(scenario: string) {
+  const GB = 1024 ** 3, MB = 1024 ** 2;
+  const busy = scenario === "busy";
+  const row = (pid: number, name: string, path: string, cpu: number, memory: number, mine = true, isProtected = false) => ({ pid, name, path, cpu, memory, mine, protected: isProtected });
+  const app = (bundle: string, name: string, rows: ReturnType<typeof row>[]) => ({ id: bundle, name, bundle, cpu: rows.reduce((s, r) => s + r.cpu, 0), memory: rows.reduce((s, r) => s + r.memory, 0), mine: rows.every((r) => r.mine), protected: rows.some((r) => r.protected), processes: rows });
+  const alone = (r: ReturnType<typeof row>) => ({ id: `pid:${r.pid}`, name: r.name, bundle: null, cpu: r.cpu, memory: r.memory, mine: r.mine, protected: r.protected, processes: [r] });
+  const chrome = "/Applications/Google Chrome.app";
+  const groups = scenario === "empty" ? [] : [
+    app(chrome, "Google Chrome", [
+      row(30978, "Google Chrome Helper (Renderer)", `${chrome}/Contents/Frameworks/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)`, busy ? 186.4 : 21.2, 820 * MB),
+      row(1364, "Google Chrome", `${chrome}/Contents/MacOS/Google Chrome`, busy ? 14.8 : 4.1, 410 * MB),
+      row(3817, "Google Chrome Helper (GPU)", `${chrome}/Contents/Frameworks/Google Chrome Helper (GPU).app/Contents/MacOS/Google Chrome Helper (GPU)`, 2.3, 300 * MB),
+    ]),
+    alone(row(650, "WindowServer", "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer", 32.5, 118 * MB, false, true)),
+    app("/Applications/WeChat.app", "微信", [row(2201, "WeChat", "/Applications/WeChat.app/Contents/MacOS/WeChat", 6.1, 1.4 * GB)]),
+    app("/Applications/Visual Studio Code.app", "Visual Studio Code", [
+      row(4100, "Code Helper (Plugin)", "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)", 3.1, 1.2 * GB),
+      row(4000, "Electron", "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", 0.7, 700 * MB),
+    ]),
+    alone(row(4242, "node", "/opt/homebrew/bin/node", 2.2, 240 * MB)),
+    alone(row(970, "mds_stores", "/System/Library/Frameworks/CoreServices.framework/Support/mds_stores", 1.7, 420 * MB, false)),
+  ];
+  const live = groups.map((g) => ({ ...g, processes: g.processes.filter((p) => !quitPids.includes(p.pid)) })).filter((g) => g.processes.length);
+  return { groups: live, count: 412 - quitPids.length, cores: 10, memory: { usedBytes: 12.4 * GB, totalBytes: 16 * GB, pressure: busy ? "warning" : "normal" } };
+}
 function superState() {
   const paths = superScenario === "folder" ? ["/Users/me/Documents/设计稿"] : superScenario === "image" ? ["/Users/me/Documents/二维码.png"] : superScenario === "multi" ? ["/Users/me/Documents/图.png", "/Users/me/Documents/备注.txt"] : superScenario === "file" ? ["/Users/me/Documents/说明.txt"] : [];
   const text = superScenario === "url" ? "https://example.com" : superScenario === "text" ? "Tauri lets you build smaller, faster, and more secure desktop applications with a web frontend." : undefined;
@@ -471,6 +499,17 @@ mockIPC((cmd, args) => {
     }
     case "list_plugins":
       return manifests;
+    case "processes_snapshot": {
+      const scenario = params.get("procMock") ?? "normal";
+      if (scenario === "error") throw new Error("无法读取进程列表：ps 不可用（预览错误）");
+      return mockProcesses(scenario);
+    }
+    case "processes_quit": {
+      if (params.get("procMock") === "kill-denied") throw new Error("「Google Chrome Helper」属于系统或其他用户，AhaTools 无权结束它");
+      const pids = new Set((a.targets as { pid: number }[]).map((t) => t.pid));
+      quitPids.push(...pids);
+      return a.force ? `已强制结束 ${pids.size} 个进程` : "已请求退出，应用可能会先询问是否保存";
+    }
     case "search_files": {
       if (config.disabledMatches.includes("compress/compress")) return [];
       const paths = expandMockPaths(a.paths as string[]);
