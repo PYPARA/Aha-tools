@@ -24,6 +24,7 @@ import {
 } from "@ahatools/sdk";
 import { actions, fullPageViews, views, type Target } from "./views";
 import { ContentChip, useSearchContent } from "./search-content";
+import { filesFromInput } from "./plugin-input";
 import { pinKey, type Home } from "./pinned-sort";
 import { PinnedGrid, type PinnedGridHandle } from "./PinnedGrid";
 import "./styles.css";
@@ -188,19 +189,25 @@ export default function App() {
     return () => { live = false; subs.forEach((s) => s.then((f) => f())); };
   }, []);
 
+  // While typing, the previous results stay until the new ones arrive, so the list never
+  // blinks empty or flashes 「没有找到」. They're dropped only when the input itself changes.
+  const [searched, setSearched] = useState<{ query: string; content: unknown }>({ query: "", content: null });
+  useEffect(() => { setItems([]); }, [content]);
   useEffect(() => {
     let stale = false;
-    setItems([]);
+    if (!query.trim() && !content) setItems([]);
     invoke<SearchItem[]>("search", { query, content: content?.type === "files" ? { type: "files", paths: content.paths } : content ? { type: "image" } : null }).then((r) => {
       if (!stale) {
         setItems(r);
         setSelected(0);
+        setSearched({ query, content });
       }
     }).catch((error) => { if (!stale) setError(`搜索失败：${String(error)}`); });
     return () => {
       stale = true;
     };
   }, [query, searchRevision, content]);
+  const settled = searched.query === query && searched.content === content;
 
   // Search is compact; plugin and settings pages get the larger window.
   useEffect(() => {
@@ -263,9 +270,14 @@ export default function App() {
         requestAnimationFrame(() => inputRef.current?.focus());
       });
     } else {
-      const act = !request.viewOnly && actions[`${request.plugin}/${request.feature}`];
-      if (act) Promise.resolve().then(() => act({ input: request.input, content: request.content, open })).catch((e) => setError(String(e)));
-      else open(request);
+      // A Finder selection from the super panel arrives as text; features read it as files.
+      const paths = request.content ? null : filesFromInput(request.input);
+      const target: Target = paths ? { ...request, input: undefined, content: { type: "files", paths } } : request;
+      const act = !target.viewOnly && actions[`${target.plugin}/${target.feature}`];
+      if (act) Promise.resolve().then(() => act({ input: target.input, content: target.content, open }))
+        .then((message) => { if (typeof message === "string") setFlash(message); })
+        .catch((e) => setError(String(e).replace(/^Error: /, "")));
+      else open(target);
     }
   }
 
@@ -281,7 +293,8 @@ export default function App() {
   const run = async (item: SearchItem | undefined) => {
     if (!item) return;
     setError(null);
-    invoke("usage_record", { item });
+    // The typed query teaches search which result it should lead to next time.
+    invoke("usage_record", { item, query: content ? null : query.trim() || null });
     if (item.action.type === "openWeb") {
       setQuery("");
       invoke("webapp_open", { id: item.action.id }).catch((e) => setError(String(e)));
@@ -501,6 +514,11 @@ export default function App() {
       </>
     );
     right = `${items.length} 个结果 · 拼音首字母也能搜`;
+  } else if (hasQuery && !settled) {
+    // First keystroke from an empty box: nothing to keep on screen yet.
+    body = <div className="state" aria-busy="true" />;
+    hints = <span>esc 清空</span>;
+    right = "搜索中";
   } else if (hasQuery) {
     const q = query.trim();
     body = (

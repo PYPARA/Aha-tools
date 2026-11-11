@@ -43,6 +43,7 @@ pub fn run() {
 
             let cfg = config::load(app.handle());
             plugins::configure(&cfg);
+            usage::init(app.handle());
 
             let launcher = Launcher::new(app.handle().clone());
             let mut registry = Registry::new();

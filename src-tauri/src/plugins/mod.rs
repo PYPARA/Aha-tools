@@ -89,17 +89,54 @@ fn pinyin_forms(text: &str) -> Vec<String> {
     if any { vec![full, initials] } else { vec![] }
 }
 
+/// The query starts the name ("term" → Terminal, "wx" → 微信's initials).
+const PREFIX_BONUS: i64 = 60;
+/// The query starts a word or the word initials ("chr" → Google Chrome, "vs" → Visual Studio Code).
+const WORD_BONUS: i64 = 30;
+
+/// Where words begin in `text`, lowercased from there: after a separator or a lower → upper
+/// change ("PyCharm" → "pycharm", "charm").
+fn word_starts(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    (0..chars.len())
+        .filter(|&i| {
+            chars[i].is_alphanumeric()
+                && (i == 0 || !chars[i - 1].is_alphanumeric() || (chars[i - 1].is_lowercase() && chars[i].is_uppercase()))
+        })
+        .map(|i| chars[i..].iter().flat_map(|c| c.to_lowercase()).collect())
+        .collect()
+}
+
+/// Extra score for where `query` (lowercase) sits in `text`.
+fn position_bonus(text: &str, query: &str) -> i64 {
+    if text.to_lowercase().starts_with(query) {
+        return PREFIX_BONUS;
+    }
+    let words = word_starts(text);
+    let initials: String = words.iter().filter_map(|w| w.chars().next()).collect();
+    if words.iter().skip(1).any(|w| w.starts_with(query)) || (words.len() > 1 && initials.starts_with(query)) {
+        WORD_BONUS
+    } else {
+        0
+    }
+}
+
 /// Fuzzy score of `query` against `text`, also trying its pinyin when that's switched on.
+/// Prefix and word-start matches score higher; a single character matches only those, so
+/// "c" lists names starting with c rather than every name containing one.
 pub fn match_text(matcher: &SkimMatcherV2, text: &str, query: &str) -> Option<i64> {
-    let direct = matcher.fuzzy_match(text, query);
+    let lower = query.to_lowercase();
+    let single = query.chars().count() == 1;
+    let scored = |text: &str| {
+        let score = matcher.fuzzy_match(text, query)?;
+        let bonus = position_bonus(text, &lower);
+        (!single || bonus > 0).then_some(score + bonus)
+    };
+    let direct = scored(text);
     if !query.is_ascii() || !OPTIONS.read().unwrap().pinyin {
         return direct;
     }
-    pinyin_forms(text)
-        .iter()
-        .filter_map(|p| matcher.fuzzy_match(p, query))
-        .max()
-        .max(direct)
+    pinyin_forms(text).iter().filter_map(|p| scored(p)).max().max(direct)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -238,6 +275,8 @@ const MAX_RESULTS: usize = 30;
 const CMD_WITH_INPUT_SCORE: i64 = 10_000;
 /// Content matches ("translate this text") go after every named result.
 const CONTENT_MATCH_SCORE: i64 = -1;
+/// Name matches scoring under this share of the best one are noise ("c" in "Music").
+const KEEP_PERCENT: i64 = 40;
 
 impl Registry {
     pub fn new() -> Self {
@@ -257,10 +296,16 @@ impl Registry {
 
     pub fn search(&self, query: &str) -> Vec<SearchItem> {
         let disabled = OPTIONS.read().unwrap().disabled_matches.clone();
-        self.search_with_disabled(query, &disabled)
+        let rank = crate::usage::rank();
+        self.search_ranked(query, &disabled, &rank, crate::usage::now())
     }
 
+    #[cfg(test)]
     fn search_with_disabled(&self, query: &str, disabled: &[String]) -> Vec<SearchItem> {
+        self.search_ranked(query, disabled, &crate::usage::Rank::default(), 0)
+    }
+
+    fn search_ranked(&self, query: &str, disabled: &[String], rank: &crate::usage::Rank, now: u64) -> Vec<SearchItem> {
         let query = query.trim();
         if query.is_empty() {
             return vec![];
@@ -326,10 +371,7 @@ impl Registry {
                 }
             }
         }
-
-        items.sort_by(|a, b| b.score.cmp(&a.score));
-        items.truncate(MAX_RESULTS);
-        items
+        rank_items(items, query, rank, now)
     }
 
     /// Features whose manifest `match` accepts the super panel's context: text, or files.
@@ -404,6 +446,37 @@ impl Registry {
         items.sort_by(|a, b| b.score.cmp(&a.score));
         items
     }
+}
+
+/// Name matches: drops the noise, adds what usage taught, then orders them stably.
+/// "<cmd> <text>" requests stay first and content matches stay last.
+fn rank_items(items: Vec<SearchItem>, query: &str, rank: &crate::usage::Rank, now: u64) -> Vec<SearchItem> {
+    let named = |score: i64| (0..CMD_WITH_INPUT_SCORE).contains(&score);
+    let best = items.iter().map(|i| i.score).filter(|&s| named(s)).max().unwrap_or(0);
+    let mut ranked: Vec<(SearchItem, u64)> = items
+        .into_iter()
+        .filter_map(|mut item| {
+            let key = crate::usage::key(&item);
+            if named(item.score) {
+                // An earlier pick for this query keeps a weak match.
+                if item.score * 100 < best * KEEP_PERCENT && rank.pick(&key, query) == 0 {
+                    return None;
+                }
+                item.score += rank.boost(&key, query, now);
+            }
+            Some((item, rank.last_used(&key)))
+        })
+        .collect();
+    ranked.sort_by(|(a, a_used), (b, b_used)| {
+        b.score
+            .cmp(&a.score)
+            .then(b_used.cmp(a_used))
+            .then(a.title.chars().count().cmp(&b.title.chars().count()))
+            .then_with(|| a.title.cmp(&b.title))
+            .then_with(|| a.subtitle.cmp(&b.subtitle))
+    });
+    ranked.truncate(MAX_RESULTS);
+    ranked.into_iter().map(|(item, _)| item).collect()
 }
 
 pub fn on_panel_shown<R: Runtime>(app: &AppHandle<R>) {
@@ -574,6 +647,97 @@ mod tests {
         assert!(image.iter().all(|i| i.plugin != "translate"));
         let two = registry.context_matches(None, &["/tmp/a.png".into(), "/tmp/b.png".into()]);
         assert!(!two.iter().any(|i| i.plugin == "qrcode"));
+    }
+
+    /// Apps found by name, like the launcher.
+    struct Apps(Vec<&'static str>);
+    impl SearchProvider for Apps {
+        fn search(&self, query: &str, matcher: &SkimMatcherV2) -> Vec<SearchItem> {
+            self.0.iter().filter_map(|name| Some(app_item(name, match_text(matcher, name, query)?))).collect()
+        }
+    }
+    fn app_item(name: &str, score: i64) -> SearchItem {
+        SearchItem {
+            title: name.into(), subtitle: format!("/Applications/{name}.app"), score, plugin: "launcher".into(),
+            kind: ItemKind::App, icon: None, action: ItemAction::OpenPath { path: format!("/Applications/{name}.app") },
+        }
+    }
+    fn apps(names: Vec<&'static str>) -> Registry {
+        let manifest = r#"{"id":"launcher","name":"快捷启动","version":"0","searchProvider":true,"features":[]}"#;
+        let mut registry = Registry { manifests: vec![serde_json::from_str(manifest).unwrap()], providers: HashMap::new() };
+        registry.add_provider("launcher", Arc::new(Apps(names)));
+        registry
+    }
+    fn titles(items: &[SearchItem]) -> Vec<&str> {
+        items.iter().map(|i| i.title.as_str()).collect()
+    }
+    const LOCAL_APPS: [&str; 8] = ["Charles", "Cherry Studio", "Google Chrome", "PyCharm", "Music", "Terminal", "Telegram", "Visual Studio Code"];
+
+    #[test]
+    fn word_starts_beat_scattered_letters_and_single_letters_need_a_word_start() {
+        let r = apps(LOCAL_APPS.to_vec());
+        assert_eq!(titles(&r.search_with_disabled("chr", &[]))[0], "Google Chrome");
+        assert_eq!(titles(&r.search_with_disabled("term", &[]))[0], "Terminal");
+        assert_eq!(titles(&r.search_with_disabled("vs", &[]))[0], "Visual Studio Code");
+        let c = r.search_with_disabled("c", &[]);
+        // Names starting with c first, then other words starting with c ("Charm" in
+        // PyCharm); never a c inside a word ("Music").
+        assert_eq!(titles(&c)[..2], ["Charles", "Cherry Studio"]);
+        let mut found = titles(&c);
+        found.sort();
+        assert_eq!(found, ["Charles", "Cherry Studio", "Google Chrome", "PyCharm", "Visual Studio Code"]);
+        // Equal scores keep a stable order from one search to the next.
+        assert_eq!(titles(&c), titles(&r.search_with_disabled("c", &[])));
+    }
+
+    #[test]
+    fn earlier_picks_and_frequent_use_lift_results() {
+        let r = apps(LOCAL_APPS.to_vec());
+        let mut usage = crate::usage::Usage::default();
+        crate::usage::record(&mut usage, app_item("Charles", 0), "chr", 100);
+        let rank = crate::usage::Rank::from_usage(&usage);
+        // Picked with "chr": first for "chr", and for "ch" on the way to typing it.
+        assert_eq!(titles(&r.search_ranked("chr", &[], &rank, 200))[0], "Charles");
+        assert_eq!(titles(&r.search_ranked("ch", &[], &rank, 200))[0], "Charles");
+        // Used often from the home grid: wins a tie among single-letter matches.
+        let mut usage = crate::usage::Usage::default();
+        for t in 0..10 {
+            crate::usage::record(&mut usage, app_item("PyCharm", 0), "", t);
+        }
+        let rank = crate::usage::Rank::from_usage(&usage);
+        assert_eq!(titles(&r.search_ranked("c", &[], &rank, 10))[0], "PyCharm");
+        // Unused for months, it falls back behind the prefix matches.
+        assert_ne!(titles(&r.search_ranked("c", &[], &rank, 120 * 86_400))[0], "PyCharm");
+    }
+
+    #[test]
+    fn named_commands_stay_first_and_content_matches_stay_last() {
+        let mut r = apps(vec!["Fyne"]);
+        r.manifests.extend(Registry::new().manifests.into_iter().filter(|m| m.id == "translate"));
+        let mut usage = crate::usage::Usage::default();
+        for t in 0..30 {
+            crate::usage::record(&mut usage, app_item("Fyne", 0), "fy", t);
+        }
+        let rank = crate::usage::Rank::from_usage(&usage);
+        let items = r.search_ranked("fy hello", &[], &rank, 30);
+        assert_eq!(items[0].plugin, "translate");
+        assert_eq!(items[0].score, CMD_WITH_INPUT_SCORE);
+        let text = r.search_ranked("hello world", &[], &rank, 30);
+        assert!(text.iter().all(|i| i.score == CONTENT_MATCH_SCORE));
+    }
+
+    #[test]
+    fn position_bonus_uses_prefix_words_initials_and_pinyin() {
+        assert_eq!(position_bonus("Terminal", "term"), PREFIX_BONUS);
+        assert_eq!(position_bonus("Google Chrome", "chr"), WORD_BONUS);
+        assert_eq!(position_bonus("Visual Studio Code", "vsc"), WORD_BONUS);
+        assert_eq!(position_bonus("PyCharm", "char"), WORD_BONUS);
+        assert_eq!(position_bonus("Charles", "chr"), 0);
+        let m = SkimMatcherV2::default().ignore_case();
+        // "wx" starts 微信's initials; "w" alone still finds it, "x" does not.
+        assert!(match_text(&m, "微信", "wx").unwrap() >= match_text(&m, "企业微信", "wx").unwrap());
+        assert!(match_text(&m, "微信", "w").is_some());
+        assert!(match_text(&m, "微信", "x").is_none());
     }
 
     #[test]

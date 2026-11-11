@@ -109,27 +109,41 @@ pub(crate) fn app_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// `.app` bundles in `dir` and in its plain subfolders one level down, such as
+/// ~/Applications/Chrome Apps.localized or a vendor folder in /Applications.
+fn app_paths(dir: &Path) -> Vec<PathBuf> {
+    let is_app = |p: &Path| p.extension().is_some_and(|e| e == "app");
+    let Ok(read) = fs::read_dir(dir) else { return vec![] };
+    let mut found = vec![];
+    for path in read.flatten().map(|e| e.path()) {
+        if is_app(&path) {
+            found.push(path);
+        } else if path.is_dir() && !path.is_symlink() {
+            if let Ok(inner) = fs::read_dir(&path) {
+                found.extend(inner.flatten().map(|e| e.path()).filter(|p| is_app(p)));
+            }
+        }
+    }
+    found
+}
+
 fn scan_apps() -> Vec<Entry> {
+    let mut seen = std::collections::HashSet::new();
     let mut apps = vec![];
     for dir in app_dirs() {
-        let Ok(read) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in read.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "app") {
-                let name = path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
-                let alias = localized_name(&path).filter(|a| *a != name);
-                apps.push(Entry {
-                    name,
-                    alias,
-                    path: path.to_string_lossy().into_owned(),
-                });
-            }
+        // Utilities folders are listed on their own and also found one level down.
+        for path in app_paths(&dir).into_iter().filter(|p| seen.insert(p.clone())) {
+            let name = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let alias = localized_name(&path).filter(|a| *a != name);
+            apps.push(Entry {
+                name,
+                alias,
+                path: path.to_string_lossy().into_owned(),
+            });
         }
     }
     apps
@@ -352,6 +366,29 @@ mod tests {
     #[test]
     fn finds_icns_for_system_apps() {
         assert!(icon_file(Path::new("/System/Applications/Calculator.app")).is_some());
+    }
+
+    #[test]
+    fn finds_apps_one_folder_down_but_not_inside_bundles() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for app in ["Top.app/Contents", "Chrome Apps.localized/Gmail.app/Contents", "Top.app/Contents/Helpers/Inner.app", "a/b/Deep.app"] {
+            fs::create_dir_all(root.join(app)).unwrap();
+        }
+        let mut names: Vec<_> = app_paths(root).iter().map(|p| p.file_stem().unwrap().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["Gmail", "Top"]);
+    }
+
+    #[test]
+    fn scan_lists_each_app_once() {
+        let apps = scan_apps();
+        let mut paths: Vec<_> = apps.iter().map(|a| a.path.as_str()).collect();
+        let total = paths.len();
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), total);
+        assert!(apps.iter().any(|a| a.path == "/System/Applications/Utilities/Terminal.app"));
     }
 
     #[test]

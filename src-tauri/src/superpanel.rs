@@ -152,9 +152,10 @@ pub struct Snapshot {
     actions: Vec<Entry>,
     pinned: Vec<Entry>,
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Run {
-    Copy(String),
+    /// Text for the clipboard and the notification shown after copying.
+    Copy(String, &'static str),
     Terminal(String),
     NewFile(String),
     Save(Vec<String>),
@@ -327,7 +328,9 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
     let text = ctx.text.as_deref().filter(|_| ctx.kind == "text");
     let paths: &[String] = if ctx.kind == "files" { &ctx.paths } else { &[] };
     // 匹配的功能: plugin manifests decide, exactly like the search panel's 自动匹配.
-    for (i, mut item) in app.state::<Registry>().context_matches(text, paths).into_iter().enumerate() {
+    // Copying paths / names is in the 文件 group below and runs without the search panel.
+    let matches = app.state::<Registry>().context_matches(text, paths).into_iter().filter(|item| !duplicates_file_action(item));
+    for (i, mut item) in matches.enumerate() {
         if let ItemAction::Feature { input, .. } = &mut item.action {
             if input.is_none() && !paths.is_empty() {
                 *input = Some(serde_json::json!({ "paths": paths }).to_string());
@@ -360,18 +363,10 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
             }));
         }
         add("search".into(), "text", "在搜索面板中打开", "", "search", None, Run::Query(text.into()));
-        add("copy".into(), "text", "复制为纯文本", "", "copy", None, Run::Copy(text.into()));
+        add("copy".into(), "text", "复制为纯文本", "", "copy", None, Run::Copy(text.into(), "已复制"));
     }
-    if !paths.is_empty() {
-        let count = if paths.len() > 1 { format!("{} 项", paths.len()) } else { String::new() };
-        add("copy".into(), "files", "复制路径", &count, "copy", None, Run::Copy(paths.join("\n")));
-        if let Some(dir) = &ctx.dir {
-            add("terminal".into(), "files", "在终端中打开", "", "terminal", None, Run::Terminal(dir.clone()));
-            if paths.len() == 1 && Path::new(&paths[0]).is_dir() {
-                add("new".into(), "files", "新建空白文件", "未命名.txt", "newfile", None, Run::NewFile(dir.clone()));
-            }
-        }
-        add("save".into(), "files", "收藏到快捷启动", "", "star", None, Run::Save(paths.to_vec()));
+    for action in file_actions(paths, ctx.dir.as_deref()) {
+        add(action.key.into(), "files", action.title, &action.note, action.icon, None, action.run);
     }
     for a in &cfg.super_panel.actions {
         if applies(a, &ctx) {
@@ -428,6 +423,42 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
         runners,
     }
 }
+/// Plugin features that do what the 文件 group's own copy actions already do.
+fn duplicates_file_action(item: &SearchItem) -> bool {
+    item.plugin == "launcher"
+        && matches!(&item.action, ItemAction::Feature { feature, .. } if feature == "copy-path" || feature == "copy-name")
+}
+struct FileAction {
+    key: &'static str,
+    title: &'static str,
+    note: String,
+    icon: &'static str,
+    run: Run,
+}
+/// AhaTools' own actions for a Finder selection, in display order.
+fn file_actions(paths: &[String], dir: Option<&str>) -> Vec<FileAction> {
+    if paths.is_empty() {
+        return vec![];
+    }
+    let count = if paths.len() > 1 { format!("{} 项", paths.len()) } else { String::new() };
+    let names = paths
+        .iter()
+        .map(|p| Path::new(p).file_name().map_or_else(|| p.clone(), |n| n.to_string_lossy().into_owned()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut actions = vec![
+        FileAction { key: "copy", title: "复制路径", note: count.clone(), icon: "copy", run: Run::Copy(paths.join("\n"), "已复制路径") },
+        FileAction { key: "copy-name", title: "复制文件名", note: count, icon: "copy", run: Run::Copy(names, "已复制文件名") },
+    ];
+    if let Some(dir) = dir {
+        actions.push(FileAction { key: "terminal", title: "在终端中打开", note: String::new(), icon: "terminal", run: Run::Terminal(dir.into()) });
+        if paths.len() == 1 && Path::new(&paths[0]).is_dir() {
+            actions.push(FileAction { key: "new", title: "新建空白文件", note: "未命名.txt".into(), icon: "newfile", run: Run::NewFile(dir.into()) });
+        }
+    }
+    actions.push(FileAction { key: "save", title: "收藏到快捷启动", note: String::new(), icon: "star", run: Run::Save(paths.to_vec()) });
+    actions
+}
 fn is_http(text: &str) -> bool {
     if text.trim().chars().any(char::is_whitespace) {
         return false;
@@ -452,7 +483,10 @@ fn new_file(dir: &str) -> Result<PathBuf, String> {
 }
 fn execute(app: &AppHandle, run: Run) -> Result<(), String> {
     match run {
-        Run::Copy(text) => context::write_text(&text)?,
+        Run::Copy(text, notice) => {
+            context::write_text(&text)?;
+            crate::relay::notify(notice);
+        }
         Run::Terminal(dir) => {
             let status = Command::new("/usr/bin/open")
                 .args(["-a", "Terminal", &dir])
@@ -486,7 +520,7 @@ fn execute(app: &AppHandle, run: Run) -> Result<(), String> {
             crate::relay::notify("已复制，粘贴即可");
         }
         Run::Item(item) => {
-            crate::usage::usage_record(app.clone(), item.clone())?;
+            crate::usage::usage_record(app.clone(), item.clone(), None)?;
             match item.action {
                 ItemAction::OpenPath { path } => crate::plugins::open_path(app.clone(), path)?,
                 ItemAction::OpenWeb { id } => crate::webapps::open(app, &id)?,
@@ -646,14 +680,36 @@ mod tests {
                 request_id: 7,
                 ..Snapshot::default()
             },
-            runners: vec![("copy".into(), Run::Copy("snapshot text".into()))],
+            runners: vec![("copy".into(), Run::Copy("snapshot text".into(), "已复制"))],
         });
         assert!(accept(&mut session, 6, "copy").is_err());
         assert!(session.is_some());
         assert!(accept(&mut session, 7, "unknown").is_err());
         assert!(session.is_some());
-        assert!(matches!(accept(&mut session,7,"copy"),Ok(Run::Copy(s)) if s=="snapshot text"));
+        assert!(matches!(accept(&mut session,7,"copy"),Ok(Run::Copy(s, _)) if s=="snapshot text"));
         assert!(accept(&mut session, 7, "copy").is_err());
+    }
+    #[test]
+    fn finder_selection_copies_paths_and_names_once_without_the_search_panel() {
+        let paths = vec!["/tmp/第一 个.png".to_string(), "/tmp/文件夹/".to_string()];
+        let actions = file_actions(&paths, Some("/tmp"));
+        let copies: Vec<_> = actions.iter().filter_map(|a| match &a.run { Run::Copy(text, notice) => Some((a.title, text.as_str(), *notice)), _ => None }).collect();
+        assert_eq!(copies, [
+            ("复制路径", "/tmp/第一 个.png\n/tmp/文件夹/", "已复制路径"),
+            ("复制文件名", "第一 个.png\n文件夹", "已复制文件名"),
+        ]);
+        assert_eq!(actions[0].note, "2 项");
+        assert!(actions.iter().any(|a| a.key == "terminal"));
+        // Not a single folder: no new file.
+        assert!(!actions.iter().any(|a| a.key == "new"));
+        assert!(file_actions(&[], Some("/tmp")).is_empty());
+        // The launcher's own copy features are hidden from 匹配的功能, others stay.
+        let registry = Registry::new();
+        let matched = registry.context_matches(None, &paths[..1]);
+        assert!(matched.iter().any(|i| i.plugin == "launcher" && duplicates_file_action(i)));
+        let shown: Vec<_> = matched.iter().filter(|i| !duplicates_file_action(i)).map(|i| i.title.as_str()).collect();
+        assert!(shown.contains(&"识别二维码"), "{shown:?}");
+        assert!(!shown.contains(&"复制文件路径") && !shown.contains(&"提取文件名称"), "{shown:?}");
     }
     #[test]
     fn creates_without_overwriting() {

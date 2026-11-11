@@ -284,7 +284,8 @@ function superState() {
   const actions = paths.length ? [
     ...(images ? [row("match:0", "match", "压缩图片", `${images} 张`, "compress", "compress", "", featureItem("compress", "compress", "压缩图片"))] : []),
     ...(superScenario === "image" ? [row("match:1", "match", "识别二维码", "", "qrcode", "scan", "", featureItem("qrcode", "scan", "识别二维码"))] : []),
-    row("copy", "files", "复制路径", paths.length > 1 ? `${paths.length} 项` : "", "", "", "copy"), row("terminal", "files", "在终端中打开", "", "", "", "terminal"),
+    row("copy", "files", "复制路径", paths.length > 1 ? `${paths.length} 项` : "", "", "", "copy"),
+    row("copy-name", "files", "复制文件名", paths.length > 1 ? `${paths.length} 项` : "", "", "", "copy"), row("terminal", "files", "在终端中打开", "", "", "", "terminal"),
     ...(superScenario === "folder" ? [row("new", "files", "新建空白文件", "未命名.txt", "", "", "newfile")] : []), row("save", "files", "收藏到快捷启动", "", "", "", "star"), ...custom,
   ] : text ? [
     ...(Array.from(text).length >= 2 ? [row("match:0", "match", "翻译", "点按后翻译", "translate", "translate", "", featureItem("translate", "translate", "翻译"))] : []),
@@ -606,6 +607,7 @@ mockIPC((cmd, args) => {
       if (id === "settings") navigate("settings", "general", "superpanel");
       else if (id === "search-panel" || id === "search") navigateQuery(id === "search" ? s.context.text ?? "" : "");
       else if (id === "copy") clipboardText = s.context.text ?? s.context.paths.join("\n");
+      else if (id === "copy-name") clipboardText = s.context.paths.map((p) => p.replace(/\/$/, "").split("/").pop()).join("\n");
       else if (id === "pin-hint") { navigateQuery(""); setTimeout(() => void emit("panel-flash", "右键任意结果，选「固定到超级面板」"), 300); }
       else if (id.startsWith("plugin-settings:")) navigate("settings", "general", `plugins/${id.split(":")[1]}`);
       else if (id.startsWith("match:")) { const e = s.actions.find((x) => x.id === id); if (e?.item?.action.type === "feature") navigate(e.plugin, e.feature, s.context.kind === "files" ? JSON.stringify({ paths: s.context.paths }) : s.context.text); }
