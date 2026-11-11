@@ -1,5 +1,7 @@
 # AhaTools 优化计划（对标 uTools 的手感与实用度）
 
+> 2026-11-11 定稿。A–F 已实现，实现细节、偏差和真机确认项见 [HANDOFF.md](HANDOFF.md)「优化计划」一节；本文保留为当时的规格。
+
 ## Context
 
 作者日常同时装着 uTools 和 AhaTools，觉得 AhaTools「不如 uTools 好用」。排查后问题分五类：
