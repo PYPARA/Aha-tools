@@ -22,6 +22,20 @@
       "explain": "提取文件名称",
       "cmds": ["提取文件名"],
       "match": { "files": ["*"] }
+    },
+    {
+      "code": "open-url",
+      "explain": "在浏览器中打开",
+      "cmds": ["打开网址", "open"],
+      "match": { "types": ["url"] },
+      "matchTitle": "在浏览器中打开「{input}」"
+    },
+    {
+      "code": "reveal",
+      "explain": "在访达中显示",
+      "cmds": ["在访达中显示", "reveal", "finder"],
+      "match": { "types": ["path"], "files": ["*"], "maxFiles": 1 },
+      "matchTitle": "在访达中显示「{input}」"
     }
   ]
 }

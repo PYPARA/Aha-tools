@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CloseIcon, PathIcon, imagePng, onFileDrop, pixelsFromBlob, readClipboardFiles, readClipboardImage,
-  type PluginContent,
+  CloseIcon, PathIcon, imagePng, onFileDrop, pixelsFromBlob, readClipboardFiles, readClipboardImage, readClipboardText,
+  type ClipboardKind, type PluginContent,
 } from "./sdk";
+import { preview, textPlacement } from "./plugin-input";
 
 function contentLabel(content: PluginContent): string {
+  if (content.type === "text") return `${preview(content.text.replace(/\s+/g, " "), 18)} · ${Array.from(content.text.trim()).length} 字`;
   if (content.type === "image") return `${content.name} · ${content.image.width} × ${content.image.height}`;
   return content.paths.length === 1 ? content.paths[0].split("/").pop() || "文件" : `${content.paths.length} 个文件`;
 }
@@ -23,7 +25,7 @@ export function ContentChip({ content, clear }: { content: PluginContent; clear:
   }, [content]);
   const url = preview?.content === content ? preview.url : undefined;
   return (
-    <span className="content-chip" title={contentLabel(content)}>
+    <span className="content-chip" title={content.type === "text" ? content.text.slice(0, 500) : contentLabel(content)}>
       {url ? <img src={url} alt="粘贴的图片" /> : <PathIcon kind="file" size={24} />}
       <span>{contentLabel(content)}</span>
       <button type="button" className="icon-btn" aria-label="移除输入内容" onClick={clear}><CloseIcon /></button>
@@ -64,9 +66,50 @@ export function useSearchContent(enabled: boolean, reset: () => void, report: (e
     return () => { disposed = true; task.current++; void subscription.then((off) => off()).catch(() => {}); };
   }, [enabled, acceptPaths]);
 
+  const acceptText = useCallback((text: string) => {
+    task.current++;
+    setLoading(false);
+    setContent({ type: "text", text });
+    callbacks.current.reset();
+    callbacks.current.report(null);
+  }, []);
+
+  /**
+   * A copy made moments before the panel opened, read on purpose because the host saw it
+   * happen. Short text goes to `setQuery`; long text, images and files become the input.
+   */
+  const bringIn = useCallback(async (kind: ClipboardKind, setQuery: (text: string) => void) => {
+    const id = ++task.current;
+    try {
+      if (kind === "text") {
+        const text = await readClipboardText();
+        if (id !== task.current || !text.trim()) return;
+        if (textPlacement(text) === "query") setQuery(text.trim());
+        else acceptText(text);
+      } else if (kind === "files") {
+        const paths = await readClipboardFiles();
+        if (id === task.current && paths.length) acceptPaths(paths);
+      } else {
+        setLoading(true);
+        const image = await readClipboardImage();
+        if (id === task.current && image) setContent({ type: "image", name: "刚复制的图片", image });
+      }
+    } catch {
+      // Nothing usable: the panel simply opens empty.
+    } finally {
+      if (id === task.current) setLoading(false);
+    }
+  }, [acceptPaths, acceptText]);
+
   const paste = async (event: React.ClipboardEvent) => {
     const files = Array.from(event.clipboardData.files);
     const text = event.clipboardData.getData("text/plain");
+    // A paragraph or several lines would be squashed into one line by the search box.
+    if (!files.length && text.trim() && textPlacement(text) === "attachment") {
+      event.preventDefault();
+      acceptText(text);
+      return;
+    }
     const intercepted = files.length > 0 || !text;
     if (intercepted) event.preventDefault();
     const id = ++task.current;
@@ -116,5 +159,5 @@ export function useSearchContent(enabled: boolean, reset: () => void, report: (e
     } finally { if (id === task.current) setLoading(false); }
   };
 
-  return { content, loading, dragging, clear, paste, drop, setDragging };
+  return { content, loading, dragging, clear, paste, drop, setDragging, bringIn };
 }

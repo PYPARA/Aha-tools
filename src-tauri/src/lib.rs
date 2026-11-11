@@ -1,6 +1,7 @@
 mod config;
 mod context;
 mod clipboard;
+mod clipboard_watch;
 mod favicon;
 mod hotkey;
 mod netspeed;
@@ -44,6 +45,7 @@ pub fn run() {
             let cfg = config::load(app.handle());
             plugins::configure(&cfg);
             usage::init(app.handle());
+            clipboard_watch::start();
 
             let launcher = Launcher::new(app.handle().clone());
             let mut registry = Registry::new();
@@ -98,6 +100,8 @@ pub fn run() {
             plugins::compress::compress_list_batches,
             plugins::compress::compress_export,
             plugins::open_path,
+            plugins::reveal_path,
+            clipboard_watch::clipboard_mark_own,
             plugins::qrcode::qr_read_image,
             plugins::qrcode::qr_save_png,
             plugins::hosts::hosts_load,

@@ -224,6 +224,7 @@ pub fn write_text(text: &str) -> Result<(), String> {
         &NSString::from_str(text),
         &NSString::from_str("public.utf8-plain-text"),
     ) {
+        crate::clipboard_watch::mark_own();
         Ok(())
     } else {
         Err("无法写入剪贴板，请检查系统的剪贴板访问权限".into())
@@ -339,8 +340,8 @@ fn copy_selection(pid: i32) -> Option<String> {
         .map(|s| s.to_string());
     let whole_line = copied_whole_line(&board);
     // Another writer wins: only restore the generation just read.
-    if board.changeCount() == count {
-        restore(&*board, snap, count);
+    if board.changeCount() == count && restore(&*board, snap, count) {
+        crate::clipboard_watch::mark_own();
     }
     if whole_line {
         return None;
@@ -365,7 +366,9 @@ fn restore_late(snap: Snapshot, before: isize) {
                 if count == before + 1 {
                     // Let the app finish writing its data before replacing it.
                     thread::sleep(Duration::from_millis(50));
-                    restore(&*board, snap, count);
+                    if restore(&*board, snap, count) {
+                        crate::clipboard_watch::mark_own();
+                    }
                 }
                 return;
             }

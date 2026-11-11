@@ -30,6 +30,11 @@ pub struct Config {
     /// Sites opened in their own long-lived windows (webapps.rs).
     pub web_apps: Vec<WebApp>,
     pub translate: TranslateConfig,
+    /// Seconds after copying during which opening the search panel brings the copy in;
+    /// 0 switches it off.
+    pub clipboard_auto_paste: u32,
+    /// Web search for 「没有找到」, with `{q}` for the query.
+    pub web_search: String,
     /// Preserve unrelated/future fields when migrating and saving the config.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -283,6 +288,8 @@ impl Default for Config {
             panel_reopen: PanelReopen::Resume,
             disabled_matches: vec![],
             web_apps: default_web_apps(),
+            clipboard_auto_paste: 5,
+            web_search: "https://www.google.com/search?q={q}".into(),
             extra: Default::default(),
             translate: TranslateConfig::default(),
         }
@@ -408,6 +415,11 @@ mod tests {
         assert_eq!(cfg.appearance, "system");
         assert_eq!(cfg.translate, TranslateConfig::default());
         assert_eq!(cfg.panel_reopen, PanelReopen::Resume);
+        assert_eq!(cfg.clipboard_auto_paste, 5);
+        assert!(cfg.web_search.contains("{q}"));
+        let off: Config = serde_json::from_str(r#"{"clipboardAutoPaste":0,"webSearch":"https://cn.bing.com/search?q={q}"}"#).unwrap();
+        assert_eq!(off.clipboard_auto_paste, 0);
+        assert!(off.web_search.starts_with("https://cn.bing.com"));
     }
 
     #[test]

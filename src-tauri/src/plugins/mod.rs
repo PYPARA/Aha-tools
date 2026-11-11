@@ -7,6 +7,7 @@
 //! Built-in plugins are compiled in. External plugins (loaded from disk at runtime)
 //! will use the same manifest format.
 
+pub mod detect;
 pub mod hosts;
 pub mod launcher;
 pub mod processes;
@@ -17,7 +18,7 @@ pub mod translate;
 pub mod webapps;
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 use std::thread;
 
 use fuzzy_matcher::FuzzyMatcher;
@@ -42,6 +43,15 @@ const BUILTIN_MANIFESTS: &[&str] = &[
     include_str!("../../../plugins/processes/plugin.json"),
     include_str!("../../../plugins/superpanel/plugin.json"),
 ];
+
+static MANIFESTS: LazyLock<Vec<Manifest>> = LazyLock::new(|| {
+    BUILTIN_MANIFESTS.iter().map(|s| serde_json::from_str(s).expect("invalid built-in plugin.json")).collect()
+});
+
+/// A built-in feature's own name, e.g. 「生成二维码」 for a result titled 「为「hi」生成二维码」.
+pub fn feature_explain(plugin: &str, feature: &str) -> Option<String> {
+    MANIFESTS.iter().find(|m| m.id == plugin)?.features.iter().find(|f| f.code == feature).map(|f| f.explain.clone())
+}
 
 /// Search options from config.json, set by `configure`.
 struct Options {
@@ -167,6 +177,10 @@ pub struct Feature {
     /// Content this feature accepts as input; matching queries list it after other results.
     #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
     pub matches: Option<Match>,
+    /// Title when offered for matched text, with `{input}` for a short preview of it,
+    /// e.g. 「为「{input}」生成二维码」.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_title: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -188,11 +202,21 @@ pub struct Match {
     pub files: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_files: Option<usize>,
+    /// Kinds of text this feature is made for (`detect::kinds`): offered right after
+    /// results asked for by name, before ordinary matches.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub types: Vec<String>,
 }
 
 impl Match {
-    fn accepts_content(&self, content: &MatchContent) -> bool {
+    fn type_hit(&self, kinds: &[&str]) -> bool {
+        self.types.iter().any(|t| kinds.contains(&t.as_str()))
+    }
+
+    /// `kinds`: what the content's text looks like, from `detect::kinds`.
+    fn accepts_content(&self, content: &MatchContent, kinds: &[&str]) -> bool {
         match content {
+            MatchContent::Text { text } => self.type_hit(kinds) || self.accepts(text),
             MatchContent::Image => self.image,
             MatchContent::Files { paths } => !paths.is_empty() && self.max_files.is_none_or(|max| paths.len() <= max) && paths.iter().all(|path| {
                 self.files.iter().any(|extension| extension == "*" || std::path::Path::new(path)
@@ -219,6 +243,8 @@ impl Match {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MatchContent {
+    /// Text too long or multi-line for the search box, carried as an attachment.
+    Text { text: String },
     Image,
     Files { paths: Vec<String> },
 }
@@ -275,6 +301,8 @@ pub struct Registry {
 const MAX_RESULTS: usize = 30;
 /// "<cmd> <text>": the feature was asked for by name, so it goes first.
 const CMD_WITH_INPUT_SCORE: i64 = 10_000;
+/// Made for this kind of text (a domain → ping): after named requests, before name matches.
+const TYPE_MATCH_SCORE: i64 = 5_000;
 /// Content matches ("translate this text") go after every named result.
 const CONTENT_MATCH_SCORE: i64 = -1;
 /// Name matches scoring under this share of the best one are noise ("c" in "Music").
@@ -282,12 +310,8 @@ const KEEP_PERCENT: i64 = 40;
 
 impl Registry {
     pub fn new() -> Self {
-        let manifests = BUILTIN_MANIFESTS
-            .iter()
-            .map(|s| serde_json::from_str(s).expect("invalid built-in plugin.json"))
-            .collect();
         Registry {
-            manifests,
+            manifests: MANIFESTS.clone(),
             providers: HashMap::new(),
         }
     }
@@ -321,16 +345,13 @@ impl Registry {
             .map(|(cmd, rest)| (cmd, rest.trim()))
             .filter(|(_, rest)| !rest.is_empty());
 
+        let kinds = detect::kinds(query);
         for m in &self.manifests {
             for f in &m.features {
                 let feature_item = |score: i64, input: Option<&str>| SearchItem {
-                    title: if m.id == "qrcode"
-                        && f.code == "generate"
-                        && score == CONTENT_MATCH_SCORE
-                    {
-                        format!("为「{}」生成二维码", preview(input.unwrap_or("")))
-                    } else {
-                        f.explain.clone()
+                    title: match (&f.match_title, input) {
+                        (Some(title), Some(text)) if score != CMD_WITH_INPUT_SCORE => title.replace("{input}", &preview(text)),
+                        _ => f.explain.clone(),
                     },
                     subtitle: match input {
                         Some(text) => format!("{} · 「{}」", m.name, preview(text)),
@@ -361,9 +382,10 @@ impl Registry {
                 if let Some(score) = best {
                     // Plugin features rank above files for the same match quality.
                     items.push(feature_item(score + 20, None));
-                } else if f.matches.as_ref().is_some_and(|mt| mt.accepts(query))
-                    && !disabled.contains(&key)
-                {
+                } else if disabled.contains(&key) {
+                } else if f.matches.as_ref().is_some_and(|mt| mt.type_hit(&kinds)) {
+                    items.push(feature_item(TYPE_MATCH_SCORE, Some(query)));
+                } else if f.matches.as_ref().is_some_and(|mt| mt.accepts(query)) {
                     items.push(feature_item(CONTENT_MATCH_SCORE, Some(query)));
                 }
             }
@@ -386,18 +408,19 @@ impl Registry {
         let Some(text) = text.map(str::trim).filter(|t| !t.is_empty()) else {
             return vec![];
         };
+        let kinds = detect::kinds(text);
         let mut items = vec![];
         for m in &self.manifests {
             for f in &m.features {
-                if disabled.contains(&format!("{}/{}", m.id, f.code))
-                    || !f.matches.as_ref().is_some_and(|mt| mt.accepts(text))
-                {
+                let Some(mt) = f.matches.as_ref() else { continue };
+                let typed = mt.type_hit(&kinds);
+                if disabled.contains(&format!("{}/{}", m.id, f.code)) || !(typed || mt.accepts(text)) {
                     continue;
                 }
                 items.push(SearchItem {
                     title: f.explain.clone(),
                     subtitle: m.name.clone(),
-                    score: 0,
+                    score: i64::from(typed),
                     plugin: m.id.clone(),
                     kind: ItemKind::Feature,
                     icon: None,
@@ -405,6 +428,8 @@ impl Registry {
                 });
             }
         }
+        // Made for this kind of text first; otherwise manifest order.
+        items.sort_by(|a, b| b.score.cmp(&a.score));
         items
     }
 
@@ -412,6 +437,7 @@ impl Registry {
         let matcher = SkimMatcherV2::default().ignore_case();
         let query = query.trim();
         let mut items = vec![];
+        let kinds = match content { MatchContent::Text { text } => detect::kinds(text), _ => vec![] };
         // Compression accepts mixed batches and expands one directory level. Other file
         // tools keep the exact attachment snapshot (e.g. copy-path must keep folders).
         let compression_paths = match content {
@@ -426,17 +452,20 @@ impl Registry {
             for feature in &manifest.features {
                 let is_compression = manifest.id == "compress" && feature.code == "compress";
                 let accepts = if is_compression { compression_paths.is_some() }
-                    else { feature.matches.as_ref().is_some_and(|m| m.accepts_content(content)) };
+                    else { feature.matches.as_ref().is_some_and(|m| m.accepts_content(content, &kinds)) };
+                let typed = feature.matches.as_ref().is_some_and(|m| m.type_hit(&kinds));
                 if disabled.contains(&format!("{}/{}", manifest.id, feature.code)) || !accepts { continue; }
                 let score = if query.is_empty() { 0 } else {
                     let Some(score) = feature.cmds.iter().map(String::as_str)
                         .chain([feature.explain.as_str(), manifest.name.as_str()])
                         .filter_map(|name| match_text(&matcher, name, query)).max() else { continue };
                     score
-                };
+                } + if typed { 1000 } else { 0 };
                 let (subtitle, input) = if is_compression {
                     let (paths, count) = compression_paths.as_ref().unwrap();
                     (format!("{} · {count} 张图片", manifest.name), Some(serde_json::to_string(paths).unwrap()))
+                } else if let MatchContent::Text { text } = content {
+                    (manifest.name.clone(), Some(text.clone()))
                 } else { (manifest.name.clone(), None) };
                 items.push(SearchItem {
                     title: if is_compression { format!("{} · {} 张", feature.explain, compression_paths.as_ref().unwrap().1) } else { feature.explain.clone() }, subtitle, score,
@@ -453,17 +482,18 @@ impl Registry {
 /// Name matches: drops the noise, adds what usage taught, then orders them stably.
 /// "<cmd> <text>" requests stay first and content matches stay last.
 fn rank_items(items: Vec<SearchItem>, query: &str, rank: &crate::usage::Rank, now: u64) -> Vec<SearchItem> {
-    let named = |score: i64| (0..CMD_WITH_INPUT_SCORE).contains(&score);
+    let named = |score: i64| (0..TYPE_MATCH_SCORE).contains(&score);
     let best = items.iter().map(|i| i.score).filter(|&s| named(s)).max().unwrap_or(0);
     let mut ranked: Vec<(SearchItem, u64)> = items
         .into_iter()
         .filter_map(|mut item| {
             let key = crate::usage::key(&item);
-            if named(item.score) {
-                // An earlier pick for this query keeps a weak match.
-                if item.score * 100 < best * KEEP_PERCENT && rank.pick(&key, query) == 0 {
-                    return None;
-                }
+            // An earlier pick for this query keeps a weak match.
+            if named(item.score) && item.score * 100 < best * KEEP_PERCENT && rank.pick(&key, query) == 0 {
+                return None;
+            }
+            // Type matches learn too (ping over DNS lookup), within their own band.
+            if (0..CMD_WITH_INPUT_SCORE).contains(&item.score) {
                 item.score += rank.boost(&key, query, now);
             }
             Some((item, rank.last_used(&key)))
@@ -529,6 +559,22 @@ pub fn expand_home(path: &str) -> String {
         (Some(rest), Ok(home)) => format!("{home}/{rest}"),
         _ => path.to_string(),
     }
+}
+
+/// Selects the file or folder in a Finder window.
+#[tauri::command]
+pub fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
+    let target = expand_home(path.trim());
+    if !std::path::Path::new(&target).exists() {
+        return Err(format!("找不到「{path}」"));
+    }
+    std::process::Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(&target)
+        .spawn()
+        .map_err(|e| format!("无法在访达中显示：{e}"))?;
+    crate::panel::hide(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -740,6 +786,45 @@ mod tests {
         assert!(match_text(&m, "微信", "wx").unwrap() >= match_text(&m, "企业微信", "wx").unwrap());
         assert!(match_text(&m, "微信", "w").is_some());
         assert!(match_text(&m, "微信", "x").is_none());
+    }
+
+    #[test]
+    fn typed_text_offers_features_made_for_it_after_named_requests() {
+        let mut r = apps(vec!["github.com 笔记"]);
+        r.manifests.push(serde_json::from_str(r#"{"id":"net","name":"网络","version":"0","features":[
+            {"code":"ping","explain":"Ping","cmds":["ping"],"match":{"types":["domain","ip"]},"matchTitle":"ping {input}"},
+            {"code":"fmt","explain":"格式化 JSON","cmds":["json"],"match":{"types":["json"]}}]}"#).unwrap());
+        r.manifests.extend(Registry::new().manifests.into_iter().filter(|m| m.id == "translate"));
+        let items = r.search_with_disabled("github.com", &[]);
+        assert_eq!(items[0].title, "ping github.com");
+        assert_eq!(items[0].score, TYPE_MATCH_SCORE);
+        assert_eq!(input_of(&items[0]), Some("github.com"));
+        // Name matches still follow; any-text matches stay last.
+        assert!(items.iter().any(|i| i.title == "github.com 笔记" && i.score < TYPE_MATCH_SCORE));
+        assert_eq!(items.last().unwrap().plugin, "translate");
+        // Asking by name still wins, and 自动匹配 switches type matches off too.
+        assert_eq!(r.search_with_disabled("ping 10.0.0.1", &[])[0].score, CMD_WITH_INPUT_SCORE);
+        assert!(!r.search_with_disabled("github.com", &["net/ping".into()]).iter().any(|i| i.plugin == "net"));
+        // Long text as an attachment: matched by kind, carried as the feature's input.
+        let json = MatchContent::Text { text: "{\n  \"a\": 1\n}".into() };
+        let matched = r.content_results(&json, "", &[]);
+        assert_eq!(matched[0].title, "格式化 JSON");
+        assert_eq!(input_of(&matched[0]), Some("{\n  \"a\": 1\n}"));
+        assert!(matched.iter().any(|i| i.plugin == "translate"));
+    }
+
+    #[test]
+    fn builtin_launcher_opens_urls_and_reveals_paths() {
+        let r = Registry::new();
+        let url = r.search_with_disabled("https://example.com", &[]);
+        assert_eq!(url[0].title, "在浏览器中打开「https://example.com」");
+        let path = r.search_with_disabled("/Applications", &[]);
+        assert_eq!(path[0].title, "在访达中显示「/Applications」");
+        // The super panel puts features made for the text first.
+        let context = r.context_matches(Some("https://example.com"), &[]);
+        assert_eq!(context[0].title, "在浏览器中打开");
+        assert_eq!(feature_explain("qrcode", "generate").as_deref(), Some("生成二维码"));
+        assert_eq!(feature_explain("qrcode", "missing"), None);
     }
 
     #[test]

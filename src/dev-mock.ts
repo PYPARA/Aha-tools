@@ -134,6 +134,13 @@ Object.assign(window, {
     openFeature(plugin: string, feature: string, input?: string) {
       return showMockPanel({ plugin, feature, input });
     },
+    /** Another app copies: text, a list of file paths, or "image". */
+    copy(value: string | string[]) {
+      if (Array.isArray(value)) { clipboardFiles = value; clipboardText = value.map((p) => p.split("/").pop()).join("\n"); }
+      else if (value === "image") { clipboardPixels = fixtureImage(); clipboardFiles = []; scenario = "url"; }
+      else { clipboardText = value; clipboardFiles = []; clipboardPixels = undefined; }
+      mockCopy = { changeCount: ++copyCount, at: performance.now(), kind: Array.isArray(value) ? "files" : value === "image" ? "image" : "text" };
+    },
   },
 });
 
@@ -223,6 +230,8 @@ let config: Config = {
   pinyin: true,
   appearance: "system",
   panelReopen: "resume",
+  clipboardAutoPaste: 5,
+  webSearch: "https://www.google.com/search?q={q}",
   disabledMatches: [] as string[],
   translate: {
     profiles: params.get("translateMock") && params.get("translateMock") !== "empty" ? [
@@ -272,6 +281,19 @@ function navigate(plugin: string, feature: string, input?: string, viewOnly = fa
 function navigateQuery(query: string) {
   pendingRequest = { id: ++requestId, plugin: "", feature: "", query };
   void emit("panel-query", pendingRequest);
+}
+/** A rough copy of detect.rs for the preview: which kinds of text this is. */
+function mockKinds(text: string): string[] {
+  const t = text.trim();
+  const kinds: string[] = [];
+  if (/^[[{]/.test(t)) { try { const v = JSON.parse(t); if (v && typeof v === "object") kinds.push("json"); } catch { /* not JSON */ } }
+  if (/\s/.test(t)) return kinds;
+  if (/^https?:\/\/[^/\s]+/.test(t)) kinds.push("url");
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(t) || /^[0-9a-f:]+:[0-9a-f:]*$/i.test(t)) kinds.push("ip");
+  else if (/^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(t) && !/\.(md|json|txt|js|ts|png|jpg|pdf|zip|html|css)$/i.test(t)) kinds.push("domain");
+  if (/^:?\d{2,5}$/.test(t) && Number(t.replace(":", "")) <= 65535) kinds.push("port");
+  if (/^(\/|~\/)/.test(t)) kinds.push("path");
+  return kinds;
 }
 const quitPids: number[] = [];
 /** 进程管理: a few apps with helpers, a system process and a lone CLI tool. */
@@ -393,13 +415,17 @@ let panelHiddenAt: number | null = null;
 function hideMockPanel() {
   if (panelVisible) { panelVisible = false; panelHiddenAt = performance.now(); }
 }
+let copyCount = 0;
+let mockCopy: { changeCount: number; at: number; kind: "text" | "image" | "files" } | null = null;
 async function showMockPanel(target?: { plugin: string; feature: string; input?: string }) {
+  const age = mockCopy ? performance.now() - mockCopy.at : Infinity;
+  const clipboard = !target && mockCopy && age <= config.clipboardAutoPaste * 1000 ? { changeCount: mockCopy.changeCount, ageMs: Math.round(age), kind: mockCopy.kind } : null;
   const reset = !panelVisible && !target && (config.panelReopen === "search"
     || (config.panelReopen === "afterFiveMinutes" && panelHiddenAt !== null && performance.now() - panelHiddenAt > 300_000));
   panelVisible = true;
   panelHiddenAt = null;
   if (reset) panelLarge = false;
-  await emit("panel-shown", { reset });
+  await emit("panel-shown", { reset, clipboard });
   if (target) await emit("open-feature", target);
 }
 
@@ -542,7 +568,15 @@ mockIPC((cmd, args) => {
     case "search": {
       const original = String(a.query ?? "").trim();
       const q = original.toLowerCase();
-      const content = a.content as { type: "image" | "files"; paths?: string[] } | undefined;
+      const content = a.content as { type: "image" | "files" | "text"; paths?: string[]; text?: string } | undefined;
+      if (content?.type === "text") {
+        const kinds = mockKinds(content.text ?? "");
+        return manifests.flatMap((m) => m.features.filter((f) => f.match && !config.disabledMatches.includes(`${m.id}/${f.code}`)
+          && (f.match.types?.some((t) => kinds.includes(t)) || (f.match.text && Array.from(content.text ?? "").length >= (f.match.minLength ?? 1)))
+          && (!q || [f.explain, m.name, ...f.cmds].some((name) => name.toLowerCase().includes(q))))
+          .map((f) => ({ ...feature(m.id, f.code, f.explain, m.name), score: f.match?.types?.some((t) => kinds.includes(t)) ? 1000 : 0, action: { type: "feature" as const, feature: f.code, input: content.text } })))
+          .sort((x, y) => y.score - x.score);
+      }
       const compressionPaths = content?.type === "files" ? expandMockPaths(content.paths ?? []) : [];
       const compressionCount = compressionPaths.filter(mockImage).length;
       if (content) return manifests.flatMap((m) => m.features.filter((f) => {
@@ -558,16 +592,17 @@ mockIPC((cmd, args) => {
       const features = manifests.flatMap((m) => m.features.flatMap((f) => {
         const prefixed = prefix && f.cmds.some((c) => c.toLowerCase() === prefix[1].toLowerCase());
         const named = f.cmds.some((c) => c.toLowerCase().includes(q));
-        const auto = !named && f.match?.text && Array.from(original).length >= Math.max(1, f.match.minLength ?? 1) &&
-          !config.disabledMatches.includes(`${m.id}/${f.code}`);
+        const off = config.disabledMatches.includes(`${m.id}/${f.code}`);
+        const typed = !named && !off && f.match?.types?.some((t) => mockKinds(original).includes(t));
+        const auto = !named && (typed || f.match?.text && Array.from(original).length >= Math.max(1, f.match.minLength ?? 1) && !off);
         if (!prefixed && !named && !auto) return [];
         const input = prefixed ? prefix[2].trim() : auto ? original : undefined;
         const line = input?.split("\n")[0] ?? "";
         const summary = Array.from(line).slice(0, 24).join("") + (Array.from(line).length > 24 || input?.includes("\n") ? "…" : "");
         return [{
-          title: !prefixed && auto && m.id === "qrcode" ? `为「${summary}」生成二维码` : f.explain,
+          title: !prefixed && auto && f.matchTitle ? f.matchTitle.replace("{input}", summary) : f.explain,
           subtitle: input ? `${m.name} · 「${summary}」` : `${m.name} · 插件功能`,
-          score: prefixed ? 10_000 : named ? 100 : -1,
+          score: prefixed ? 10_000 : named ? 100 : typed ? 5_000 : -1,
           plugin: m.id, kind: "feature", action: { type: "feature", feature: f.code, ...(input === undefined ? {} : { input }) },
         }];
       }));
@@ -703,6 +738,8 @@ mockIPC((cmd, args) => {
       clipboardFiles = [];
       return null;
     }
+    case "clipboard_mark_own": mockCopy = null; return null;
+    case "reveal_path": executed.push(`reveal:${String(a.path)}`); return null;
     case "plugin:clipboard-manager|write_text":
       clipboardText = String(a.text);
       clipboardPixels = undefined;

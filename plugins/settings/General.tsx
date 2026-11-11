@@ -76,6 +76,25 @@ export default function General({ cfg, save }: SectionProps) {
           ))}
         <Switch label="独占热键" checked={cfg.exclusiveHotkeys} onChange={(on) => set({ exclusiveHotkeys: on })} />
       </Row>
+      <Row title="带入刚复制的内容" desc="复制后马上打开面板，直接用复制的内容搜索；不带入密码">
+        <Select<string> id="clipboard-auto-paste" label="带入刚复制的内容" value={String(cfg.clipboardAutoPaste ?? 5)}
+          onChange={(value) => set({ clipboardAutoPaste: Number(value) })} options={[
+            { value: "0", label: "关闭" },
+            { value: "3", label: "3 秒内" },
+            { value: "5", label: "5 秒内" },
+            { value: "10", label: "10 秒内" },
+          ]} />
+      </Row>
+      <Row title="网上搜索" desc="搜索面板没有名称匹配时，提供在网上搜索">
+        <Select<string> id="web-search" label="网上搜索" value={cfg.webSearch ?? ""}
+          onChange={(webSearch) => set({ webSearch })} options={[
+            { value: "https://www.google.com/search?q={q}", label: "Google" },
+            { value: "https://www.bing.com/search?q={q}", label: "必应" },
+            { value: "https://www.baidu.com/s?wd={q}", label: "百度" },
+            { value: "https://duckduckgo.com/?q={q}", label: "DuckDuckGo" },
+            { value: "", label: "不提供" },
+          ]} />
+      </Row>
       <Row title="拼音搜索" desc="用全拼或首字母搜中文名，例如 wx 找到微信">
         <Switch label="拼音搜索" checked={cfg.pinyin} onChange={(on) => set({ pinyin: on })} />
       </Row>

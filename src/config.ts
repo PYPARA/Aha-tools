@@ -34,6 +34,10 @@ export interface Config {
   pinyin: boolean;
   appearance: "system" | "light" | "dark";
   panelReopen: "resume" | "afterFiveMinutes" | "search";
+  /** Seconds after copying during which opening the panel brings the copy in; 0 is off. */
+  clipboardAutoPaste: number;
+  /** Web search for queries without results, with {q} for the query. */
+  webSearch: string;
   /** Content matches switched off, as "<plugin>/<feature>". */
   disabledMatches: string[];
   webApps: WebApp[];

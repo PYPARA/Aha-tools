@@ -6,7 +6,7 @@ import type { Config, TranslateDirection, TranslateProfile, TranslateProtocol } 
 import { listen } from "@tauri-apps/api/event";
 import { Image } from "@tauri-apps/api/image";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { readImage, writeImage, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readImage, readText, writeImage, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { confirm, open, save, type OpenDialogOptions, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 
 export { invoke };
@@ -36,7 +36,9 @@ export interface Feature {
   code: string;
   explain: string;
   cmds: string[];
-  match?: { text?: boolean; minLength?: number; regex?: string; files?: string[]; image?: boolean; maxFiles?: number };
+  match?: { text?: boolean; minLength?: number; regex?: string; files?: string[]; image?: boolean; maxFiles?: number; types?: string[] };
+  /** Title when offered for matched text; `{input}` is a short preview of it. */
+  matchTitle?: string;
 }
 
 export interface Manifest {
@@ -53,7 +55,9 @@ export type FeatureTarget = { plugin: string; feature: string; input?: string; v
 /** A snapshot of an explicit paste/drop, kept in memory and never written to history. */
 export type PluginContent =
   | { type: "image"; image: RgbaImage; name: string }
-  | { type: "files"; paths: string[] };
+  | { type: "files"; paths: string[] }
+  /** Text too long or multi-line for the search box. */
+  | { type: "text"; text: string };
 
 /** Pixels are RGBA, in row-major order. Native image handles never leave the SDK. */
 export interface RgbaImage {
@@ -81,7 +85,19 @@ export const hidePanel = () => invoke("hide_panel");
 
 export const openPath = (path: string) => invoke("open_path", { path });
 
-export const writeClipboardText = (text: string) => writeText(text);
+/** AhaTools' own copies are never brought back into the search box as if just copied. */
+const markOwnCopy = () => invoke("clipboard_mark_own").catch(() => {});
+export const writeClipboardText = async (text: string) => {
+  await writeText(text);
+  await markOwnCopy();
+};
+export async function readClipboardText(): Promise<string> {
+  try {
+    return await readText();
+  } catch {
+    return "";
+  }
+}
 export const readClipboardFiles = () => invoke<string[]>("clipboard_files");
 
 export async function readClipboardImage(): Promise<RgbaImage | null> {
@@ -105,6 +121,7 @@ export async function writeClipboardImage({ width, height, rgba }: RgbaImage): P
   const image = await Image.new(new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength), width, height);
   try {
     await writeImage(image);
+    await markOwnCopy();
   } finally {
     await image.close();
   }
@@ -116,7 +133,9 @@ export const confirmAction = (message: string) => confirm(message, { title: "Aha
 export const onHostEvent = <T,>(event: string, handler: (payload: T) => void) => listen<T>(event, (e) => handler(e.payload));
 export const isNative = isTauri;
 
-export interface PanelShownEvent { reset: boolean }
+export type ClipboardKind = "text" | "image" | "files";
+/** `clipboard`: a copy made moments ago (kind only), for the search box to bring in. */
+export interface PanelShownEvent { reset: boolean; clipboard?: { changeCount: number; ageMs: number; kind: ClipboardKind } | null }
 export const onPanelShown = (handler: (event: PanelShownEvent) => void) =>
   listen<PanelShownEvent>("panel-shown", ({ payload }) => handler(payload));
 

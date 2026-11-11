@@ -8,7 +8,8 @@
       "code": "generate",
       "explain": "生成二维码",
       "cmds": ["二维码", "qr", "qrcode"],
-      "match": { "text": true, "minLength": 1 }
+      "match": { "text": true, "minLength": 1 },
+      "matchTitle": "为「{input}」生成二维码"
     },
     {
       "code": "scan",

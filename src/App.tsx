@@ -21,16 +21,20 @@ import {
   type Manifest,
   type PanelShownEvent,
   type SearchItem,
+  writeClipboardText,
 } from "@ahatools/sdk";
 import { actions, fullPageViews, views, type Target } from "./views";
 import { ContentChip, useSearchContent } from "./search-content";
-import { filesFromInput } from "./plugin-input";
+import { filesFromInput, preview } from "./plugin-input";
 import { pinKey, type Home } from "./pinned-sort";
 import { PinnedGrid, type PinnedGridHandle } from "./PinnedGrid";
 import "./styles.css";
 
 /** Recent items shown before 「展开」: one row of the grid. */
 const COLUMNS = 7;
+/** Rows offered when nothing matches by name: web search and asking a web app. */
+const FALLBACK = "fallback";
+const ASK = "fallback-ask";
 
 /** Web app id → its current address, for site icons. Read from config rather than the
  * item, so entries in 最近使用 saved before an address change (or without one) still match. */
@@ -44,6 +48,9 @@ function ItemIcon({ item, large }: { item: SearchItem; large?: boolean }) {
   }
   if (item.kind === "app" && item.action.type === "openPath") {
     return <AppIcon path={item.action.path} name={item.title} large={large} />;
+  }
+  if (item.plugin === FALLBACK) {
+    return <span className={large ? "tile lg" : "tile"} aria-hidden="true"><SearchIcon size={large ? 18 : 16} /></span>;
   }
   if (item.kind !== "saved") {
     return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={large ? 40 : 32} />;
@@ -122,16 +129,26 @@ export default function App() {
       navigating.current = false;
     }
   }, []);
-  const { content, loading: contentLoading, dragging, clear: clearContent, paste, drop, setDragging } = useSearchContent(!active, () => {
+  const { content, loading: contentLoading, dragging, clear: clearContent, paste, drop, setDragging, bringIn } = useSearchContent(!active, () => {
     setQuery(""); setSelected(0);
   }, setError);
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  /** The last copy brought in, so reopening the panel doesn't bring it in again. */
+  const broughtIn = useRef(-1);
   const sorting = useRef<PinnedGridHandle>(null);
 
   const [webUrls, setWebUrls] = useState<Map<string, string>>(new Map());
+  const [webApps, setWebApps] = useState<Config["webApps"]>([]);
+  const [webSearch, setWebSearch] = useState("");
   const loadHome = () => invoke<Home>("usage_home").then(setHome);
   const [superPins, setSuperPins] = useState<SearchItem[]>([]);
   const loadWebUrls = (cfg: Config) => {
     setWebUrls(new Map((cfg.webApps ?? []).map((w) => [w.id, w.url])));
+    setWebApps(cfg.webApps ?? []);
+    setWebSearch(cfg.webSearch ?? "");
     setSuperPins(cfg.superPanel?.pinned ?? []);
   };
   const loadHotkey = () =>
@@ -148,11 +165,23 @@ export default function App() {
     const subs = [
       listen<PanelShownEvent>("panel-shown", (event) => {
         setError(null);
-        const showSearch = () => {
+        // Like uTools: what was copied a moment ago becomes the input.
+        const copied = event.payload?.clipboard;
+        const bringInCopy = (cleared: boolean) => {
+          if (!copied || copied.changeCount === broughtIn.current || activeRef.current) return;
+          if (!cleared && (queryRef.current.trim() || contentRef.current)) return;
+          broughtIn.current = copied.changeCount;
+          void bringIn(copied.kind, (text) => {
+            setQuery(text);
+            requestAnimationFrame(() => inputRef.current?.select());
+          });
+        };
+        const showSearch = (cleared = false) => {
           setExpanded(false);
           setSelected(0);
           loadHome();
           requestAnimationFrame(() => inputRef.current?.select());
+          bringInCopy(cleared);
         };
         if (event.payload?.reset) {
           // Reopening may reset a page, but must still protect unsaved plugin drafts.
@@ -167,7 +196,7 @@ export default function App() {
             setStatus("");
             setFlash("");
             setItems([]);
-            showSearch();
+            showSearch(true);
           });
           return;
         }
@@ -196,7 +225,9 @@ export default function App() {
   useEffect(() => {
     let stale = false;
     if (!query.trim() && !content) setItems([]);
-    invoke<SearchItem[]>("search", { query, content: content?.type === "files" ? { type: "files", paths: content.paths } : content ? { type: "image" } : null }).then((r) => {
+    const described = content?.type === "files" ? { type: "files", paths: content.paths }
+      : content?.type === "text" ? { type: "text", text: content.text } : content ? { type: "image" } : null;
+    invoke<SearchItem[]>("search", { query, content: described }).then((r) => {
       if (!stale) {
         setItems(r);
         setSelected(0);
@@ -244,7 +275,23 @@ export default function App() {
   const recent = expanded ? home.recent : home.recent.slice(0, COLUMNS);
   const sections = home.recent.length || home.pinned.length ? [recent, home.pinned] : [allFeatures];
   const gridItems = sections.flat();
-  const visible = contentLoading ? [] : content || hasQuery ? items : gridItems;
+  // Nothing matched by name (at most 「翻译」-style text matches): search the web or
+  // ask a web app instead of a dead end.
+  const fallback = useMemo<SearchItem[]>(() => {
+    const q = query.trim();
+    if (!q || content || !settled || items.some((item) => item.score >= 0)) return [];
+    const extra = (title: string, subtitle: string, plugin: string, action: SearchItem["action"], icon?: string): SearchItem =>
+      ({ title, subtitle, score: -2, plugin, kind: "feature", icon, action });
+    let engine = "";
+    try { engine = new URL(webSearch.replace("{q}", "")).hostname.replace(/^www\./, ""); } catch { /* no usable engine */ }
+    return [
+      ...(engine ? [extra(`在网上搜索「${preview(q)}」`, `${engine} · 用默认浏览器打开`, FALLBACK, { type: "openPath", path: webSearch.replace("{q}", encodeURIComponent(q)) })] : []),
+      ...webApps.map((w) => extra(`问 ${w.name}`, "复制后打开，粘贴即可提问", ASK, { type: "openWeb", id: w.id }, w.url)),
+      extra(`收藏「${preview(q)}」`, "快捷启动 · 收藏一个路径或网址", "launcher", { type: "feature", feature: "manage", input: q }),
+    ];
+  }, [query, content, settled, items, webApps, webSearch]);
+  const results = fallback.length ? [...items, ...fallback] : items;
+  const visible = contentLoading ? [] : content ? items : hasQuery ? results : gridItems;
 
   useEffect(() => {
     if (hasQuery) listRef.current?.children[selected]?.scrollIntoView({ block: "nearest" });
@@ -293,8 +340,17 @@ export default function App() {
   const run = async (item: SearchItem | undefined) => {
     if (!item) return;
     setError(null);
+    if (item.plugin === ASK && item.action.type === "openWeb") {
+      // Web apps can't take text directly: copy it so a paste asks the question.
+      try {
+        await writeClipboardText(query.trim());
+        await invoke("webapp_open", { id: item.action.id });
+        setQuery("");
+      } catch (e) { setError(String(e)); }
+      return;
+    }
     // The typed query teaches search which result it should lead to next time.
-    invoke("usage_record", { item, query: content ? null : query.trim() || null });
+    if (item.plugin !== FALLBACK) invoke("usage_record", { item, query: content ? null : query.trim() || null });
     if (item.action.type === "openWeb") {
       setQuery("");
       invoke("webapp_open", { id: item.action.id }).catch((e) => setError(String(e)));
@@ -322,7 +378,7 @@ export default function App() {
   };
 
   const togglePin = async (item: SearchItem | undefined) => {
-    if (!item) return;
+    if (!item || item.plugin === FALLBACK || item.plugin === ASK) return;
     const pinned = await invoke<boolean>("usage_toggle_pin", { item });
     setFlash(pinned ? `已固定「${item.title}」` : `已取消固定「${item.title}」`);
     loadHome();
@@ -347,6 +403,7 @@ export default function App() {
   /** Right-click menu, native like uTools': pin / unpin, and remove from 最近使用. */
   const showItemMenu = async (e: React.MouseEvent, item: SearchItem, inRecent: boolean) => {
     e.preventDefault();
+    if (item.plugin === FALLBACK || item.plugin === ASK) return;
     const pinned = pinnedKeys.has(pinKey(item));
     const entries = [
       { text: pinned ? "取消固定" : "固定到首页", accelerator: "CmdOrCtrl+D", action: () => togglePin(item) },
@@ -382,19 +439,25 @@ export default function App() {
     }
     if (active) return;
     if (sorting.current?.isSorting()) { e.preventDefault(); return; }
+    // Backspace in an empty box removes the attachment, like deleting a token.
+    if (e.key === "Backspace" && !query && (content || contentLoading) && e.target === inputRef.current) {
+      e.preventDefault();
+      clearContent();
+      return;
+    }
     if (e.key === "Enter" && e.target instanceof Element && e.target.closest("button")) return;
     if (e.metaKey && e.key.toLowerCase() === "d") {
       e.preventDefault();
       togglePin(visible[selected]);
     } else if (e.metaKey && /^[1-9]$/.test(e.key) && (hasQuery || content)) {
       e.preventDefault();
-      run(items[Number(e.key) - 1]);
+      run((content ? items : results)[Number(e.key) - 1]);
     } else if (e.key === "Enter") {
       e.preventDefault();
       run(visible[selected]);
     } else if (!content && hasQuery && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
-      setSelected((s) => Math.max(0, Math.min(s + (e.key === "ArrowDown" ? 1 : -1), items.length - 1)));
+      setSelected((s) => Math.max(0, Math.min(s + (e.key === "ArrowDown" ? 1 : -1), results.length - 1)));
     } else if ((!hasQuery || content) && e.key.startsWith("Arrow")) {
       // Left/right stay in the text box while there's text to move through.
       if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && query) return;
@@ -481,10 +544,10 @@ export default function App() {
     );
     hints = <><span>方向键 选择</span><span>↵ 打开</span><span>esc {hasQuery ? "清空筛选" : "移除内容"}</span></>;
     right = `${items.length} 个匹配功能`;
-  } else if (hasQuery && items.length > 0) {
+  } else if (hasQuery && results.length > 0) {
     body = (
       <ul className="results" ref={listRef}>
-        {items.map((item, i) => (
+        {results.map((item, i) => (
           <li
             key={`${item.plugin}:${item.title}:${item.subtitle}`}
             className={`result${i === selected ? " selected" : ""}`}
@@ -513,7 +576,7 @@ export default function App() {
         <span>右键 固定</span>
       </>
     );
-    right = `${items.length} 个结果 · 拼音首字母也能搜`;
+    right = fallback.length ? "没有名称匹配的结果 · 可在网上搜索" : `${items.length} 个结果 · 拼音首字母也能搜`;
   } else if (hasQuery && !settled) {
     // First keystroke from an empty box: nothing to keep on screen yet.
     body = <div className="state" aria-busy="true" />;

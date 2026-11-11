@@ -423,10 +423,11 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
         runners,
     }
 }
-/// Plugin features that do what the 文件 group's own copy actions already do.
+/// Plugin features the panel already offers its own way: the 文件 group's copies, its
+/// 在浏览器中打开 row, and revealing what Finder is already showing.
 fn duplicates_file_action(item: &SearchItem) -> bool {
     item.plugin == "launcher"
-        && matches!(&item.action, ItemAction::Feature { feature, .. } if feature == "copy-path" || feature == "copy-name")
+        && matches!(&item.action, ItemAction::Feature { feature, .. } if ["copy-path", "copy-name", "open-url", "reveal"].contains(&feature.as_str()))
 }
 struct FileAction {
     key: &'static str,

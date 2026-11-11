@@ -912,6 +912,36 @@ boards.append(board("Processes", "进程管理", 880, 580, page(880, 580, "cpu",
 confirm = '''<section class="win" style="width: 880px; padding: 16px 20px"><span class="row" style="gap: 12px"><span style="color: var(--bad)">强制结束「Google Chrome」及 23 个进程？</span><span class="note">未保存的内容会丢失；普通退出会让应用先询问保存。</span><span class="sp"></span><button type="button" class="btn sm">取消</button><button type="button" class="btn sm" style="color: var(--bad); border-color: var(--bad)">强制结束</button></span></section>'''
 boards.append(board("ProcessesConfirm", "进程管理 · 强制结束确认（页面底部）", 880, 70, confirm))
 
+# ---- 场景匹配（优化计划阶段 D） ----
+def search_win(query, rows, foot_left, foot_right, chip=""):
+    out = ""
+    for mark, title, sub, key, on in rows:
+        bg = "background: var(--selected);" if on else ""
+        out += (f'<div class="row" style="height: 50px; padding: 0 12px; border-radius: 8px; {bg}">{mark}<span style="flex: 1; display: flex; flex-direction: column">'
+                f'<span>{title}</span><span class="note" style="font-size: 11px">{sub}</span></span><span class="note mono">{key}</span></div>')
+    head = chip + (f'<span style="font-size: 18px">{query}</span>' if query else '<span style="font-size: 18px; color: var(--text-3)">筛选适用功能</span>')
+    return f'''<section class="win" style="width: 520px; height: 400px">
+<header class="row" style="height: 58px; padding: 0 18px; gap: 12px; border-bottom: 1px solid var(--border)">{icon("search", 18) if not chip else ""}{head}</header>
+<div style="flex: 1; padding: 8px">{out}</div>
+<footer class="foot"><span>{foot_left}</span><span>{foot_right}</span></footer></section>'''
+fi = lambda key: ficon(key, 30)
+url_rows = [(fi("launcher"), "在浏览器中打开「https://example.com/docs」", "快捷启动 · 适用于网址", "↵ 打开", True),
+            (fi("qrcode"), "为「https://example.com/docs」生成二维码", "二维码", "⌘2", False),
+            (fi("translate"), "翻译", "翻译 · 「https://example.com/docs」", "⌘3", False)]
+miss_rows = [(fi("qrcode"), "为「zzqqxx」生成二维码", "二维码 · 「zzqqxx」", "↵ 打开", True),
+             (fi("translate"), "翻译", "翻译 · 「zzqqxx」", "⌘2", False),
+             (f'<span class="tile">{icon("search", 15)}</span>', "在网上搜索「zzqqxx」", "google.com · 用默认浏览器打开", "⌘3", False),
+             (site("D", 30), "问 DeepSeek", "复制后打开，粘贴即可提问", "⌘4", False),
+             (fi("launcher"), "收藏「zzqqxx」", "快捷启动 · 收藏一个路径或网址", "⌘5", False)]
+chip = f'<span class="chip" style="height: 30px; gap: 6px">{icon("img", 13)}{{ "name": "AhaT… · 40 字<span style="margin-left: 4px">×</span></span>'
+json_rows = [(fi("json"), "格式化 JSON", "JSON 工具 · 适用于 JSON", "↵ 打开", True), (fi("qrcode"), "生成二维码", "二维码", "⌘2", False), (fi("translate"), "翻译", "翻译", "⌘3", False)]
+inner = f'''<div class="row" style="align-items: flex-start; gap: 28px">
+<div class="col" style="gap: 8px"><span class="note">刚复制网址，5 秒内按 ⌥Space：自动填入，适用于网址的功能排最前</span>{search_win("https://example.com/docs", url_rows, "↑↓ 选择 · ⌘1–9 直接打开", "3 个结果")}</div>
+<div class="col" style="gap: 8px"><span class="note">复制多行 JSON：作为附件，退格或 esc 移除</span>{search_win("", json_rows, "方向键 选择 · ↵ 打开 · esc 移除内容", "3 个匹配功能", chip)}</div>
+<div class="col" style="gap: 8px"><span class="note">没有名称匹配：追加网上搜索、问网页应用、收藏</span>{search_win("zzqqxx", miss_rows, "↑↓ 选择 · ⌘1–9 直接打开", "没有名称匹配的结果 · 可在网上搜索")}</div>
+</div>'''
+boards.append(board("SceneMatching", "搜索面板 · 场景匹配", 1620, 440, inner))
+
 # ---- canvas.json ----
 if STATIC:
     print("\n".join(b["file"] for b in boards))

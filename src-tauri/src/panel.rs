@@ -77,6 +77,8 @@ static SESSION: Mutex<Session> = Mutex::new(Session {
 #[derive(Clone, Serialize)]
 struct PanelShown {
     reset: bool,
+    /// A copy made moments ago, for the search box to bring in (kind only, no content).
+    clipboard: Option<crate::clipboard_watch::Recent>,
 }
 
 fn window(app: &AppHandle) -> Option<WebviewWindow> {
@@ -158,11 +160,11 @@ fn show_with_intent(app: &AppHandle, direct_feature: bool) {
     crate::plugins::on_panel_shown(app);
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        let reset = SESSION.lock().unwrap().show(
-            config::load(&app2).panel_reopen,
-            direct_feature,
-            Instant::now(),
-        );
+        let cfg = config::load(&app2);
+        let reset = SESSION.lock().unwrap().show(cfg.panel_reopen, direct_feature, Instant::now());
+        let clipboard = (!direct_feature)
+            .then(|| crate::clipboard_watch::recent(Duration::from_secs(cfg.clipboard_auto_paste.into())))
+            .flatten();
         if reset {
             PAGE.store(false, Ordering::Relaxed);
         }
@@ -170,7 +172,7 @@ fn show_with_intent(app: &AppHandle, direct_feature: bool) {
         crate::window_position::place_panel(&w, current_size());
         let _ = w.show();
         let _ = w.set_focus();
-        let _ = app2.emit_to(LABEL, "panel-shown", PanelShown { reset });
+        let _ = app2.emit_to(LABEL, "panel-shown", PanelShown { reset, clipboard });
     });
 }
 

@@ -77,6 +77,15 @@ export const actions: Record<string, (ctx: { input?: string; content?: PluginCon
     await writeClipboardText(content.paths.join("\n"));
     return "已复制文件路径";
   },
+  "launcher/open-url": async ({ input }) => {
+    if (!input?.trim()) throw new Error("请输入网址");
+    await invoke("open_path", { path: input.trim() });
+  },
+  "launcher/reveal": async ({ input, content }) => {
+    const path = content?.type === "files" ? content.paths[0] : input?.trim();
+    if (!path) throw new Error("请输入或拖入一个文件路径");
+    await invoke("reveal_path", { path });
+  },
   "launcher/copy-name": async ({ content }) => {
     if (content?.type !== "files") throw new Error("先在搜索框粘贴或拖入文件");
     await writeClipboardText(content.paths.map((path) => path.replace(/\/$/, "").split("/").pop()).join("\n"));

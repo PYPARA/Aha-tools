@@ -158,12 +158,10 @@ fn normalize(mut item: SearchItem) -> SearchItem {
     item.score = 0;
     if let ItemAction::Feature { input, feature } = &mut item.action {
         *input = None;
-        // QR content-match titles include input; home entries keep only the command.
-        if item.plugin == "qrcode" && feature == "generate" {
-            item.title = "生成二维码".into();
-        }
-        if item.plugin == "compress" && feature == "compress" {
-            item.title = "压缩图片".into();
+        // Matched results carry their input in the title (「为「hi」生成二维码」,
+        // 「压缩图片 · 3 张」); history keeps the feature's own name.
+        if let Some(explain) = crate::plugins::feature_explain(&item.plugin, feature) {
+            item.title = explain;
         }
         // "翻译 · 「hello」" or "翻译 · 插件功能" → the plugin name only.
         item.subtitle = item.subtitle.split(" · ").next().unwrap_or("").to_string();
