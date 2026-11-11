@@ -151,6 +151,7 @@ export interface TranslateDraft {
   protocol: TranslateProtocol;
   baseUrl: string;
   key?: string;
+  extraBody?: Record<string, unknown>;
 }
 export interface TranslateModel { id: string; name: string }
 export interface TranslateChunk { id: string; delta: string }

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   TranslationController,
+  clearTranslationCache,
+  debounceFor,
+  parseExtra,
   isWord,
   parseWord,
   wordText,
@@ -15,7 +18,9 @@ const request: TranslationRequest = {
   mode: "translate",
   direction: "auto",
 };
-function setup(delay = 10) {
+/** `null`: the controller picks the pause from the text length. */
+function setup(delay: number | null = 10) {
+  clearTranslationCache();
   const starts: (TranslationRequest & { id: string })[] = [];
   const stops: string[] = [];
   let handlers!: {
@@ -43,7 +48,7 @@ function setup(delay = 10) {
     (s) => {
       snapshot = s;
     },
-    delay,
+    delay ?? undefined,
   );
   return {
     c,
@@ -155,5 +160,78 @@ describe("单词释义", () => {
       '{"senses":[{"meaning":4}]}',
     ])
       expect(parseWord(invalid)).toBeNull();
+  });
+});
+describe("翻译提速", () => {
+  const finish = (s: ReturnType<typeof setup>, text: string) => {
+    const id = s.starts[s.starts.length - 1].id;
+    s.handlers.chunk({ id, delta: text });
+    s.handlers.done({ id, reason: "completed", word: false });
+  };
+  test("带入的文字立即发送，打字停顿随长度缩短", async () => {
+    const s = setup(null);
+    await s.c.connect();
+    s.c.update(request, { immediate: true });
+    expect(s.starts.length).toBe(1);
+    expect(debounceFor("hello")).toBe(150);
+    expect(debounceFor("x".repeat(41))).toBe(250);
+    s.c.update({ ...request, text: "short" });
+    await sleep(100);
+    expect(s.starts.length).toBe(1);
+    await sleep(80);
+    expect(s.starts.length).toBe(2);
+    s.c.dispose();
+  });
+  test("相同请求直接用缓存，重新翻译跳过缓存，换模型不复用", async () => {
+    const s = setup();
+    await s.c.connect();
+    s.c.update(request, { immediate: true, variant: "model-a" });
+    finish(s, "你好世界");
+    expect(s.snapshot.phase).toBe("completed");
+    expect(s.snapshot.totalMs).toBeGreaterThanOrEqual(0);
+    expect(s.snapshot.firstMs).toBeGreaterThanOrEqual(0);
+    s.c.update({ ...request, text: "other" }, { immediate: true, variant: "model-a" });
+    s.c.update(request, { immediate: true, variant: "model-a" });
+    expect(s.starts.length).toBe(2);
+    expect(s.snapshot).toMatchObject({ phase: "completed", text: "你好世界", cached: true });
+    s.c.update(request, { immediate: true, variant: "model-b" });
+    expect(s.starts.length).toBe(3);
+    expect(s.snapshot.cached).toBe(false);
+    s.c.update(request, { immediate: true, force: true, variant: "model-a" });
+    expect(s.starts.length).toBe(4);
+    s.c.dispose();
+  });
+  test("停止或出错的结果不进缓存", async () => {
+    const s = setup();
+    await s.c.connect();
+    s.c.update(request, true);
+    const id = s.starts[0].id;
+    s.handlers.chunk({ id, delta: "部分" });
+    s.c.stop();
+    s.c.update({ ...request, text: "other" }, true);
+    s.handlers.error({ id: s.starts[1].id, message: "HTTP 503" });
+    s.c.update(request, { immediate: true });
+    s.c.update({ ...request, text: "other" }, { immediate: true });
+    expect(s.starts.length).toBe(4);
+    s.c.dispose();
+  });
+  test("单词释义按行解析，流式中途也能显示已完成的义项", () => {
+    const full = "/ˈwɜːd/\n名词|单词；字|语言中能独立使用的最小单位\n动词｜措辞｜用特定的词表达\n> Choose your words.|斟酌用词。\n= term, expression，vocable";
+    const word = parseWord(full)!;
+    expect(word.phonetic).toBe("/ˈwɜːd/");
+    expect(word.senses).toEqual([
+      { partOfSpeech: "名词", meaning: "单词；字", explanation: "语言中能独立使用的最小单位" },
+      { partOfSpeech: "动词", meaning: "措辞", explanation: "用特定的词表达" },
+    ]);
+    expect(word.examples).toEqual([{ en: "Choose your words.", zh: "斟酌用词。" }]);
+    expect(word.synonyms).toEqual(["term", "expression", "vocable"]);
+    expect(parseWord("/ˈwɜːd/\n名")).toBeNull();
+    expect(parseWord("/ˈwɜːd/\n名词|单")!.senses[0].meaning).toBe("单");
+    expect(wordText("word", word)).toContain("名词 · 单词；字 · 语言中能独立使用的最小单位");
+  });
+  test("附加参数必须是 JSON 对象", () => {
+    expect(parseExtra("")).toEqual({});
+    expect(parseExtra(' {"thinking":{"type":"disabled"}} ').value).toEqual({ thinking: { type: "disabled" } });
+    for (const bad of ["[]", "1", "null", "{bad"]) expect(parseExtra(bad).error).toContain("JSON 对象");
   });
 });

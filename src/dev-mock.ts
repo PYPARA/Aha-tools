@@ -225,7 +225,8 @@ let config: Config = {
   disabledMatches: [] as string[],
   translate: {
     profiles: params.get("translateMock") && params.get("translateMock") !== "empty" ? [
-      { id: "work", name: "工作配置", protocol: "openai-chat", baseUrl: "https://gateway.example/v1", model: "custom-chat" },
+      { id: "work", name: "工作配置", protocol: "openai-chat", baseUrl: "https://gateway.example/v1", model: "custom-chat",
+        ...(params.get("translateMock") === "extra-body" ? { extraBody: { thinking: { type: "disabled" } } } : {}) },
       { id: "backup", name: "备用配置", protocol: "openai-responses", baseUrl: "https://backup.example/api", model: "custom-response" },
       { id: "messages", name: "Messages 配置", protocol: "anthropic-messages", baseUrl: "http://localhost:9876/v1", model: "custom-messages" },
     ] : [],
@@ -454,10 +455,11 @@ mockIPC((cmd, args) => {
       const mode = a.mode as TranslateMode; const direction = a.direction as TranslateDirection;
       translationCalls.push({ id, profileId, text, mode, direction });
       const word = isWord(text, mode, direction);
-      const output = word ? params.get("translateMock") === "invalid-word" ? "机缘巧合；意外的美好发现" : JSON.stringify({
-        phonetic: "/ˌserənˈdɪpəti/", senses: [{ partOfSpeech: "名词", meaning: "机缘巧合；意外发现美好事物的运气", explanation: "指没有刻意寻找时，偶然发现有价值的事物。" }],
-        examples: [{ en: "Finding that café was pure serendipity.", zh: "找到那家咖啡馆纯属机缘巧合。" }, { en: "Many discoveries happen by serendipity.", zh: "许多发现都源于偶然。" }], synonyms: ["chance", "fortune", "luck"],
-      }) : mode === "polish" ? "Tauri helps you build small, fast desktop applications with a web frontend." : mode === "explain" ? "这段文字介绍了 Tauri：它使用 Rust 处理核心逻辑，并用系统自带的网页视图呈现界面。" : direction === "zh-en" || direction === "auto" && /\p{Script=Han}/u.test(text) ? "AhaTools makes everyday work easier. It is a lightweight toolbox for macOS." : "Tauri 让你用网页前端构建更小、更快的桌面应用。核心使用 Rust，界面运行在系统自带的网页视图中，让应用保持轻量。";
+      // Same line format the native prompt asks for, so senses render while streaming.
+      const output = word ? params.get("translateMock") === "invalid-word" ? "机缘巧合；意外的美好发现" : [
+        "/ˌserənˈdɪpəti/", "名词|机缘巧合；意外发现美好事物的运气|指没有刻意寻找时，偶然发现有价值的事物。",
+        "> Finding that café was pure serendipity.|找到那家咖啡馆纯属机缘巧合。", "> Many discoveries happen by serendipity.|许多发现都源于偶然。", "= chance, fortune, luck",
+      ].join("\n") : mode === "polish" ? "Tauri helps you build small, fast desktop applications with a web frontend." : mode === "explain" ? "这段文字介绍了 Tauri：它使用 Rust 处理核心逻辑，并用系统自带的网页视图呈现界面。" : direction === "zh-en" || direction === "auto" && /\p{Script=Han}/u.test(text) ? "AhaTools makes everyday work easier. It is a lightweight toolbox for macOS." : "Tauri 让你用网页前端构建更小、更快的桌面应用。核心使用 Rust，界面运行在系统自带的网页视图中，让应用保持轻量。";
       const chars = Array.from(output); let n = 0;
       const tick = () => {
         if (params.get("translateMock") === "error" && n >= 8) { translationJobs.delete(id); void emit("translate-error", { id, message: "HTTP 503：服务暂时不可用" }); return; }

@@ -44,7 +44,6 @@ export default function Translate({
   const [mode, setMode] = useState<TranslateMode>(draft.mode);
   const [cfg, setCfg] = useState<Config | null>(null);
   const [keyState, setKeyState] = useState("loading");
-  const [checkedConnection, setCheckedConnection] = useState("");
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const [composing, setComposing] = useState(false);
@@ -56,16 +55,17 @@ export default function Translate({
     word: false,
   });
   const controller = useRef<TranslationController | null>(null);
-  const urgent = useRef(false);
+  // How the next request goes out: "now" skips the typing pause (text carried in from
+  // search or the super panel, a new mode), "force" also skips the cache (重新翻译).
+  const urgent = useRef<"" | "now" | "force">(input ? "now" : "");
   const profile = cfg?.translate.profiles.find(
     (p) => p.id === cfg.translate.activeProfileId,
   );
   const direction = cfg?.translate.direction ?? "auto";
-  const connectionIdentity = profile
-    ? JSON.stringify([profile.id, profile.protocol, profile.baseUrl])
-    : "";
-  const keyReady =
-    keyState === "ready" && checkedConnection === connectionIdentity;
+  // Don't hold the first request for the key check: a missing key fails on the native
+  // side with its own message, and the check then shows 配置服务.
+  const keyReady = keyState === "ready" || keyState === "loading";
+  const variant = JSON.stringify([profile?.model ?? "", profile?.extraBody ?? null]);
   useEffect(() => {
     draft = { text, mode };
   }, [text, mode]);
@@ -115,10 +115,7 @@ export default function Translate({
     }
     translateHasKey(profile.id).then(
       (has) => {
-        if (!stale) {
-          setCheckedConnection(connectionIdentity);
-          setKeyState(has ? "ready" : "missing");
-        }
+        if (!stale) setKeyState(has ? "ready" : "missing");
       },
       (e) => {
         if (!stale) setKeyState(String(e));
@@ -134,13 +131,14 @@ export default function Translate({
       profile && keyReady && !composing
         ? { profileId: profile.id, text, mode, direction }
         : null;
-    controller.current?.update(request, request ? urgent.current : false);
-    if (request) urgent.current = false;
+    const how = request ? urgent.current : "";
+    controller.current?.update(request, { immediate: how !== "", force: how === "force", variant });
+    if (request) urgent.current = "";
     setNotice("");
   }, [
     ready,
     profile?.id,
-    profile?.model,
+    variant,
     keyReady,
     composing,
     text,
@@ -152,10 +150,8 @@ export default function Translate({
     setStatus("⌘↵ 重新翻译 · ⌘C 复制结果");
   }, [setStatus]);
 
-  const word =
-    snapshot.word && snapshot.phase === "completed"
-      ? parseWord(snapshot.text)
-      : null;
+  // Senses appear line by line while the answer streams in.
+  const word = snapshot.word ? parseWord(snapshot.text) : null;
   const copyText = word ? wordText(text.trim(), word) : snapshot.text;
   const busy = snapshot.phase === "streaming" || snapshot.phase === "waiting";
   const copy = async () => {
@@ -167,7 +163,7 @@ export default function Translate({
     }
   };
   const run = () => {
-    urgent.current = true;
+    urgent.current = "force";
     setRetry((r) => r + 1);
   };
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -183,8 +179,7 @@ export default function Translate({
       return;
     if (e.key === "Enter") {
       e.preventDefault();
-      urgent.current = true;
-      setRetry((r) => r + 1);
+      run();
     }
     if (e.key.toLowerCase() === "c" && copyText && !hasSelection()) {
       e.preventDefault();
@@ -208,12 +203,12 @@ export default function Translate({
     direction?: TranslateDirection;
   }) => {
     if (!cfg) return;
-    urgent.current = true;
+    urgent.current = "now";
     controller.current?.stop();
     try {
       setCfg(await translateSelect(changes));
     } catch (e) {
-      urgent.current = false;
+      urgent.current = "";
       setNotice(`保存失败：${String(e)}`);
     }
   };
@@ -247,7 +242,7 @@ export default function Translate({
               key={value}
               aria-pressed={mode === value}
               onClick={() => {
-                urgent.current = true;
+                urgent.current = "now";
                 setMode(value);
               }}
             >
@@ -256,24 +251,18 @@ export default function Translate({
           ))}
         </div>
       </div>
-      {(!profile || keyState !== "ready") && (
+      {cfg && (!profile || !keyReady) && (
         <div className="translate-hint" role="status">
           <span>
-            {!cfg
-              ? "正在读取配置…"
-              : !profile
-                ? "先添加一套翻译配置，填写接口地址、协议、模型和 API Key。"
-                : keyState === "loading"
-                  ? "正在检查密钥…"
-                  : keyState === "missing"
-                    ? "这套配置还没有 API Key，请在设置中填写。"
-                    : keyState}
+            {!profile
+              ? "先添加一套翻译配置，填写接口地址、协议、模型和 API Key。"
+              : keyState === "missing"
+                ? "这套配置还没有 API Key，请在设置中填写。"
+                : keyState}
           </span>
-          {cfg && keyState !== "loading" && (
-            <button type="button" className="btn" onClick={settings}>
-              配置服务
-            </button>
-          )}
+          <button type="button" className="btn" onClick={settings}>
+            配置服务
+          </button>
         </div>
       )}
       <div className="translate-columns">
@@ -344,7 +333,7 @@ export default function Translate({
                   <p className="note">近义：{word.synonyms.join(" · ")}</p>
                 )}
               </div>
-            ) : snapshot.word && busy ? (
+            ) : snapshot.word && busy && !snapshot.text.trim() ? (
               <span className="note">正在整理音标、释义和例句…</span>
             ) : snapshot.text ? (
               <>
@@ -368,7 +357,7 @@ export default function Translate({
           </div>
           <div className="translate-result-foot">
             <span className="note">
-              {profile?.model ?? "尚未配置"} · {phaseText[snapshot.phase]}
+              {profile?.model ?? "尚未配置"} · {timing(snapshot)}
             </span>
             {busy ? (
               <button
@@ -382,7 +371,7 @@ export default function Translate({
               <button
                 type="button"
                 className="btn ghost sm"
-                disabled={!profile || keyState !== "ready" || !text.trim()}
+                disabled={!profile || !keyReady || !text.trim()}
                 onClick={run}
               >
                 重新翻译
@@ -391,7 +380,7 @@ export default function Translate({
             <button
               type="button"
               className="btn sm"
-              disabled={!copyText || (snapshot.word && busy)}
+              disabled={!copyText || (snapshot.word && busy && !word)}
               onClick={() => void copy()}
             >
               <CopyIcon />
@@ -411,6 +400,15 @@ export default function Translate({
       )}
     </div>
   );
+}
+const seconds = (ms: number) => ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+/** 「首字 0.8 s · 共 2.1 s」 tells a slow service apart from a slow app. */
+function timing(s: TranslationSnapshot) {
+  if (s.cached) return "缓存结果";
+  if (s.phase === "completed" && s.totalMs !== undefined)
+    return s.firstMs !== undefined ? `首字 ${seconds(s.firstMs)} · 共 ${seconds(s.totalMs)}` : `共 ${seconds(s.totalMs)}`;
+  if (s.phase === "streaming" && s.firstMs !== undefined) return `首字 ${seconds(s.firstMs)} · 正在输出…`;
+  return phaseText[s.phase];
 }
 function hasSelection() {
   const active = document.activeElement;

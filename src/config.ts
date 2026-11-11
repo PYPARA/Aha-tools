@@ -51,6 +51,8 @@ export interface TranslateProfile {
   protocol: TranslateProtocol;
   baseUrl: string;
   model: string;
+  /** Extra top-level request fields merged into every request. */
+  extraBody?: Record<string, unknown> | null;
 }
 export interface TranslateConfig {
   profiles: TranslateProfile[];

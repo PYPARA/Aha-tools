@@ -3,14 +3,14 @@ use crate::config::{self, Config, TranslateDirection, TranslateProfile, Translat
 use futures_util::StreamExt;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::{
     collections::HashMap,
     fs,
     io::{ErrorKind, Write},
     os::unix::fs::OpenOptionsExt,
     path::PathBuf,
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
@@ -31,6 +31,20 @@ pub struct ConnectionDraft {
     pub protocol: TranslateProtocol,
     pub base_url: String,
     pub key: Option<String>,
+    /// The editor's 附加请求参数, so 测试连接 measures what translating will send.
+    #[serde(default)]
+    pub extra_body: Option<Map<String, Value>>,
+}
+
+/// Fields AhaTools sets itself; 附加请求参数 can't replace them.
+const RESERVED_FIELDS: [&str; 7] = ["model", "messages", "input", "instructions", "system", "stream", "store"];
+
+fn validate_extra(extra: Option<Map<String, Value>>) -> Result<Option<Map<String, Value>>, String> {
+    let Some(extra) = extra.filter(|m| !m.is_empty()) else { return Ok(None) };
+    if let Some(field) = extra.keys().find(|k| RESERVED_FIELDS.contains(&k.as_str())) {
+        return Err(format!("附加请求参数不能包含 {field}，它由 AhaTools 设置"));
+    }
+    Ok(Some(extra))
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -165,6 +179,7 @@ fn validate_profile(mut p: TranslateProfile) -> Result<TranslateProfile, String>
         .to_string()
         .trim_end_matches('/')
         .into();
+    p.extra_body = validate_extra(p.extra_body)?;
     Ok(p)
 }
 fn connection_changed(old: &TranslateProfile, protocol: TranslateProtocol, base: &str) -> bool {
@@ -327,14 +342,22 @@ pub fn translate_select(
     Ok(cfg)
 }
 
+/// One client for every request, so later translations reuse the open connection
+/// instead of repeating DNS, TCP and TLS setup each time.
 fn client() -> Result<Client, String> {
-    Client::builder()
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client.clone());
+    }
+    let client = Client::builder()
         .connect_timeout(Duration::from_secs(10))
         // No total timeout: it would cut off long streamed answers. stream_text bounds
         // silence instead, and model listing sets its own per-request timeout.
         .redirect(reqwest::redirect::Policy::none())
+        .pool_idle_timeout(Duration::from_secs(90))
         .build()
-        .map_err(|_| "无法初始化网络连接".into())
+        .map_err(|_| "无法初始化网络连接".to_string())?;
+    Ok(CLIENT.get_or_init(|| client).clone())
 }
 fn auth(
     request: reqwest::RequestBuilder,
@@ -509,6 +532,24 @@ fn request_body(
     system: &str,
     text: &str,
     limit: u32,
+    extra: Option<&Map<String, Value>>,
+) -> (&'static str, Value) {
+    let (resource, mut body) = base_body(protocol, model, system, text, limit);
+    if let (Some(extra), Value::Object(body)) = (extra, &mut body) {
+        for (field, value) in extra {
+            if !RESERVED_FIELDS.contains(&field.as_str()) {
+                body.insert(field.clone(), value.clone());
+            }
+        }
+    }
+    (resource, body)
+}
+fn base_body(
+    protocol: TranslateProtocol,
+    model: &str,
+    system: &str,
+    text: &str,
+    limit: u32,
 ) -> (&'static str, Value) {
     match protocol {
         TranslateProtocol::Chat => (
@@ -525,6 +566,7 @@ fn request_body(
         ),
     }
 }
+#[cfg(test)]
 async fn stream_text(
     client: &Client,
     protocol: TranslateProtocol,
@@ -534,6 +576,20 @@ async fn stream_text(
     system: &str,
     text: &str,
     test: bool,
+    delta: impl FnMut(&str),
+) -> Result<u128, String> {
+    stream_text_with(client, protocol, base, model, key, system, text, test, None, delta).await
+}
+async fn stream_text_with(
+    client: &Client,
+    protocol: TranslateProtocol,
+    base: &str,
+    model: &str,
+    key: &str,
+    system: &str,
+    text: &str,
+    test: bool,
+    extra: Option<&Map<String, Value>>,
     mut delta: impl FnMut(&str),
 ) -> Result<u128, String> {
     let started = Instant::now();
@@ -542,7 +598,7 @@ async fn stream_text(
     let cap = tokio::time::Instant::now() + Duration::from_secs(15 * 60);
     let mut deadline = tokio::time::Instant::now() + idle;
     let (resource, body) =
-        request_body(protocol, model, system, text, if test { 16 } else { 4096 });
+        request_body(protocol, model, system, text, if test { 16 } else { 4096 }, extra);
     let request = auth(client.post(endpoint(base, resource)?), protocol, key).json(&body);
     let response = tokio::time::timeout(Duration::from_secs(60), request.send())
         .await
@@ -593,8 +649,13 @@ fn word_mode(text: &str, mode: Mode, direction: TranslateDirection) -> bool {
 }
 fn prompt(text: &str, mode: Mode, direction: TranslateDirection) -> (String, bool) {
     let word = word_mode(text, mode, direction);
+    // Line by line rather than JSON, so the page can show each line as it streams in.
     let task = if word {
-        "为这个英文单词提供中文词典释义。只输出 JSON，不要代码围栏。结构严格为 {\"phonetic\":\"音标，不确定则留空\",\"senses\":[{\"partOfSpeech\":\"中文词性\",\"meaning\":\"中文释义\",\"explanation\":\"简短中文解释\"}],\"examples\":[{\"en\":\"英文例句\",\"zh\":\"中文翻译\"}],\"synonyms\":[\"英文近义词\"]}。给出两个例句，不编造不确定的释义。".to_string()
+        "为这个英文单词提供中文词典释义。按行输出纯文本，不要 Markdown、编号或其他说明：\
+第一行是音标，以 / 开头和结尾，不确定就省略这一行；\
+每个义项一行，格式为「词性|中文释义|简短中文解释」，词性用中文（如 名词、动词）；\
+两个例句，每句一行，格式为「> 英文例句|中文翻译」；\
+最后一行「= 近义词1, 近义词2」，没有就省略。不编造不确定的释义。".to_string()
     } else {
         match mode {
             Mode::Polish => "润色文字，保持原文语言和含义，只输出润色后的文字。".into(),
@@ -671,6 +732,7 @@ pub async fn translate_start(
                     protocol: p.protocol,
                     base_url: p.base_url.clone(),
                     key: None,
+                    extra_body: None,
                 },
                 &LocalSecrets::new(&app),
             )?;
@@ -695,7 +757,7 @@ pub async fn translate_start(
         let (system, word) = prompt(&text, mode, direction);
         let result = async {
             let client = client()?;
-            stream_text(
+            stream_text_with(
                 &client,
                 profile.protocol,
                 &profile.base_url,
@@ -704,6 +766,7 @@ pub async fn translate_start(
                 &system,
                 &text,
                 false,
+                profile.extra_body.as_ref(),
                 |delta| {
                     let _ = window.emit_to(
                         window.label(),
@@ -827,7 +890,8 @@ pub async fn translate_test_connection(
         return Err("请填写模型 ID".into());
     }
     let (draft, key) = load_draft(app, draft).await?;
-    let first_token_ms = stream_text(
+    let extra = validate_extra(draft.extra_body.clone())?;
+    let first_token_ms = stream_text_with(
         &client()?,
         draft.protocol,
         &draft.base_url,
@@ -836,6 +900,7 @@ pub async fn translate_test_connection(
         "只回复 OK。",
         "连接测试",
         true,
+        extra.as_ref(),
         |_| {},
     )
     .await
@@ -884,7 +949,44 @@ mod tests {
             protocol: Chat,
             base_url: "http://localhost:1234/prefix/v1/".into(),
             model: "custom-model".into(),
+            extra_body: None,
         }
+    }
+    #[test]
+    fn extra_body_merges_into_every_protocol_but_never_replaces_core_fields() {
+        let extra: Map<String, Value> = serde_json::from_str(r#"{"thinking":{"type":"disabled"},"temperature":0.2}"#).unwrap();
+        for protocol in [Chat, Responses, Messages] {
+            let (_, body) = request_body(protocol, "m", "sys", "text", 64, Some(&extra));
+            assert_eq!(body["thinking"]["type"], "disabled");
+            assert_eq!(body["temperature"], 0.2);
+            assert_eq!(body["model"], "m");
+            assert_eq!(body["stream"], true);
+            assert_eq!(request_body(protocol, "m", "sys", "text", 64, None).1, base_body(protocol, "m", "sys", "text", 64).1);
+        }
+        let mut hostile = extra.clone();
+        hostile.insert("model".into(), json!("other"));
+        let (_, body) = request_body(Chat, "m", "sys", "text", 64, Some(&hostile));
+        assert_eq!(body["model"], "m");
+        assert!(validate_extra(Some(hostile)).unwrap_err().contains("model"));
+        assert_eq!(validate_extra(Some(Map::new())).unwrap(), None);
+        assert_eq!(validate_extra(None).unwrap(), None);
+        let mut p = profile("with-extra");
+        p.extra_body = Some(extra.clone());
+        assert_eq!(validate_profile(p).unwrap().extra_body, Some(extra));
+    }
+    #[test]
+    fn profiles_without_extra_body_still_load_and_save_without_it() {
+        let old: TranslateProfile = serde_json::from_str(
+            r#"{"id":"a","name":"a","protocol":"openai-chat","baseUrl":"https://x/v1","model":"m"}"#,
+        )
+        .unwrap();
+        assert_eq!(old.extra_body, None);
+        assert!(!serde_json::to_string(&old).unwrap().contains("extraBody"));
+    }
+    #[test]
+    fn client_is_shared() {
+        assert!(client().is_ok());
+        assert!(client().is_ok());
     }
     fn server(
         replies: Vec<(u16, String, &'static str)>,
@@ -1058,6 +1160,7 @@ mod tests {
             protocol: Chat,
             base_url: changed.base_url.clone(),
             key: None,
+            extra_body: None,
         };
         assert!(draft_key(&cfg, &d, &keys).is_err());
         assert_eq!(
@@ -1265,6 +1368,7 @@ mod tests {
             protocol: Messages,
             base_url: base,
             key: None,
+            extra_body: None,
         };
         let client = Client::builder().no_proxy().build().unwrap();
         let list = models(&client, &d, "k").await.unwrap();
@@ -1285,6 +1389,7 @@ mod tests {
             protocol: Chat,
             base_url: base,
             key: None,
+            extra_body: None,
         };
         assert!(models(&client, &d, "k").await.unwrap_err().contains("404"));
         rx.recv().unwrap();

@@ -93,6 +93,9 @@ pub struct TranslateProfile {
     pub protocol: TranslateProtocol,
     pub base_url: String,
     pub model: String,
+    /// Extra top-level request fields, e.g. switching a reasoning model's thinking off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_body: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

@@ -14,14 +14,17 @@ import {
   type TranslateProfile,
   type TranslateProtocol,
 } from "@ahatools/sdk";
+import { parseExtra } from "./core";
 const protocols: [TranslateProtocol, string][] = [
   ["openai-chat", "OpenAI Chat Completions"],
   ["openai-responses", "OpenAI Responses"],
   ["anthropic-messages", "Anthropic Messages"],
 ];
-type Editor = Omit<TranslateProfile, "protocol"> & {
+type Editor = Omit<TranslateProfile, "protocol" | "extraBody"> & {
   protocol: TranslateProtocol | "";
   key: string;
+  /** 附加请求参数 as typed: a JSON object, or empty. */
+  extra: string;
 };
 export default function Settings({ cfg }: PluginSettingsProps) {
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -62,7 +65,7 @@ export default function Settings({ cfg }: PluginSettingsProps) {
     setBusy(null);
     setEditor(
       p
-        ? { ...p, key: "" }
+        ? { id: p.id, name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, key: "", extra: p.extraBody ? JSON.stringify(p.extraBody, null, 2) : "" }
         : {
             id: crypto.randomUUID(),
             name: "",
@@ -70,6 +73,7 @@ export default function Settings({ cfg }: PluginSettingsProps) {
             baseUrl: "",
             model: "",
             key: "",
+            extra: "",
           },
     );
   };
@@ -104,6 +108,11 @@ export default function Settings({ cfg }: PluginSettingsProps) {
       setFeedback({ text: "请填写配置名称和模型 ID", error: true });
       return;
     }
+    const extra = parseExtra(d.extra);
+    if (extra.error) {
+      setFeedback({ text: extra.error, error: true });
+      return;
+    }
     const ticket = ++revision.current;
     setBusy(action);
     setFeedback({ text: "", error: false });
@@ -112,6 +121,7 @@ export default function Settings({ cfg }: PluginSettingsProps) {
       protocol: d.protocol,
       baseUrl: d.baseUrl.trim(),
       ...(d.key.trim() ? { key: d.key.trim() } : {}),
+      ...(extra.value ? { extraBody: extra.value } : {}),
     };
     try {
       if (action === "models") {
@@ -139,6 +149,7 @@ export default function Settings({ cfg }: PluginSettingsProps) {
           protocol: d.protocol,
           baseUrl: d.baseUrl.trim(),
           model: d.model.trim(),
+          ...(extra.value ? { extraBody: extra.value } : {}),
         };
         await translateSaveProfile(profile, d.key.trim() || undefined);
         if (alive.current && ticket === revision.current) {
@@ -218,6 +229,7 @@ export default function Settings({ cfg }: PluginSettingsProps) {
               </span>
               <span className="note">
                 {protocols.find(([id]) => id === p.protocol)?.[1]} · {p.model}
+                {p.extraBody && " · 附加参数"}
               </span>
               <span className="note translate-address">{p.baseUrl}</span>
             </span>
@@ -317,6 +329,19 @@ export default function Settings({ cfg }: PluginSettingsProps) {
                 {busy === "models" ? "正在获取…" : "获取模型"}
               </button>
             </div>
+            <label htmlFor="translate-extra">附加参数</label>
+            <textarea
+              id="translate-extra"
+              className="input mono translate-extra"
+              rows={3}
+              spellCheck={false}
+              value={editor.extra}
+              placeholder={'{"thinking": {"type": "disabled"}}'}
+              onChange={(e) => change("extra", e.target.value)}
+            />
+            <span className="note translate-field-help">
+              可选。JSON 对象，原样合并进每次请求，可用来关闭推理模型的思考以加快出字。字段名以所用服务的文档为准；model、messages、stream 等由 AhaTools 设置。
+            </span>
           </fieldset>
           <div className="translate-editor-actions">
             <button
