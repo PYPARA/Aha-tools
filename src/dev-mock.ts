@@ -1,3 +1,4 @@
+import packageInfo from "../package.json";
 // Fake backend for previewing the UI in a plain browser (http://localhost:1420 while
 // `tauri dev` runs). Only loaded in dev when the page isn't inside Tauri.
 
@@ -1023,7 +1024,7 @@ mockIPC((cmd, args) => {
     case "config_dir":
       return "/Users/me/Library/Application Support/com.ahatools.app";
     case "plugin:app|version":
-      return "0.1.0";
+      return packageInfo.version;
     case "webapp_preview_snapshot":
     case "webapp_preview_reload":
     case "webapp_preview_navigate":
