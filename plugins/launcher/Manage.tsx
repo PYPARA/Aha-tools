@@ -1,23 +1,25 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke, openPath, PathIcon, withPinned, type PathKind, type PluginViewProps } from "@ahatools/sdk";
+import { onHostEvent, invoke, PathIcon, itemMenuEntries, menuPoint, showContextMenu, type SavedEntry, withPinned, type PluginViewProps } from "@ahatools/sdk";
 
-interface Entry {
-  name: string;
-  path: string;
-  kind: PathKind;
-}
+import Editor from "./Editor";
+type Entry = SavedEntry;
 
 /** Search text worth pre-filling as a path: "~/x", "/x" or a URL. */
 const looksLikePath = (s: string) => /^(~\/|\/)|:\/\//.test(s);
 
-export default function Manage({ setStatus, input, content }: PluginViewProps) {
+export default function Manage({ setStatus, input, content, openFeature }: PluginViewProps) {
+  const requested = (() => { try { return JSON.parse(input ?? "null") as {id: string; mode: "edit" | "openWith"} | null; } catch { return null; } })();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{id: string; mode: "edit" | "openWith"} | null>(requested);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [path, setPath] = useState(content?.type === "files" ? content.paths[0] ?? "" : input && looksLikePath(input) ? input : "");
-  const [name, setName] = useState(input && !looksLikePath(input) ? input : "");
+  const [name, setName] = useState(input && !requested && !looksLikePath(input) ? input : "");
 
   useEffect(() => {
-    invoke<Entry[]>("launcher_saved").then(setEntries);
+    const load = () => void invoke<Entry[]>("launcher_saved").then(setEntries).catch((e) => setError(String(e)));
+    load(); const sub = onHostEvent("launcher-changed", load); return () => { void sub.then((off) => off()); };
   }, []);
 
   useEffect(() => {
@@ -37,18 +39,17 @@ export default function Manage({ setStatus, input, content }: PluginViewProps) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!path.trim()) return;
-    await add(path.trim(), name.trim());
-    setPath("");
-    setName("");
+    try { await add(path.trim(), name.trim()); setPath(""); setName(""); } catch (e) { setError(String(e)); }
   };
 
-  const remove = async (p: string) => {
-    setEntries(await invoke<Entry[]>("launcher_remove", { path: p }));
+  const remove = async (id: string) => {
+    setEntries(await invoke<Entry[]>("launcher_remove", { id, path: null }));
   };
 
   return (
     <div className="view">
       <p className="lede">收藏的文件、文件夹和网址，搜索时排在应用前面。</p>
+      {error && <p className="note bad-text" role="alert">{error}</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <form className="inline" style={{ flexWrap: "nowrap" }} onSubmit={submit}>
           <label htmlFor="saved-path" className="sr-only">
@@ -79,10 +80,10 @@ export default function Manage({ setStatus, input, content }: PluginViewProps) {
           </button>
         </form>
         <span className="inline" style={{ gap: 4 }}>
-          <button className="btn ghost sm muted" type="button" onClick={() => pick(false)}>
+          <button className="btn ghost sm muted" type="button" onClick={() => void pick(false).catch((e) => setError(String(e)))}>
             选择文件…
           </button>
-          <button className="btn ghost sm muted" type="button" onClick={() => pick(true)}>
+          <button className="btn ghost sm muted" type="button" onClick={() => void pick(true).catch((e) => setError(String(e)))}>
             选择文件夹…
           </button>
         </span>
@@ -93,7 +94,15 @@ export default function Manage({ setStatus, input, content }: PluginViewProps) {
       ) : (
         <ul className="list">
           {entries.map((e) => (
-            <li key={e.path}>
+            <li key={e.id} data-context-menu tabIndex={0} aria-current={selected === e.id || undefined} className={selected === e.id ? "selected" : ""} onFocus={() => setSelected(e.id)} onContextMenu={(event) => {
+              event.preventDefault(); setSelected(e.id); setError(null);
+              void showContextMenu([
+                ...itemMenuEntries({ plugin: "launcher", title: e.name, subtitle: e.path, kind: "saved", score: 0, action: { type: "openSaved", id: e.id } }, {
+                  saved: entries, webApps: [], settingsPlugins: [], run: () => invoke("launcher_open", { id: e.id, application: null }),
+                  open: (target) => { if (target.plugin === "launcher") { setEditing(JSON.parse(target.input!)); } else openFeature(target); },
+                }), { item: "Separator" }, { id: "remove", text: "移除收藏", action: () => remove(e.id) },
+              ], setError, menuPoint(event));
+            }}>
               <span className="tile" aria-hidden="true">
                 <PathIcon kind={e.kind} />
               </span>
@@ -102,10 +111,10 @@ export default function Manage({ setStatus, input, content }: PluginViewProps) {
                 <span className="path">{e.path}</span>
               </span>
               <span className="hover-actions">
-                <button className="btn ghost" type="button" onClick={() => openPath(e.path)}>
+                <button className="btn ghost" type="button" onClick={() => invoke("launcher_open", { id: e.id, application: null }).catch((error) => setError(String(error)))}>
                   打开
                 </button>
-                <button className="btn ghost danger" type="button" onClick={() => remove(e.path)}>
+                <button className="btn ghost danger" type="button" onClick={() => remove(e.id).catch((error) => setError(String(error)))}>
                   移除
                 </button>
               </span>
@@ -113,6 +122,7 @@ export default function Manage({ setStatus, input, content }: PluginViewProps) {
           ))}
         </ul>
       )}
+      {editing && entries.find((e) => e.id === editing.id) && <Editor key={editing.id + editing.mode} entry={entries.find((e) => e.id === editing.id)!} mode={editing.mode} onClose={() => setEditing(null)} onSaved={setEntries} />}
     </div>
   );
 }

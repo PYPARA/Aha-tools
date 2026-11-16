@@ -4,7 +4,8 @@ export interface Address { interface: string; label: string; ip: string; v6: boo
 export interface Local { addresses: Address[]; gateway: string | null; gatewayInterface: string | null }
 export interface DnsRecord { kind: string; values: string[] }
 export interface DnsResult { host: string; server: string | null; records: DnsRecord[]; system: string[]; hostsFile: string[] }
-export interface Listener { port: number; address: string; pid: number; process: string; user: string }
+export interface Listener {
+  path?: string | null; port: number; address: string; pid: number; process: string; user: string }
 
 export const TABS = [
   { feature: "ip", label: "本机 IP" },
@@ -45,4 +46,11 @@ export function filterListeners(rows: Listener[], filter: string) {
   const q = filter.trim().replace(/^:/, "").toLowerCase();
   if (!q) return rows;
   return rows.filter((r) => String(r.port) === q || String(r.port).startsWith(q) || r.process.toLowerCase().includes(q) || r.address.includes(q) || String(r.pid) === q);
+}
+
+export function listenerUrl(row: Listener, protocol: "http" | "https"): string {
+  let host = row.address.replace(/^\[|\]$/g, "");
+  if (["*", "0.0.0.0", "::", ""].includes(host)) host = host === "::" ? "::1" : "127.0.0.1";
+  if (host.includes(":")) host = `[${host}]`;
+  return `${protocol}://${host}:${row.port}`;
 }

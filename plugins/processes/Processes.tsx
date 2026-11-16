@@ -1,5 +1,6 @@
+import { isContextMenuOpen } from "@ahatools/sdk";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppIcon, ChevronIcon, PageActions, SearchIcon, invoke, onPanelShown, type PluginViewProps } from "@ahatools/sdk";
+import { AppIcon, ChevronIcon, PageActions, SearchIcon, invoke, menuPoint, pathMenuEntries, showContextMenu, writeClipboardText, type ContextMenuEntry, onPanelShown, type PluginViewProps } from "@ahatools/sdk";
 import { pressureLabel } from "../../src/sysmon";
 import {
   formatBytes, formatCpu, heavy, lockReason, totalCpu, visibleGroups,
@@ -14,13 +15,14 @@ function ProcessTile() {
     strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="M7.5 10l3 2.5-3 2.5M12.5 15h4" /></svg></span>;
 }
 
-export default function Processes({ setStatus }: PluginViewProps) {
+export default function Processes({ setStatus, input }: PluginViewProps) {
   const [snapshot, setSnapshot] = useState<ProcessSnapshot | null>(null);
   const [error, setError] = useState("");
-  const [view, setView] = useState<View>("apps");
+  const [view, setView] = useState<View>(input?.startsWith("pid:") ? "all" : "apps");
   const [sort, setSort] = useState<SortKey>("cpu");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(input ?? "");
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedPid, setSelectedPid] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<AppGroup | null>(null);
   const [notice, setNotice] = useState<{ text: string; bad: boolean } | null>(null);
@@ -90,9 +92,25 @@ export default function Processes({ setStatus }: PluginViewProps) {
     return next;
   });
 
+  const processMenu = (event: React.MouseEvent, group: AppGroup, child?: ProcessRow) => {
+    event.preventDefault(); setSelected(group.id); setSelectedPid(child?.pid ?? null);
+    const frozen = structuredClone(child ? { ...group, id: `pid:${child.pid}`, name: child.name, bundle: null, mine: child.mine, protected: child.protected, processes: [child] } : group);
+    const paths = frozen.bundle ? [frozen.bundle] : [frozen.processes[0].path];
+    const entries: ContextMenuEntry[] = [
+      ...pathMenuEntries(paths).map((entry) => "id" in entry ? { ...entry, text: entry.id === "copy-path" ? frozen.bundle ? "复制应用路径" : "复制可执行文件路径" : frozen.bundle ? "打开应用位置" : entry.text } : entry),
+      { id: "copy-pid", text: frozen.processes.length > 1 ? "复制全部 PID" : "复制 PID", action: () => writeClipboardText(frozen.processes.map((p) => p.pid).join("\n")) },
+      ...(frozen.processes.length === 1 && frozen.bundle ? [{ id: "copy-executable", text: "复制可执行文件路径", action: () => writeClipboardText(frozen.processes[0].path) }] : []),
+      ...(!child && view === "apps" && group.processes.length > 1 ? [{ id: "expand", text: expanded.has(group.id) ? "收起子进程" : "展开子进程", action: () => toggle(group.id) }] : []),
+      { item: "Separator" },
+      { id: "quit", text: "退出", disabled: !!lockReason(frozen) || busy, action: () => ask(frozen, false) },
+      { id: "force", text: "强制结束…", disabled: !!lockReason(frozen) || busy, action: () => ask(frozen, true) },
+    ];
+    void showContextMenu(entries, (text) => setNotice({ text, bad: true }), menuPoint(event));
+  };
+
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
-    if (e.isComposing || e.defaultPrevented) return;
+    if (isContextMenuOpen() || e.isComposing || e.defaultPrevented) return;
     if (confirm) {
       // Captured before the panel's own esc, which would leave the page.
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setConfirm(null); }
@@ -103,7 +121,7 @@ export default function Processes({ setStatus }: PluginViewProps) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const next = rows[Math.max(0, Math.min(rows.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)))];
-      if (next) setSelected(next.id);
+      if (next) { setSelected(next.id); setSelectedPid(null); }
     } else if (!typing && view === "apps" && current && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
       e.preventDefault();
       toggle(current.id, e.key === "ArrowRight");
@@ -169,10 +187,10 @@ export default function Processes({ setStatus }: PluginViewProps) {
         ) : rows.map((group) => {
           const open = view === "apps" && expanded.has(group.id) && group.processes.length > 1;
           const tone = heavy(group.cpu, group.memory);
-          const isSelected = current?.id === group.id;
+          const isSelected = current?.id === group.id && selectedPid === null;
           return <Fragment key={group.id}>
-            <div role="row" aria-selected={isSelected} className={`proc-row${isSelected ? " selected" : ""}`}
-              onClick={() => setSelected(group.id)} onDoubleClick={() => view === "apps" && toggle(group.id)}>
+            <div role="row" data-context-menu tabIndex={0} onFocus={(event) => { if (event.target === event.currentTarget) { setSelected(group.id); setSelectedPid(null); } }} onContextMenu={(event) => processMenu(event, group)} aria-selected={isSelected} className={`proc-row${isSelected ? " selected" : ""}`}
+              onClick={() => { setSelected(group.id); setSelectedPid(null); }} onDoubleClick={() => view === "apps" && toggle(group.id)}>
               <span className="proc-name" role="gridcell">
                 {view === "apps" && group.processes.length > 1
                   ? <button type="button" className="proc-twisty" aria-label={open ? "收起子进程" : "展开子进程"} aria-expanded={open}
@@ -190,7 +208,7 @@ export default function Processes({ setStatus }: PluginViewProps) {
               <span role="gridcell">{actions(group)}</span>
             </div>
             {open && group.processes.map((p) => (
-              <div key={p.pid} role="row" className="proc-row proc-child">
+              <div key={p.pid} role="row" data-context-menu tabIndex={0} onContextMenu={(event) => processMenu(event, group, p)} aria-selected={selectedPid === p.pid} onFocus={() => { setSelected(group.id); setSelectedPid(p.pid); }} className={`proc-row proc-child${selectedPid === p.pid ? " selected" : ""}`}>
                 <span className="proc-name" role="gridcell"><span className="proc-text"><span className="proc-title">{p.name}</span><span className="note mono">PID {p.pid}</span></span></span>
                 <span role="gridcell" className={`mono proc-num ${heavy(p.cpu, p.memory) ? `${heavy(p.cpu, p.memory)}-text` : ""}`}>{formatCpu(p.cpu)}</span>
                 <span role="gridcell" className="mono proc-num">{formatBytes(p.memory)}</span>

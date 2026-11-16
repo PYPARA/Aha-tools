@@ -48,7 +48,7 @@ futures-util = "0.3"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSPasteboard", "NSEvent", "NSScreen", "NSWindow", "NSColorSampler", "NSColor", "NSColorSpace", "NSPasteboardItem", "NSWorkspace", "NSRunningApplication", "block2", "libc"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSPasteboard", "NSEvent", "NSScreen", "NSWindow", "NSColorSampler", "NSColor", "NSColorSpace", "NSPasteboardItem", "NSWorkspace", "NSRunningApplication", "NSApplication", "NSTitlebarAccessoryViewController", "NSViewController", "NSView", "NSButton", "NSControl", "NSImage", "NSLayoutConstraint", "NSAccessibilityProtocols", "block2", "libc"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSString", "NSURL"] }
 
 objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes", "objc2-core-foundation"] }

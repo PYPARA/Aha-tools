@@ -1,23 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import { AppIcon, WebIcon, PathIcon, CloseIcon, FeatureIcon, HotkeyRecorder, Switch, invoke, type Binding, type CustomAction, type Config, type SearchItem } from "@ahatools/sdk";
+import { HotkeyRecorder, Switch, invoke, type Binding, type CustomAction } from "@ahatools/sdk";
 import Row from "./Row";
+import SuperPanelPins from "./SuperPanelPins";
 import type { SectionProps } from "./Settings";
 
 const TYPES = [["file", "文件"], ["folder", "文件夹"], ["image", "图片"], ["text", "文字"]] as const;
-const identity = (i: SearchItem) => `${i.plugin}/${JSON.stringify(i.action.type === "feature" ? { type: "feature", feature: i.action.feature } : i.action)}`;
+// These are the panel's own context actions, outside the plugin feature registry.
+const BUILTIN_GROUPS = [
+  { name: "文件", actions: [
+    { name: "复制路径", description: "文件或文件夹；多选时每项占一行" },
+    { name: "复制文件名", description: "文件或文件夹；保留扩展名" },
+    { name: "在终端中打开", description: "用系统终端打开文件夹或文件所在目录；多选需在同一目录" },
+    { name: "新建空白文件", description: "单个文件夹；创建未命名.txt，重名时加序号" },
+    { name: "收藏到快捷启动", description: "文件或文件夹；支持一次收藏多项" },
+  ] },
+  { name: "文字", actions: [
+    { name: "在搜索面板中打开", description: "将选中文字带入搜索框" },
+    { name: "复制为纯文本", description: "复制选中文字，去除原有格式" },
+    { name: "在浏览器中打开", description: "选中完整的 HTTP 或 HTTPS 网址时出现" },
+    { name: "问网页应用", description: "每个网页应用一项；先复制文字，再打开网页" },
+  ] },
+];
 
 export default function SuperPanelSettings({ cfg, save, manifests, onOpenPlugins }: SectionProps & { onOpenPlugins: () => void }) {
   const settings = cfg.superPanel;
   const [editing, setEditing] = useState<CustomAction | null>(null);
   const [editorError, setEditorError] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchItem[]>([]);
-  const [available, setAvailable] = useState<boolean[]>([]);
   const [trusted, setTrusted] = useState(true);
   const [saving, setSaving] = useState(false);
-  const dragging = useRef<number | null>(null);
-  const [dragOver, setDragOver] = useState<number | null>(null);
   const [more, setMore] = useState<string | null>(null);
   const editor = useRef<HTMLElement>(null);
   const binding = cfg.hotkeys.findIndex((b) => b.action.type === "superPanel");
@@ -27,39 +37,12 @@ export default function SuperPanelSettings({ cfg, save, manifests, onOpenPlugins
     const base: Binding = hotkey ?? { action: { type: "superPanel" }, accelerator: "Alt+Shift+Space", enabled: false };
     save({ ...cfg, hotkeys: binding < 0 ? [...cfg.hotkeys, { ...base, ...patch }] : cfg.hotkeys.map((b, i) => i === binding ? { ...b, ...patch } : b) });
   };
-  useEffect(() => {
-    let live = true;
-    void invoke<boolean[]>("superpanel_pin_status").then((v) => { if (live) setAvailable(v); });
-    return () => { live = false; };
-  }, [settings.pinned]);
   useEffect(() => { void invoke<{ trusted: boolean }>("hotkey_status").then((s) => setTrusted(s.trusted)); }, [settings.longPressRight]);
   useEffect(() => {
     if (!more) return;
     const close = (e: MouseEvent) => { if (!(e.target as Element).closest?.(".super-more")) setMore(null); };
     window.addEventListener("mousedown", close); return () => window.removeEventListener("mousedown", close);
   }, [more]);
-  useEffect(() => {
-    let stale = false;
-    const timer = setTimeout(() => { if (query.trim()) void invoke<SearchItem[]>("search", { query }).then((r) => { if (!stale) setResults(r); }); }, 120);
-    return () => { stale = true; clearTimeout(timer); };
-  }, [query]);
-  const defaults: SearchItem[] = [
-    ...manifests.filter((m) => m.id !== "superpanel").flatMap((m) => m.features.map((f) => ({ title: f.explain, subtitle: m.name, score: 0, plugin: m.id, kind: "feature" as const, action: { type: "feature" as const, feature: f.code } }))),
-    ...cfg.webApps.map((w) => ({ title: w.name, subtitle: w.url, score: 0, plugin: "webapps", kind: "feature" as const, icon: w.url, action: { type: "openWeb" as const, id: w.id } })),
-  ];
-  const candidates = (query.trim() ? results : defaults).filter((i) => i.plugin !== "superpanel" && !settings.pinned.some((p) => identity(p) === identity(i)));
-  const add = (item: SearchItem) => {
-    if (settings.pinned.length >= 12) return;
-    if (item.action.type === "feature") {
-      const m = manifests.find((m) => m.id === item.plugin); const feature = item.action.feature;
-      item = { ...item, title: m?.features.find((f) => f.code === feature)?.explain ?? item.title, subtitle: m?.name ?? item.subtitle, score: 0, action: { type: "feature", feature } };
-    }
-    update({ pinned: [...settings.pinned, item] });
-  };
-  const move = (from: number, to: number) => {
-    if (to < 0 || to >= settings.pinned.length || from === to) return;
-    const pinned = [...settings.pinned]; const [item] = pinned.splice(from, 1); pinned.splice(to, 0, item); update({ pinned });
-  };
   const commit = async () => {
     if (!editing) return;
     if (!editing.name.trim() || !editing.when.length) { setEditorError("请输入名称并选择至少一种适用类型"); return; }
@@ -71,7 +54,6 @@ export default function SuperPanelSettings({ cfg, save, manifests, onOpenPlugins
       setEditing(null);
     } catch (e) { setEditorError(String(e)); } finally { setSaving(false); }
   };
-  const remove = (i: number) => update({ pinned: settings.pinned.filter((_, j) => j !== i) });
   return <>
     <div className="content-head"><span><h1 className="page-h1">超级面板</h1><span className="note">在鼠标旁边处理选中的文字和文件</span></span></div>
     <div className="super-card">
@@ -88,28 +70,18 @@ export default function SuperPanelSettings({ cfg, save, manifests, onOpenPlugins
     </div>
     {!trusted && <div className="banner">读取选中文字和长按右键需要辅助功能权限。<button className="btn ghost sm" onClick={() => void invoke("hotkey_request_access")}>去授权</button></div>}
     {hotkey && !hotkey.enabled && cfg.hotkeys.some((b, i) => i !== binding && b.enabled && b.accelerator === hotkey.accelerator) && <div className="banner">呼出热键与其他动作重复，请更换后启用。</div>}
-    <div className="super-section-head"><h2>我的面板</h2><span className="note">{settings.pinned.length} / 12 · 拖动排序</span></div>
-    <div className="super-card super-pin-grid" aria-label="我的面板，拖动排序">{settings.pinned.map((item, i) => <div className="super-pin-cell" key={identity(item)} draggable tabIndex={0}
-      aria-label={`${item.title}，第 ${i + 1} 个。⌥← ⌥→ 移动，Delete 移除`} data-dragging={dragOver === i ? "over" : undefined}
-      onDragStart={(e) => { dragging.current = i; e.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { dragging.current = null; setDragOver(null); }}
-      onDragOver={(e) => { e.preventDefault(); if (dragging.current !== null && dragging.current !== i) setDragOver(i); }} onDragLeave={() => setDragOver((v) => v === i ? null : v)}
-      onDrop={(e) => { e.preventDefault(); if (dragging.current !== null) move(dragging.current, i); dragging.current = null; setDragOver(null); }}
-      onKeyDown={(e) => {
-        if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); move(i, i - 1); }
-        else if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); move(i, i + 1); }
-        else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(i); }
-      }}>
-      <PinIcon item={item} cfg={cfg} size={34} />
-      <span className="super-pin-name">{item.title}</span>
-      {available[i] === false && <small className="bad-text">已失效</small>}
-      <button type="button" className="super-pin-x" aria-label={`移除${item.title}`} onClick={() => remove(i)}><CloseIcon size={10} /></button>
-    </div>)}
-      {settings.pinned.length < 12 && <button type="button" className="super-pin-cell super-pin-add" aria-expanded={adding} onClick={() => setAdding((v) => !v)}><span className="tile">＋</span><span className="super-pin-name">添加</span></button>}
-    </div>
-    <p className="note super-hint">也可以在搜索结果上右键「固定到超级面板」。悬停格子出现 × 移除。</p>
-    {adding && <div className="super-picker"><label>搜索应用、指令或收藏路径<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="输入名称…" /></label>
-      <div className="super-picker-results">{candidates.map((item) => <button key={identity(item)} className="super-pick" disabled={settings.pinned.length >= 12} onClick={() => add(item)}><PinIcon item={item} cfg={cfg} /><span>{item.title}<small>{item.subtitle}</small></span><span>＋</span></button>)}{!candidates.length && <p className="note">没有可添加的结果</p>}</div>
-      <button className="btn ghost sm" onClick={() => setAdding(false)}>完成</button></div>}
+    <SuperPanelPins cfg={cfg} manifests={manifests} />
+    <section aria-labelledby="super-builtins-heading">
+      <div className="super-section-head"><h2 id="super-builtins-heading">内置动作</h2></div>
+      <p className="note super-builtin-hint">根据选中的内容自动出现，不占「我的面板」名额。</p>
+      <div className="super-builtin-groups">{BUILTIN_GROUPS.map((group) => <section key={group.name} className="super-card super-builtin-card" aria-label={`${group.name}内置动作`}>
+        <h3>{group.name}</h3>
+        <ul>{group.actions.map((action) => <li key={action.name}>
+          <span className="row-title">{action.name}</span>
+          <span className="row-desc">{action.description}</span>
+        </li>)}</ul>
+      </section>)}</div>
+    </section>
     <div className="super-section-head"><h2>自定义动作</h2><button className="btn sm" onClick={() => { setEditing({ id: crypto.randomUUID(), name: "", command: "", when: ["file", "folder"], enabled: false }); setEditorError(""); }}>＋ 新建动作</button></div>
     {settings.actions.length > 0 && <div className="super-card">{settings.actions.map((a) => <div key={a.id} className="super-custom-row">
       <button className="super-custom-edit" onClick={() => { setEditing({ ...a, when: [...a.when] }); setEditorError(""); }}><b>{a.name}</b><code>{a.command}</code></button>
@@ -139,10 +111,3 @@ export default function SuperPanelSettings({ cfg, save, manifests, onOpenPlugins
 }
 
 const MoreIcon = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="18" cy="12" r="1.5" /></svg>;
-
-function PinIcon({ item, cfg, size = 26 }: { item: SearchItem; cfg: Config; size?: number }) {
-  const large = size > 30;
-  if (item.action.type === "openPath") return item.kind === "app" ? <AppIcon path={item.action.path} name={item.title} large={large} /> : <span className="tile"><PathIcon kind={item.icon as "file" | "folder" | "link"} /></span>;
-  if (item.action.type === "openWeb") { const id = item.action.id; const url = cfg.webApps.find((w) => w.id === id)?.url; if (url) return <WebIcon url={url} name={item.title} large={large} />; }
-  return <FeatureIcon plugin={item.plugin} feature={item.action.type === "feature" ? item.action.feature : undefined} size={size} />;
-}

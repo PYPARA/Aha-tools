@@ -85,6 +85,7 @@ export interface RelayStatus {
 
 /** Props of a plugin's 设置 tab in the plugin detail page. */
 export interface PluginSettingsProps {
+  route?: string;
   cfg: Config;
   /** Saves and applies at once. */
   save: (cfg: Config) => void;

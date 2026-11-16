@@ -100,7 +100,7 @@ export default function Settings({ onBack, input }: PluginViewProps) {
         )}
       </nav>
       {props && section === "plugins" ? (
-        <Plugins {...props} key={focusPlugin} initialPlugin={focusPlugin} initialTab={initial.tab} errors={errors} />
+        <Plugins {...props} key={focusPlugin} initialPlugin={focusPlugin} initialTab={initial.tab} route={input?.split("/").slice(3).join("/")} errors={errors} />
       ) : (
         <div className="content" data-tauri-drag-region>
           {errors.length > 0 && (

@@ -1,6 +1,6 @@
+import { isContextMenuOpen } from "./path-actions";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Menu } from "@tauri-apps/api/menu";
 import {
   AppIcon,
   BackIcon,
@@ -10,6 +10,8 @@ import {
   invoke,
   openPath,
   PageActionsSlot,
+  itemMenuEntries, menuPoint, type SavedEntry,
+  showContextMenu,
   PathIcon,
   SearchIcon,
   SlidersIcon,
@@ -23,7 +25,7 @@ import {
   type SearchItem,
   writeClipboardText,
 } from "@ahatools/sdk";
-import { actions, fullPageViews, views, type Target } from "./views";
+import { actions, fullPageViews, pluginSettings, views, type Target } from "./views";
 import { ContentChip, useSearchContent } from "./search-content";
 import { filesFromInput, preview } from "./plugin-input";
 import { pinKey, type Home } from "./pinned-sort";
@@ -90,6 +92,7 @@ export default function App() {
   const [manifests, setManifests] = useState<Manifest[]>([]);
   const [home, setHome] = useState<Home>({ recent: [], pinned: [] });
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => { const report = (event: Event) => setError((event as CustomEvent<string>).detail); window.addEventListener("context-error", report); return () => window.removeEventListener("context-error", report); }, []);
   const [hotkey, setHotkey] = useState("⌥ Space");
   const [status, setStatus] = useState("");
   const [flash, setFlash] = useState("");
@@ -143,6 +146,8 @@ export default function App() {
   const [webUrls, setWebUrls] = useState<Map<string, string>>(new Map());
   const [webApps, setWebApps] = useState<Config["webApps"]>([]);
   const [webSearch, setWebSearch] = useState("");
+  const [savedEntries, setSavedEntries] = useState<SavedEntry[]>([]);
+  const loadSaved = () => invoke<SavedEntry[]>("launcher_saved").then(setSavedEntries).catch((e) => setError(String(e)));
   const loadHome = () => invoke<Home>("usage_home").then(setHome);
   const [superPins, setSuperPins] = useState<SearchItem[]>([]);
   const loadWebUrls = (cfg: Config) => {
@@ -159,7 +164,7 @@ export default function App() {
 
   useEffect(() => {
     invoke<Manifest[]>("list_plugins").then(setManifests);
-    loadHome();
+    loadHome(); loadSaved();
     loadHotkey();
     invoke<Config>("config_get").then(loadWebUrls);
     const subs = [
@@ -207,7 +212,9 @@ export default function App() {
       listen<Target & { query?: string }>("panel-query", (e) => receiveRequest(e.payload)),
       // The super panel's 「固定」 cell explains how to pin from here.
       listen<string>("panel-flash", (e) => setFlash(e.payload)),
+      listen("launcher-changed", () => { void loadHome(); void loadSaved(); setSearchRevision((v) => v + 1); }),
       listen<Config>("config-changed", (e) => {
+        loadHome();
         loadHotkey();
         loadWebUrls(e.payload);
         setSearchRevision((v) => v + 1);
@@ -365,6 +372,9 @@ export default function App() {
       invoke("webapp_open", { id: item.action.id }).catch((e) => setError(String(e)));
       return;
     }
+    if (item.action.type === "openSaved") {
+      try { await invoke("launcher_open", { id: item.action.id, application: null }); setQuery(""); } catch (e) { setError(String(e)); } return;
+    }
     if (item.action.type === "openPath") {
       try {
         await openPath(item.action.path);
@@ -409,28 +419,26 @@ export default function App() {
     loadHome();
   };
 
-  /** Right-click menu, native like uTools': pin / unpin, and remove from 最近使用. */
+  /** Native context menu shared by search results, 最近使用 and 已固定. */
   const showItemMenu = async (e: React.MouseEvent, item: SearchItem, inRecent: boolean) => {
     e.preventDefault();
     if (item.plugin === FALLBACK || item.plugin === ASK || item.action.type === "copy") return;
     const pinned = pinnedKeys.has(pinKey(item));
     const entries = [
-      { text: pinned ? "取消固定" : "固定到首页", accelerator: "CmdOrCtrl+D", action: () => togglePin(item) },
+      ...itemMenuEntries(item, { saved: savedEntries, webApps, settingsPlugins: Object.keys(pluginSettings), open, run: () => run(item) }),
+      { item: "Separator" as const },
+      { text: pinned ? "从首页取消固定" : "固定到首页", accelerator: "CmdOrCtrl+D", action: () => togglePin(item) },
       ...(item.plugin === "superpanel" ? [] : [{
         text: superPins.some((p) => superKey(p) === superKey(item)) ? "从超级面板移除" : "固定到超级面板",
         action: () => toggleSuperPin(item),
       }]),
       ...(inRecent ? [{ text: "从「最近使用」中删除", action: () => forget(item) }] : []),
     ];
-    try {
-      const menu = await Menu.new({ items: entries });
-      await menu.popup();
-    } catch {
-      // No native menus in the browser preview.
-    }
+    await showContextMenu(entries, setError, menuPoint(e));
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (isContextMenuOpen()) return;
     if (e.defaultPrevented || e.isComposing) return;
     if (e.metaKey && e.key === ",") {
       e.preventDefault();
@@ -545,7 +553,7 @@ export default function App() {
         <div className="section-head"><h2>匹配结果</h2><span className="aside">只显示适用于当前内容的功能</span></div>
         {items.length ? <div className="grid" aria-label="匹配结果">{items.map((item, i) => (
           <button type="button" key={pinKey(item)} className={`grid-item${i === selected ? " selected" : ""}`}
-            onMouseMove={() => setSelected(i)} onClick={() => run(item)} onContextMenu={(event) => showItemMenu(event, item, false)}>
+            onFocus={() => setSelected(i)} onMouseMove={() => setSelected(i)} onClick={() => run(item)} data-context-menu onContextMenu={(event) => { setSelected(i); void showItemMenu(event, item, false); }}>
             <ItemIcon item={item} large /><span className="label">{item.title}</span>
           </button>
         ))}</div> : <div className="home-empty"><p className="lede">{hasQuery ? "没有符合筛选条件的功能" : "当前没有适用的功能"}</p><p className="note">{hasQuery ? "换个关键词，或清空筛选条件" : "可在插件详情的「自动匹配」中检查开关；二维码识别支持 PNG、JPEG 和 WebP"}</p></div>}
@@ -562,7 +570,7 @@ export default function App() {
             className={`result${i === selected ? " selected" : ""}`}
             onMouseMove={() => setSelected(i)}
             onClick={() => run(item)}
-            onContextMenu={(e) => showItemMenu(e, item, false)}
+            data-context-menu tabIndex={0} onContextMenu={(e) => { setSelected(i); void showItemMenu(e, item, false); }}
           >
             <ItemIcon item={item} />
             <span className="text">
@@ -614,7 +622,7 @@ export default function App() {
         className={`grid-item${index === selected ? " selected" : ""}`}
         onClick={() => run(item)}
         onMouseMove={() => { if (!sorting.current?.isSorting()) setSelected(index); }}
-        onContextMenu={(e) => {
+        data-context-menu onContextMenu={(e) => {
           setSelected(index);
           showItemMenu(e, item, inRecent);
         }}

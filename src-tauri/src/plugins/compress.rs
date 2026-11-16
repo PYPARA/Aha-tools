@@ -243,6 +243,16 @@ impl Engine {
             .collect()
     }
 
+    fn retry(self: &Arc<Self>, batch_id: &str, item_id: &str, new_batch_id: String, notify: Arc<dyn Fn(Progress) + Send + Sync>) -> Result<Batch, String> {
+        let (path, quality, to_webp) = {
+            let inner = self.inner.lock().unwrap();
+            let batch = inner.batches.iter().find(|b| b.view.batch_id == batch_id).ok_or("原批次不存在")?;
+            let record = batch.records.iter().find(|r| r.view.item_id == item_id).ok_or("原图片不存在")?;
+            if record.view.status != Status::Failed { return Err("只能重试失败的图片".into()); }
+            (record.source.to_string_lossy().into_owned(), batch.view.quality, batch.view.to_webp)
+        };
+        self.submit(new_batch_id, vec![path], quality, to_webp, None, notify)
+    }
     fn submit(
         self: &Arc<Self>,
         id: String,
@@ -1127,6 +1137,16 @@ mod tests {
     }
 
     #[test]
+    fn retry_reads_current_original_and_preserves_old_failure_and_parameters() {
+        let (_dir, engine, path) = setup(); fs::write(&path,b"damaged image").unwrap();
+        start(&engine,"old",std::slice::from_ref(&path),true); let old=wait(&engine,"old"); assert_eq!(old.items[0].status,Status::Failed);
+        fs::write(&path,png_fixture()).unwrap();
+        let new=engine.retry("old",&old.items[0].item_id,"new".into(),Arc::new(|_| {})).unwrap();
+        assert_eq!(new.quality,old.quality); assert_eq!(new.to_webp,old.to_webp); let new=wait(&engine,"new"); assert!(new.items[0].status.exportable());
+        assert_eq!(engine.list().iter().find(|b| b.batch_id=="old").unwrap().items[0].status,Status::Failed);
+        assert!(engine.retry("new",&new.items[0].item_id,"wrong".into(),Arc::new(|_| {})).is_err());
+    }
+    #[test]
     fn source_unchanged_duplicate_submit_and_reprocess_from_snapshot() {
         let (_dir, engine, path) = setup();
         let original = fs::read(&path).unwrap();
@@ -1342,4 +1362,26 @@ mod tests {
             .unwrap();
         assert!(result[0].error.as_ref().unwrap().contains("只读"));
     }
+}
+
+/// Resolve cached results by identity on the host; the caller never constructs cache paths.
+#[tauri::command]
+pub async fn compress_result_action(app: AppHandle, engine: State<'_, Arc<Engine>>, batch_id: String, item_id: String, source: String, action: String) -> Result<(), String> {
+    let path = {
+        let inner = engine.inner.lock().unwrap();
+        let record = inner.batches.iter().find(|b| b.view.batch_id == batch_id).and_then(|b| b.records.iter().find(|r| r.view.item_id == item_id)).ok_or("压缩记录已失效")?;
+        match source.as_str() { "original" => record.source.clone(), "result" if record.view.status.exportable() => record.output.clone().or_else(|| record.snapshot.clone()).ok_or("压缩结果不存在")?, _ => return Err("当前没有可用的压缩结果".into()) }
+    };
+    if !path.is_file() { return Err("文件已移动或删除".into()); }
+    let path = path.to_string_lossy().into_owned();
+    match action.as_str() {
+        "open" => tauri::async_runtime::spawn_blocking(move || super::open_path(app, path)).await.map_err(io_error)?,
+        "reveal" => super::reveal_paths(app, vec![path]).await,
+        _ => Err("未知的结果操作".into()),
+    }
+}
+#[tauri::command]
+pub async fn compress_retry(app: AppHandle, engine: State<'_, Arc<Engine>>, batch_id: String, item_id: String, new_batch_id: String) -> Result<Batch, String> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.retry(&batch_id, &item_id, new_batch_id, notifier(app))).await.map_err(io_error)?
 }

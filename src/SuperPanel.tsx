@@ -1,7 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { AppIcon, PathIcon, FeatureIcon, GearIcon, SearchIcon, WebIcon, formatAccelerator, invoke, useAppearance, type Config, type SearchItem } from "@ahatools/sdk";
+import { AppIcon, PathIcon, FeatureIcon, GearIcon, SearchIcon, WebIcon, formatAccelerator, itemMenuEntries, invoke, type SavedEntry, useAppearance, type Config, type SearchItem } from "@ahatools/sdk";
 import "./styles.css";
+import { pluginSettings } from "./views";
+import ContextMenu from "./ContextMenu";
+import { menuPoint, type MenuPoint, type ContextMenuEntry } from "./path-actions";
 
 interface Entry { id: string; title: string; subtitle: string; plugin: string; feature: string; group: string; icon: string; item?: SearchItem }
 interface Snapshot {
@@ -9,7 +12,7 @@ interface Snapshot {
   context: { kind: string; appName: string; paths: string[]; text?: string; notice?: string; permission?: string };
   actions: Entry[]; pinned: Entry[];
 }
-interface Menu { entry: Entry; x: number; y: number }
+interface Menu { entry: Entry; point: MenuPoint }
 
 const GROUPS: [string, string][] = [["match", "匹配的功能"], ["files", "文件"], ["text", "文字"], ["custom", "自定义动作"]];
 /** Under context actions 我的面板 is one row of five: four pins and 「全部」, unless all fit. */
@@ -48,6 +51,8 @@ export default function SuperPanel() {
   const root = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLElement>(null);
   const reported = useRef(0);
+  const [saved, setSaved] = useState<SavedEntry[]>([]);
+  const [webApps, setWebApps] = useState<Config["webApps"]>([]);
   const [urls, setUrls] = useState<Map<string, string>>(new Map());
   useEffect(() => {
     let live = true;
@@ -58,11 +63,14 @@ export default function SuperPanel() {
       if (fresh) { setSelected(0); setShowAll(false); setMessage(null); reported.current = 0; }
     };
     const config = (c: Config) => {
+      setWebApps(c.webApps);
       setUrls(new Map(c.webApps.map((w) => [w.id, w.url])));
       const b = c.hotkeys.find((b) => b.action.type === "superPanel" && b.enabled);
       setHotkey(b ? formatAccelerator(b.accelerator) : "");
     };
-    const subs = [listen<Snapshot>("superpanel-shown", (e) => receive(e.payload, true)), listen<Config>("config-changed", (e) => {
+    const loadSaved = () => { void invoke<SavedEntry[]>("launcher_saved").then(setSaved).catch((e) => setMessage({ text: String(e), bad: true })); };
+    loadSaved();
+    const subs = [listen("launcher-changed", () => { loadSaved(); void invoke<Snapshot>("superpanel_state").then((s) => receive(s, false)); }), listen<Snapshot>("superpanel-shown", (e) => receive(e.payload, true)), listen<Config>("config-changed", (e) => {
       config(e.payload); void invoke<Snapshot>("superpanel_state").then((s) => receive(s, false));
     })];
     void Promise.all(subs).then(() => invoke<Snapshot>("superpanel_state")).then((s) => receive(s, true));
@@ -132,7 +140,7 @@ export default function SuperPanel() {
     if (entry.icon && LINE[entry.icon]) return <Line>{LINE[entry.icon]}</Line>;
     const item = entry.item;
     if (item?.action.type === "openPath" && item.kind === "app") return <AppIcon path={item.action.path} name={item.title} large />;
-    if (item?.action.type === "openPath") return <span className="tile"><PathIcon kind={item.icon as "file" | "folder" | "link"} size={size * .55} /></span>;
+    if (item?.action.type === "openPath" || item?.action.type === "openSaved") return <span className="tile"><PathIcon kind={item.icon as "file" | "folder" | "link"} size={size * .55} /></span>;
     if (item?.action.type === "openWeb") {
       const url = urls.get(item.action.id) ?? item.icon; if (url) return <WebIcon url={url} name={item.title} large />;
     }
@@ -142,8 +150,7 @@ export default function SuperPanel() {
   const openMenu = (e: React.MouseEvent, entry: Entry) => {
     e.preventDefault();
     if (entry.group !== "pin" && !entry.item) return;
-    const box = root.current?.getBoundingClientRect();
-    setMenu({ entry, x: Math.min(e.clientX, (box?.width ?? 300) - 186), y: Math.min(e.clientY, (box?.height ?? 300) - 84) });
+    setMenu({ entry, point: menuPoint(e) });
   };
   const togglePin = async (item: SearchItem) => {
     try {
@@ -159,7 +166,7 @@ export default function SuperPanel() {
   let index = 0;
   const cell = (entry: Entry, small = false) => {
     const i = index++;
-    return <button key={entry.id} type="button" data-super-action={entry.id} className={`super-cell${small ? " small" : ""}`}
+    return <button key={entry.id} type="button" data-context-menu data-super-action={entry.id} className={`super-cell${small ? " small" : ""}`}
       aria-current={selected === i ? "true" : undefined} disabled={busy} title={entry.title}
       onFocus={() => setSelected(i)} onMouseMove={() => setSelected(i)} onClick={() => void run(entry.id)} onContextMenu={(e) => openMenu(e, entry)}>
       {icon(entry, small ? 24 : 34)}<span>{entry.title}</span>
@@ -167,7 +174,7 @@ export default function SuperPanel() {
   };
   const row = (entry: Entry) => {
     const i = index++;
-    return <button type="button" key={entry.id} data-super-action={entry.id} className="super-action"
+    return <button type="button" key={entry.id} data-context-menu data-super-action={entry.id} className="super-action"
       aria-current={selected === i ? "true" : undefined} disabled={busy}
       onFocus={() => setSelected(i)} onMouseMove={() => setSelected(i)} onClick={() => void run(entry.id)} onContextMenu={(e) => openMenu(e, entry)}>
       {icon(entry, 24)}<b>{entry.title}</b>{entry.subtitle && <small>{entry.subtitle}</small>}
@@ -191,6 +198,16 @@ export default function SuperPanel() {
     : <Line>{LINE[ctx?.kind === "text" ? "text" : ctx?.paths.length === 1 && !/\.[^/]+$/.test(ctx.paths[0]) ? "folder" : "file"]}</Line>;
   const menuPinned = menu?.entry.item ? pinnedKeys.has(pinKey(menu.entry.item)) : false;
   const menuIndex = menu?.entry.group === "pin" ? Number(menu.entry.id.split(":")[1]) : -1;
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const menuEntries: ContextMenuEntry[] = !menu?.entry.item ? [] : [
+    ...itemMenuEntries(menu.entry.item, { saved, webApps, settingsPlugins: Object.keys(pluginSettings),
+      run: () => run(menu.entry.id), open: (target) => invoke("host_open_feature", { plugin: target.plugin, feature: target.feature, input: target.input ?? null }),
+    }), { item: "Separator" },
+    ...(menu.entry.group === "pin" ? [
+      ...(menuIndex > 0 ? [{ id: "first", text: "移到最前", action: () => pinAction("superpanel_pin_first", menu.entry) }] : []),
+      { id: "remove-pin", text: "从超级面板移除", action: () => pinAction("superpanel_remove_pin", menu.entry) },
+    ] : [{ id: "toggle-pin", text: menuPinned ? "从超级面板移除" : "固定到超级面板", action: () => togglePin(menu.entry.item!) }]),
+  ];
   return <div className="super-panel" ref={root} onClick={() => menu && setMenu(null)}>
     <header className="super-head">{mark}<strong title={title}>{title}</strong>
       {showAll && hasContext && <button type="button" className="btn ghost sm" onClick={() => { setShowAll(false); setSelected(0); }}>返回</button>}
@@ -211,15 +228,7 @@ export default function SuperPanel() {
     {contextual && pinned.length > 0 && <div className="super-strip" aria-label="我的面板"><h2>我的面板</h2><div>
       {strip.map((p) => cell(p, true))}{pinned.length > STRIP && extra("__all", `全部 ${pinned.length}`, LINE.more, true)}
     </div></div>}
-    {menu && <div className="super-menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
-      {menu.entry.group === "pin" ? <>
-        {menuIndex > 0 && <button type="button" role="menuitem" onClick={() => { setMenu(null); void pinAction("superpanel_pin_first", menu.entry); }}>移到最前</button>}
-        <button type="button" role="menuitem" onClick={() => { setMenu(null); void pinAction("superpanel_remove_pin", menu.entry); }}>从超级面板移除</button>
-      </> : menu.entry.item && <>
-        <button type="button" role="menuitem" onClick={() => { const item = menu.entry.item!; setMenu(null); void togglePin(item); }}>{menuPinned ? "从超级面板移除" : "固定到超级面板"}</button>
-        {menu.entry.item.action.type === "feature" && <><hr /><button type="button" role="menuitem" onClick={() => { setMenu(null); void run(`plugin-settings:${menu.entry.plugin}`); }}>插件设置…</button></>}
-      </>}
-    </div>}
+    {menu && <ContextMenu entries={menuEntries} point={menu.point} onClose={closeMenu} onError={(text) => setMessage({ text, bad: true })} />}
     <footer className="super-foot">{hotkey ? `${hotkey} 呼出 · ` : ""}↑↓ 选择 · ↵ 执行 · esc {showAll && hasContext ? "返回" : "关闭"}</footer>
   </div>;
 }

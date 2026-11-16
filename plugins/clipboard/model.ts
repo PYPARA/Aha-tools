@@ -18,11 +18,15 @@ export type Filter = "all" | ClipKind;
 
 export const FILTERS: [Filter, string][] = [["all", "全部"], ["text", "文字"], ["image", "图片"], ["files", "文件"]];
 
+/** Recognize image files for discovery; unsupported decoders report a useful preview error. */
+export const isImageFile = (path: string) => /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif|ico|svg)$/i.test(path);
+export const hasImage = (entry: Entry) => entry.kind === "image" || entry.kind === "files" && entry.paths.some(isImageFile);
+
 /** Pinned first, then newest; filtered by kind and by words in the text, paths or app. */
 export function visibleEntries(entries: Entry[], filter: Filter, query: string): Entry[] {
   const q = query.trim().toLowerCase();
   return entries
-    .filter((e) => filter === "all" || e.kind === filter)
+    .filter((e) => filter === "all" || (filter === "image" ? hasImage(e) : e.kind === filter))
     .filter((e) => !q || e.text.toLowerCase().includes(q) || e.paths.some((p) => p.toLowerCase().includes(q)) || (e.app ?? "").toLowerCase().includes(q))
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.at - a.at);
 }

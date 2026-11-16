@@ -1,7 +1,8 @@
+import { isContextMenuOpen } from "@ahatools/sdk";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   CopyIcon, FileIcon, PageActions, Switch, confirmAction, invoke, isNative, onFileDrop,
-  onHostEvent, openFileDialog, withPinned, type PluginViewProps,
+  onHostEvent, openFileDialog, menuPoint, showContextMenu, type ContextMenuEntry, withPinned, type PluginViewProps,
 } from "@ahatools/sdk";
 import {
   batchAge, batchReducer, canExport, emptyState, formatBytes, parsePaths, summary,
@@ -17,6 +18,7 @@ function ItemResult({ item }: { item: CompressionItem }) {
 
 export default function Compress({ input, content, setStatus }: PluginViewProps) {
   const [state, dispatch] = useReducer(batchReducer, emptyState);
+  const [selectedItem, setSelectedItem] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
   const [quality, setQuality] = useState(80);
   const [toWebp, setToWebp] = useState(false);
@@ -120,6 +122,7 @@ export default function Compress({ input, content, setStatus }: PluginViewProps)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+    if (isContextMenuOpen()) return;
       if (e.defaultPrevented || e.isComposing || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.key.toLowerCase() !== "c") return;
       if (window.getSelection()?.toString() || (e.target instanceof HTMLElement && e.target.closest("input, textarea, [contenteditable=true]"))) return;
       if (!batch || !summary(batch).done || !batch.items.some(canExport)) return;
@@ -142,6 +145,31 @@ export default function Compress({ input, content, setStatus }: PluginViewProps)
   const canBatchExport = !!totals?.done && exported.length > 0 && !busy;
   const overwriteCount = exported.filter((i) => i.canOverwrite).length;
   const errorsById = new Map(exportErrors.map((r) => [r.itemId, r.error]));
+
+  const itemMenu = (event: React.MouseEvent, item: CompressionItem) => {
+    event.preventDefault(); if (!batch) return; setSelectedItem(item.itemId);
+    const batchId = batch.batchId;
+    const result = (source: "original" | "result", action: "open" | "reveal") => invoke("compress_result_action", { batchId, itemId: item.itemId, source, action });
+    const retry = async () => {
+      const next = await invoke<CompressionBatch>("compress_retry", { batchId, itemId: item.itemId, newBatchId: crypto.randomUUID() });
+      dispatch({ type: "snapshots", batches: [next] }); setSelectedId(next.batchId);
+    };
+    const entries: ContextMenuEntry[] = [
+      { id: "open-original", text: "打开原图", action: () => result("original", "open") },
+      ...(canExport(item) ? [{ id: "open-result", text: "打开压缩结果", action: () => result("result", "open") }] : []),
+      { item: "Separator" },
+      { id: "reveal-original", text: "打开原图文件位置", action: () => result("original", "reveal") },
+      ...(canExport(item) ? [
+        { id: "reveal-result", text: "打开结果文件位置", action: () => result("result", "reveal") },
+        { id: "copy-result", text: "复制这张结果文件", disabled: busy, action: () => exportItems("copy", [item]) },
+        { item: "Separator" as const },
+        { id: "save-result", text: "这张另存到原目录", disabled: busy, action: () => exportItems("save", [item]) },
+        ...(item.canOverwrite ? [{ id: "overwrite", text: "覆盖这张原图…", disabled: busy, action: () => exportItems("overwrite", [item]) }] : []),
+      ] : []),
+      ...(item.status === "failed" ? [{ id: "retry", text: "重新读取并重试", disabled: busy, action: retry }] : []),
+    ];
+    void showContextMenu(entries, (text) => setNotice({ text, error: true }), menuPoint(event));
+  };
 
   return (
     <div className={`compress-view${dragging ? " compress-dragging" : ""}`}
@@ -177,7 +205,7 @@ export default function Compress({ input, content, setStatus }: PluginViewProps)
       {batch ? <>
         <div className="compress-table-wrap">
           <table className="table compress-table"><thead><tr><th scope="col">文件</th><th scope="col">原大小</th><th scope="col">压缩后</th><th scope="col">结果</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
-            <tbody>{batch.items.map((item) => <tr key={item.itemId}>
+            <tbody>{batch.items.map((item) => <tr key={item.itemId} data-context-menu tabIndex={0} onFocus={() => setSelectedItem(item.itemId)} className={selectedItem === item.itemId ? "selected" : ""} onContextMenu={(event) => itemMenu(event, item)}>
               <td><span className="compress-filename" title={item.path}><FileIcon /><span>{item.name}</span></span>{item.outputName && item.outputName !== item.name && <span className="note compress-output">→ {item.outputName}</span>}</td>
               <td className="muted">{item.before ? formatBytes(item.before) : "—"}</td><td>{item.after === null ? "—" : formatBytes(item.after)}</td>
               <td className="compress-result"><ItemResult item={item} />{item.status === "unchanged" && <span className="note">原格式与拍摄信息未改变</span>}{errorsById.has(item.itemId) && <span className="note bad-text" role="alert">{errorsById.get(item.itemId)}</span>}</td>

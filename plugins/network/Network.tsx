@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CopyIcon, PageActions, RefreshIcon, invoke, onHostEvent, writeClipboardText, type Config, type PluginViewProps } from "@ahatools/sdk";
-import { TABS, filterListeners, ms, replyTime, summarize, type DnsResult, type Listener, type Local } from "./model";
+import { CopyIcon, PageActions, RefreshIcon, invoke, menuPoint, showContextMenu, openPath, onHostEvent, writeClipboardText, type Config, type PluginViewProps } from "@ahatools/sdk";
+import { TABS, filterListeners, listenerUrl, ms, replyTime, summarize, type DnsResult, type Listener, type Local } from "./model";
 
 type Tab = (typeof TABS)[number]["feature"];
 
@@ -109,7 +109,7 @@ function PingTab({ input }: { input?: string }) {
         <Field label="最快 / 最慢">{ms(summary.min)} / {ms(summary.max)}</Field>
       </div>
       {times.length > 0 && <div className="net-bars" aria-hidden="true">{times.map((t, i) => <i key={i} style={{ height: `${Math.max(6, (t / peak) * 100)}%` }} title={ms(t)} />)}</div>}
-      <pre className="net-log mono" ref={logRef}>{lines.join("\n")}</pre>
+      <pre data-context-menu tabIndex={0} className="net-log mono" ref={logRef}>{lines.join("\n")}</pre>
     </>}
     {!lines.length && !error && <p className="note">每秒一次，共 10 次；运行中可以停止。</p>}
   </div>;
@@ -157,8 +157,9 @@ function DnsTab({ input }: { input?: string }) {
   </div>;
 }
 
-function PortTab({ input, notify }: { input?: string; notify: (text: string, bad?: boolean) => void }) {
+function PortTab({ input, notify, openFeature }: { openFeature: PluginViewProps["openFeature"]; input?: string; notify: (text: string, bad?: boolean) => void }) {
   const [rows, setRows] = useState<Listener[] | null>(null);
+  const [selected, setSelected] = useState("");
   const [filter, setFilter] = useState(input ?? "");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
@@ -167,9 +168,10 @@ function PortTab({ input, notify }: { input?: string; notify: (text: string, bad
   useEffect(load, [load]);
   const shown = rows ? filterListeners(rows, filter) : [];
   const quit = async (row: Listener) => {
+    if (!row.path) { notify("进程信息已失效，请刷新后重试", true); return; }
     setBusy(true);
     try {
-      const message = await invoke<string>("processes_quit", { targets: [{ pid: row.pid }], force: false });
+      const message = await invoke<string>("processes_quit", { targets: [{ pid: row.pid, path: row.path }], force: false });
       notify(`${row.process}：${message}`);
       setTimeout(load, 600);
     } catch (e) { notify(String(e), true); }
@@ -183,7 +185,20 @@ function PortTab({ input, notify }: { input?: string; notify: (text: string, bad
     {!rows ? <p className="note">正在读取…</p> : shown.length === 0 ? <p className="note">{filter.trim() ? `没有进程在监听「${filter.trim()}」` : "没有正在监听的 TCP 端口"}</p> : (
       <div className="net-table" role="table" aria-label="监听端口">
         {shown.map((r) => (
-          <div className="net-row net-port" role="row" key={`${r.pid}-${r.address}-${r.port}`}>
+          <div className={`net-row net-port${selected === `${r.pid}-${r.address}-${r.port}` ? " selected" : ""}`} role="row" data-context-menu tabIndex={0} key={`${r.pid}-${r.address}-${r.port}`} onContextMenu={(event) => {
+            event.preventDefault(); setSelected(`${r.pid}-${r.address}-${r.port}`); const row = { ...r };
+            void showContextMenu([
+              { id: "http", text: "以 HTTP 打开…", action: () => openPath(listenerUrl(row, "http")) },
+              { id: "https", text: "以 HTTPS 打开…", action: () => openPath(listenerUrl(row, "https")) },
+              { id: "process", text: "查看对应进程", action: () => openFeature({ plugin: "processes", feature: "processes", input: `pid:${row.pid}` }) },
+              { item: "Separator" },
+              { id: "copy-port", text: "复制端口", action: () => writeClipboardText(String(row.port)) },
+              { id: "copy-address", text: "复制监听地址", action: () => writeClipboardText(row.address) },
+              { id: "copy-pid", text: "复制 PID", action: () => writeClipboardText(String(row.pid)) },
+              { item: "Separator" },
+              { id: "quit", text: "结束进程", disabled: busy || !row.path, action: () => quit(row) },
+            ], (message) => notify(message, true), menuPoint(event));
+          }}>
             <span role="cell" className="mono net-value">{r.port}</span>
             <span role="cell" className="mono note">{r.address}</span>
             <span role="cell" className="net-cell-label">{r.process}<span className="note"> · PID {r.pid}</span></span>
@@ -214,7 +229,7 @@ export default function Network({ feature, input, setStatus, openFeature }: Plug
       </div>
     </PageActions>
     {notice && <p className={`note ${notice.bad ? "bad-text" : "ok-text"}`} role={notice.bad ? "alert" : "status"}>{notice.text}</p>}
-    {feature === "ip" ? <IpTab notify={notify} /> : feature === "ping" ? <PingTab input={input} /> : feature === "dns" ? <DnsTab input={input} /> : <PortTab input={input} notify={notify} />}
+    {feature === "ip" ? <IpTab notify={notify} /> : feature === "ping" ? <PingTab input={input} /> : feature === "dns" ? <DnsTab input={input} /> : <PortTab input={input} notify={notify} openFeature={openFeature} />}
   </div>;
 }
 

@@ -10,7 +10,8 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use base64::Engine;
+mod preview;
+mod undo;
 use objc2::rc::autoreleasepool;
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
@@ -160,15 +161,14 @@ fn add(entries: &mut Vec<Entry>, entry: Entry) {
     entries.insert(0, Entry { pinned, ..entry });
 }
 
+fn cache_name(name: &str) -> bool { name.len() == 24 && name.ends_with(".png") && name.as_bytes()[..20].iter().all(|b| b.is_ascii_hexdigit()) }
+fn delete_images_in(cache: &Path, removed: &[Entry], entries: &[Entry], pending: Option<&Entry>) {
+    let mut still: HashSet<&str> = entries.iter().filter_map(|e| e.image.as_ref().map(|i| i.file.as_str())).collect();
+    if let Some(image) = pending.and_then(|p| p.image.as_ref()) { still.insert(image.file.as_str()); }
+    for e in removed { if let Some(image) = &e.image { if cache_name(&image.file) && !still.contains(image.file.as_str()) { let _ = fs::remove_file(cache.join(&image.file)); } } }
+}
 fn delete_images(app: &AppHandle, removed: &[Entry], entries: &[Entry]) {
-    let still: HashSet<&str> = entries.iter().filter_map(|e| e.image.as_ref().map(|i| i.file.as_str())).collect();
-    for e in removed {
-        if let Some(image) = &e.image {
-            if !still.contains(image.file.as_str()) {
-                let _ = fs::remove_file(dir(app).join(&image.file));
-            }
-        }
-    }
+    let pending = undo::PENDING.lock().unwrap(); delete_images_in(&dir(app), removed, entries, pending.as_ref().map(|p| &p.entry));
 }
 
 fn read_text() -> Option<String> {
@@ -234,10 +234,9 @@ fn store(app: &AppHandle, content: Content, source: Option<String>, cfg: &Clipbo
     };
     let entry = Entry { id, kind, text, paths, image, app: source, at: now, pinned: false, truncated: false };
     with_entries(app, |entries| {
-        add(entries, entry);
-        let removed = prune(entries, cfg, now);
-        delete_images(app, &removed, entries);
-        save(app, entries)
+        let mut next = entries.clone(); add(&mut next, entry);
+        let removed = prune(&mut next, cfg, now); save(app, &next)?; *entries = next;
+        delete_images(app, &removed, entries); Ok::<_,String>(())
     })?;
     let _ = app.emit_to(crate::panel::LABEL, "clipboard-history-changed", ());
     Ok(())
@@ -246,13 +245,12 @@ fn store(app: &AppHandle, content: Content, source: Option<String>, cfg: &Clipbo
 /// Removes old entries at startup, when nothing was copied for a while.
 pub fn init(app: &AppHandle) {
     let cfg = config::load(app).clipboard_history;
-    if !index(app).exists() {
-        return;
-    }
     let _ = with_entries(app, |entries| {
-        let removed = prune(entries, &cfg, crate::usage::now());
-        delete_images(app, &removed, entries);
-        if removed.is_empty() { Ok(()) } else { save(app, entries) }
+        let mut next = entries.clone(); let removed = prune(&mut next, &cfg, crate::usage::now());
+        if !removed.is_empty() { save(app, &next)?; *entries = next; delete_images(app, &removed, entries); }
+        let keep: HashSet<_> = entries.iter().filter_map(|e| e.image.as_ref().map(|i| i.file.as_str())).collect();
+        if let Ok(files) = fs::read_dir(dir(app)) { for file in files.flatten() { let name = file.file_name().to_string_lossy().into_owned(); if cache_name(&name) && !keep.contains(name.as_str()) { let _ = fs::remove_file(file.path()); } } }
+        Ok::<_, String>(())
     });
 }
 
@@ -278,12 +276,37 @@ pub fn clipboard_history_get(app: AppHandle, id: String) -> Option<Entry> {
     with_entries(&app, |entries| entries.iter().find(|e| e.id == id).cloned())
 }
 
-/// The image as a data URL for the preview.
+/// A bounded thumbnail of the saved image or a selected file in this history entry.
 #[tauri::command]
-pub async fn clipboard_history_image(app: AppHandle, id: String) -> Option<String> {
-    let file = with_entries(&app, |entries| entries.iter().find(|e| e.id == id).and_then(|e| e.image.clone()))?.file;
-    let bytes = fs::read(dir(&app).join(file)).ok()?;
-    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+pub async fn clipboard_history_image(app: AppHandle, id: String, path: Option<String>) -> Result<String, String> {
+    let entry = with_entries(&app, |entries| entries.iter().find(|e| e.id == id).cloned()).ok_or("这条记录已删除")?;
+    tauri::async_runtime::spawn_blocking(move || preview::load(&entry, &dir(&app), path.as_deref()))
+        .await.map_err(|e| format!("无法生成图片预览：{e}"))?
+}
+
+/// Full source export. Never reuse the preview thumbnail or modify the original.
+#[tauri::command]
+pub async fn clipboard_history_image_action(app: AppHandle, id: String, path: Option<String>, action: String, destination: Option<String>) -> Result<(), String> {
+    let entry = with_entries(&app, |entries| entries.iter().find(|e| e.id == id).cloned()).ok_or("这条记录已删除")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let cache = dir(&app);
+        if action == "save" {
+            let source = preview::source(&entry, &cache, path.as_deref())?;
+            let destination = PathBuf::from(destination.ok_or("请选择保存位置")?);
+            if destination == source || destination.canonicalize().ok().is_some_and(|d| source.canonicalize().ok().as_ref() == Some(&d)) {
+                return Err("请选择其他位置，保留原文件".into());
+            }
+            fs::copy(source, destination).map_err(|e| format!("无法保存图片：{e}"))?;
+            return Ok(());
+        }
+        if action != "copy" { return Err("未知的图片操作".into()); }
+        use tauri_plugin_clipboard_manager::ClipboardExt;
+        let pixels = preview::full(&entry, &cache, path.as_deref())?.into_rgba8();
+        app.clipboard().write_image(&tauri::image::Image::new(pixels.as_raw(), pixels.width(), pixels.height()))
+            .map_err(|e| format!("无法复制图片：{e}"))?;
+        crate::clipboard_watch::mark_own();
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
 }
 
 fn write_entry(app: &AppHandle, entry: &Entry) -> Result<(), String> {
@@ -361,24 +384,43 @@ pub fn clipboard_history_pin(app: AppHandle, id: String, pinned: bool) -> Result
     })
 }
 
-#[tauri::command]
-pub fn clipboard_history_delete(app: AppHandle, id: String) -> Result<(), String> {
-    with_entries(&app, |entries| {
-        let removed: Vec<Entry> = entries.iter().filter(|e| e.id == id).cloned().collect();
-        entries.retain(|e| e.id != id);
-        delete_images(&app, &removed, entries);
-        save(&app, entries)
-    })
+fn finish_undo(app: &AppHandle, entries: &[Entry], token: Option<&str>) {
+    let removed = { let mut pending = undo::PENDING.lock().unwrap(); if token.is_none() || pending.as_ref().is_some_and(|p| Some(p.ticket.token.as_str()) == token) { pending.take().map(|p| p.entry) } else { None } };
+    if let Some(entry) = removed { delete_images(app, &[entry], entries); }
 }
-
-/// Everything except pinned entries, unless `pinned_too`.
+#[tauri::command]
+pub fn clipboard_history_delete(app: AppHandle, id: String) -> Result<undo::Ticket, String> {
+    let ticket = with_entries(&app, |entries| {
+        let entry = entries.iter().find(|e| e.id == id).cloned().ok_or("这条记录已删除")?;
+        let next: Vec<_> = entries.iter().filter(|e| e.id != id).cloned().collect();
+        save(&app, &next)?; *entries = next;
+        let mut protected = entries.clone(); protected.push(entry.clone()); finish_undo(&app, &protected, None);
+        static TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let ticket = undo::Ticket { token: TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed).to_string(), expires_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64 + 10_000 };
+        *undo::PENDING.lock().unwrap() = Some(undo::Pending { ticket: ticket.clone(), entry, deadline: std::time::Instant::now() + std::time::Duration::from_secs(10) });
+        Ok::<_,String>(ticket)
+    })?;
+    let (timer_app, token) = (app.clone(), ticket.token.clone());
+    tauri::async_runtime::spawn(async move { tokio::time::sleep(std::time::Duration::from_secs(10)).await; with_entries(&timer_app, |entries| finish_undo(&timer_app, entries, Some(&token))); });
+    let _ = app.emit_to(crate::panel::LABEL, "clipboard-history-changed", ()); Ok(ticket)
+}
+#[tauri::command]
+pub fn clipboard_history_undo_state() -> Option<undo::Ticket> { undo::PENDING.lock().unwrap().as_ref().filter(|p| p.deadline > std::time::Instant::now()).map(|p| p.ticket.clone()) }
+#[tauri::command]
+pub fn clipboard_history_restore(app: AppHandle, token: String) -> Result<(), String> {
+    with_entries(&app, |entries| {
+        let entry = { let pending = undo::PENDING.lock().unwrap(); let pending = pending.as_ref().filter(|p| p.ticket.token == token && p.deadline > std::time::Instant::now()).ok_or("撤销时间已结束")?; pending.entry.clone() };
+        let mut next = entries.clone(); undo::merge(&mut next, entry); save(&app, &next)?; *entries = next; undo::PENDING.lock().unwrap().take();
+        Ok::<_,String>(())
+    })?;
+    let _ = app.emit_to(crate::panel::LABEL, "clipboard-history-changed", ()); Ok(())
+}
+/// Clear keeps its confirmation; it also ends any pending single-item undo.
 #[tauri::command]
 pub fn clipboard_history_clear(app: AppHandle, pinned_too: bool) -> Result<(), String> {
     with_entries(&app, |entries| {
-        let (gone, kept): (Vec<Entry>, Vec<Entry>) = entries.drain(..).partition(|e| pinned_too || !e.pinned);
-        *entries = kept;
-        delete_images(&app, &gone, entries);
-        save(&app, entries)
+        let (gone, kept): (Vec<Entry>, Vec<Entry>) = entries.iter().cloned().partition(|e| pinned_too || !e.pinned);
+        save(&app, &kept)?; *entries = kept; finish_undo(&app, entries, None); delete_images(&app, &gone, entries); Ok(())
     })
 }
 
@@ -396,6 +438,17 @@ mod tests {
         entries.iter().map(|e| e.id.as_str()).collect()
     }
 
+    #[test]
+    fn image_cleanup_keeps_pending_and_shared_cache_and_never_removes_originals() {
+        let temp = tempfile::tempdir().unwrap(); let cache = temp.path().join("cache"); fs::create_dir(&cache).unwrap();
+        let name = "0123456789abcdef0123.png"; fs::write(cache.join(name), b"image").unwrap();
+        let original = temp.path().join("original.png"); fs::write(&original,b"original").unwrap();
+        let mut entry = Entry { id:"image".into(), kind:ClipKind::Image, text:String::new(), paths:vec![], image:Some(ImageInfo { file:name.into(), width:1,height:1 }),app:None,at:10,pinned:false,truncated:false };
+        delete_images_in(&cache,&[entry.clone()],&[],Some(&entry)); assert!(cache.join(name).exists());
+        delete_images_in(&cache,&[entry.clone()],&[entry.clone()],None); assert!(cache.join(name).exists());
+        delete_images_in(&cache,&[entry.clone()],&[],None); assert!(!cache.join(name).exists());
+        entry.image.as_mut().unwrap().file="../original.png".into(); delete_images_in(&cache,&[entry],&[],None); assert_eq!(fs::read(original).unwrap(),b"original");
+    }
     #[test]
     fn copying_again_moves_to_the_top_and_keeps_the_pin() {
         let mut entries = vec![text("b", 2), text("a", 1)];

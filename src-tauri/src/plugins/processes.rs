@@ -360,3 +360,7 @@ mod tests {
         assert!(groups.iter().any(|g| g.protected));
     }
 }
+
+pub(crate) fn paths() -> std::collections::HashMap<i32, String> {
+    read_ps().unwrap_or_default().into_iter().map(|p| (p.pid, p.path)).collect()
+}

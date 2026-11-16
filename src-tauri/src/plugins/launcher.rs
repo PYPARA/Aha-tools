@@ -7,7 +7,13 @@ use std::sync::{Arc, RwLock};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use serde::{Deserialize, Serialize};
 use base64::Engine;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use std::sync::Mutex;
+mod migration;
+static EDIT_LOCK: Mutex<()> = Mutex::new(());
+static MIGRATION_ERROR: Mutex<Option<String>> = Mutex::new(None);
+pub fn migrate_data(app: &AppHandle) { *MIGRATION_ERROR.lock().unwrap() = migration::run(&config::data_dir(app)).err(); }
+fn ready() -> Result<(), String> { match MIGRATION_ERROR.lock().unwrap().as_ref() { Some(e) => Err(format!("收藏迁移未完成，原数据已保留：{e}")), None => Ok(()) } }
 
 use super::{ItemAction, ItemKind, SearchItem, SearchProvider};
 use crate::config;
@@ -20,6 +26,10 @@ const SAVED_BONUS: i64 = 30;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_with_app: Option<String>,
     pub name: String,
     /// Localized name, e.g. "系统设置" for "System Settings".
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,9 +53,7 @@ impl Launcher {
         })
     }
 
-    fn persist(&self) -> Result<(), String> {
-        config::save_json(&self.app, STORE, &*self.saved.read().unwrap())
-    }
+
 }
 
 impl SearchProvider for Launcher {
@@ -69,9 +77,7 @@ impl SearchProvider for Launcher {
             plugin: ID.into(),
             kind,
             icon: (kind == ItemKind::Saved).then(|| path_kind(&e.path).to_string()),
-            action: ItemAction::OpenPath {
-                path: e.path.clone(),
-            },
+            action: if kind == ItemKind::Saved && !e.id.is_empty() { ItemAction::OpenSaved { id: e.id.clone() } } else { ItemAction::OpenPath { path: e.path.clone() } },
         };
 
         let saved = self.saved.read().unwrap();
@@ -139,7 +145,7 @@ fn scan_apps() -> Vec<Entry> {
                 .to_string_lossy()
                 .into_owned();
             let alias = localized_name(&path).filter(|a| *a != name);
-            apps.push(Entry {
+            apps.push(Entry { id: String::new(), open_with_app: None,
                 name,
                 alias,
                 path: path.to_string_lossy().into_owned(),
@@ -232,60 +238,69 @@ pub fn path_kind(path: &str) -> &'static str {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedView {
-    pub name: String,
-    pub path: String,
-    pub kind: &'static str,
+    pub id: String, pub name: String, pub path: String, pub kind: &'static str,
+    pub open_with_app: Option<String>,
 }
-
+fn views(launcher: &Launcher) -> Vec<SavedView> { launcher.saved.read().unwrap().iter().map(|e| SavedView { id: e.id.clone(), name: e.name.clone(), path: e.path.clone(), kind: path_kind(&e.path), open_with_app: e.open_with_app.clone() }).collect() }
 #[tauri::command]
-pub fn launcher_saved(launcher: State<Arc<Launcher>>) -> Vec<SavedView> {
-    launcher
-        .saved
-        .read()
-        .unwrap()
-        .iter()
-        .map(|e| SavedView {
-            name: e.name.clone(),
-            path: e.path.clone(),
-            kind: path_kind(&e.path),
-        })
-        .collect()
+pub fn launcher_saved(launcher: State<Arc<Launcher>>) -> Result<Vec<SavedView>, String> { ready()?; Ok(views(&launcher)) }
+fn changed(launcher: &Launcher) { let _ = launcher.app.emit("launcher-changed", ()); crate::superpanel::refresh(&launcher.app); }
+fn commit(launcher: &Launcher, next: Vec<Entry>) -> Result<(), String> {
+    config::save_json(&launcher.app, STORE, &next)?; *launcher.saved.write().unwrap() = next; changed(launcher); Ok(())
 }
-
 #[tauri::command]
-pub fn launcher_add(
-    launcher: State<Arc<Launcher>>,
-    path: String,
-    name: Option<String>,
-) -> Result<Vec<SavedView>, String> {
-    let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
-        let p = Path::new(&path);
-        p.file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.clone())
-    });
-    {
-        let mut saved = launcher.saved.write().unwrap();
-        saved.retain(|e| e.path != path);
-        saved.push(Entry {
-            name,
-            alias: None,
-            path,
-        });
-    }
-    launcher.persist()?;
-    Ok(launcher_saved(launcher))
+pub fn launcher_add(launcher: State<Arc<Launcher>>, path: String, name: Option<String>) -> Result<Vec<SavedView>, String> {
+    let _edit = EDIT_LOCK.lock().unwrap();
+    ready()?; let path = path.trim().to_owned(); if path.is_empty() { return Err("请输入路径或网址".into()); }
+    let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| Path::new(&path).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone()));
+    let mut next = launcher.saved.read().unwrap().clone();
+    if let Some(e) = next.iter_mut().find(|e| e.path == path) { e.name = name; }
+    else { next.push(Entry { id: migration::saved_id(&format!("{path}-{}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos(), next.len())), name, path, alias: None, open_with_app: None }); }
+    commit(&launcher, next)?; Ok(views(&launcher))
 }
-
 #[tauri::command]
-pub fn launcher_remove(
-    launcher: State<Arc<Launcher>>,
-    path: String,
-) -> Result<Vec<SavedView>, String> {
-    launcher.saved.write().unwrap().retain(|e| e.path != path);
-    launcher.persist()?;
-    Ok(launcher_saved(launcher))
+pub fn launcher_update(launcher: State<Arc<Launcher>>, id: String, path: String, name: String, open_with_app: Option<String>) -> Result<Vec<SavedView>, String> {
+    let _edit = EDIT_LOCK.lock().unwrap();
+    ready()?; let path = path.trim().to_owned(); let name = name.trim().to_owned();
+    if path.is_empty() || name.is_empty() { return Err("请填写名称和路径".into()); }
+    let mut next = launcher.saved.read().unwrap().clone();
+    if next.iter().any(|e| e.id != id && e.path == path) { return Err("这个路径已在收藏中".into()); }
+    let entry = next.iter_mut().find(|e| e.id == id).ok_or("收藏已移除")?;
+    if let Some(app) = &open_with_app { validate_application(app)?; }
+    entry.name = name; entry.path = path; entry.open_with_app = if path_kind(&entry.path) == "link" || entry.path.ends_with(".app") { None } else { open_with_app };
+    commit(&launcher, next)?; Ok(views(&launcher))
 }
+#[tauri::command]
+pub fn launcher_remove(launcher: State<Arc<Launcher>>, path: Option<String>, id: Option<String>) -> Result<Vec<SavedView>, String> {
+    let _edit = EDIT_LOCK.lock().unwrap();
+    ready()?; let mut next = launcher.saved.read().unwrap().clone(); next.retain(|e| if let Some(id) = &id { &e.id != id } else { Some(&e.path) != path.as_ref() }); commit(&launcher, next)?; Ok(views(&launcher))
+}
+pub fn find_saved(app: &AppHandle, id: &str) -> Option<Entry> { app.try_state::<Arc<Launcher>>()?.saved.read().unwrap().iter().find(|e| e.id == id).cloned() }
+pub fn hydrate(app: &AppHandle, item: &mut SearchItem) {
+    if let ItemAction::OpenSaved { id } = &item.action { if let Some(e) = find_saved(app,id) { item.title = e.name; item.subtitle = e.path.clone(); item.icon = Some(path_kind(&e.path).into()); } }
+    if let ItemAction::OpenWeb { id } = &item.action { if let Some(w) = config::load(app).web_apps.iter().find(|w| &w.id == id) { item.title = w.name.clone(); item.subtitle = w.url.clone(); item.icon = Some(w.url.clone()); } }
+}
+fn validate_application(application: &str) -> Result<(), String> {
+    let app = Path::new(application); if !app.is_dir() || app.extension().is_none_or(|e| e != "app") { return Err("指定的应用已移动或删除，请重新选择或恢复跟随系统".into()); } Ok(())
+}
+pub fn open_saved(app: &AppHandle, id: &str, application: Option<&str>) -> Result<(), String> {
+    let entry = find_saved(app,id).ok_or("收藏已移除，请重新选择")?;
+    let application = application.or(entry.open_with_app.as_deref()).filter(|p| !p.is_empty());
+    if entry.path.ends_with(".app") || path_kind(&entry.path) == "link" { return super::open_path(app.clone(), entry.path); }
+    open_with(app, &entry.path, application)
+}
+fn open_with(app: &AppHandle, path: &str, application: Option<&str>) -> Result<(), String> {
+    let target = super::expand_home(path); if !Path::new(&target).exists() { return Err("文件已移动或删除，请编辑收藏路径".into()); }
+    let mut command = std::process::Command::new("/usr/bin/open");
+    if let Some(application) = application { validate_application(application)?; command.args(["-a", application]); }
+    let result = command.arg("--").arg(target).output().map_err(|e| format!("无法打开文件：{e}"))?;
+    if !result.status.success() { return Err(format!("无法用指定应用打开：{}", String::from_utf8_lossy(&result.stderr).trim())); }
+    crate::panel::hide(app); crate::superpanel::hide(app); Ok(())
+}
+#[tauri::command]
+pub async fn launcher_open(app: AppHandle, id: String, application: Option<String>) -> Result<(), String> { tauri::async_runtime::spawn_blocking(move || open_saved(&app, &id, application.as_deref())).await.map_err(|e| e.to_string())? }
+#[tauri::command]
+pub fn launcher_apps(launcher: State<Arc<Launcher>>) -> Vec<SavedView> { launcher.apps.read().unwrap().iter().map(|e| SavedView { id: e.path.clone(), name: e.alias.clone().unwrap_or(e.name.clone()), path: e.path.clone(), kind: "file", open_with_app: None }).collect() }
 
 /// The bundle's .icns, from CFBundleIconFile (the extension is optional there).
 fn icon_file(app: &Path) -> Option<PathBuf> {

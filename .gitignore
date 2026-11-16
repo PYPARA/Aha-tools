@@ -26,3 +26,6 @@ dist-ssr
 # Local browser verification artifacts
 /.playwright-cli/
 /output/playwright/
+
+# Local product audit screenshots
+/output/audit-*/

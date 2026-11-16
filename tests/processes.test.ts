@@ -53,3 +53,9 @@ describe("进程管理", () => {
     expect(lockReason({ mine: true, protected: false })).toBe("");
   });
 });
+
+test("从端口进入时按 PID 精确定位，不匹配名称中的数字", () => {
+  const result = visibleGroups(snapshot, "all", "cpu", "pid:2");
+  expect(result.map((g) => g.id)).toEqual(["pid:2"]);
+  expect(visibleGroups(snapshot, "all", "cpu", "pid:999")).toEqual([]);
+});

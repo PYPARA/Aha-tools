@@ -79,6 +79,7 @@ pub fn toggle(app: &AppHandle, anchor: Rect) {
 }
 
 pub fn hide(app: &AppHandle) {
+    crate::hotkey::tap::local_focus(LABEL, false);
     crate::sysmon::set_menu_visible(false);
     if let Some(w) = window(app) {
         let _ = w.hide();

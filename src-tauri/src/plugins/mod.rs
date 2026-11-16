@@ -282,6 +282,7 @@ pub enum ItemKind {
 pub enum ItemAction {
     /// Open a file, folder, app or URL with the system default handler.
     OpenPath { path: String },
+    OpenSaved { id: String },
     /// Show a web app's window (crate::webapps).
     OpenWeb { id: String },
     /// Enter a plugin feature's view, optionally with text for it to work on.
@@ -570,37 +571,63 @@ pub fn expand_home(path: &str) -> String {
     }
 }
 
-/// Selects the file or folder in a Finder window.
-#[tauri::command]
-pub fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
-    let target = expand_home(path.trim());
-    if !std::path::Path::new(&target).exists() {
-        return Err(format!("找不到「{path}」"));
+fn reveal_targets(paths: &[String]) -> Result<Vec<String>, String> {
+    if paths.is_empty() { return Err("没有可定位的文件".into()); }
+    let mut targets = vec![];
+    for path in paths {
+        let target = expand_home(path);
+        if !std::path::Path::new(&target).exists() {
+            return Err(format!("找不到「{path}」，文件可能已移动或删除"));
+        }
+        if !targets.contains(&target) { targets.push(target); }
     }
-    std::process::Command::new("/usr/bin/open")
-        .arg("-R")
-        .arg(&target)
-        .spawn()
-        .map_err(|e| format!("无法在访达中显示：{e}"))?;
+    Ok(targets)
+}
+
+/// Selects all files in Finder. Validate the whole selection before opening anything.
+#[tauri::command]
+pub async fn reveal_paths(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let targets = reveal_targets(&paths)?;
+        let output = std::process::Command::new("/usr/bin/open")
+            .args(["-R", "--"]).args(&targets).output()
+            .map_err(|e| format!("无法在访达中显示：{e}"))?;
+        if !output.status.success() { return Err("无法在访达中显示，请检查文件是否可访问".to_string()); }
+        Ok(())
+    }).await.map_err(|e| format!("无法在访达中显示：{e}"))??;
     crate::panel::hide(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
+    reveal_paths(app, vec![path]).await
 }
 
 #[tauri::command]
 pub fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     // `open` doesn't expand "~"; saved paths may be typed by hand.
     let target = expand_home(&path);
-    std::process::Command::new("open")
-        .arg(&target)
-        .spawn()
-        .map_err(|e| format!("无法打开 {path}: {e}"))?;
-    crate::panel::hide(&app);
+    let output = std::process::Command::new("/usr/bin/open").arg("--").arg(&target).output().map_err(|e| format!("无法打开 {path}：{e}"))?;
+    if !output.status.success() { return Err(format!("无法打开 {path}：{}", String::from_utf8_lossy(&output.stderr).trim())); }
+    crate::panel::hide(&app); crate::superpanel::hide(&app);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reveal_validates_all_files_and_preserves_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("中文 ' 文件 ");
+        std::fs::write(&path, "test").unwrap();
+        let path = path.to_string_lossy().into_owned();
+        assert_eq!(reveal_targets(&[path.clone(), path.clone()]).unwrap(), [path.clone()]);
+        assert!(reveal_targets(&[path, dir.path().join("missing").to_string_lossy().into_owned()]).unwrap_err().contains("移动或删除"));
+        assert!(reveal_targets(&[]).is_err());
+    }
 
     fn registry_with(feature: &str) -> Registry {
         let manifest =

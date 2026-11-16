@@ -177,6 +177,7 @@ fn show_with_intent(app: &AppHandle, direct_feature: bool) {
 }
 
 pub fn hide(app: &AppHandle) {
+    crate::hotkey::tap::local_focus(LABEL, false);
     if let Some(w) = window(app) {
         SESSION.lock().unwrap().hide(Instant::now());
         let _ = w.hide();
@@ -235,6 +236,8 @@ pub fn toggle(app: &AppHandle) {
 pub fn hide_panel(app: AppHandle) {
     hide(&app);
 }
+
+pub fn is_pinned() -> bool { PINNED.load(Ordering::Relaxed) }
 
 #[tauri::command]
 pub fn set_panel_pinned(pinned: bool) {
@@ -323,4 +326,10 @@ pub fn panel_ack(id: u64) {
     if pending.as_ref().is_some_and(|r| r.id == id) {
         *pending = None;
     }
+}
+
+#[tauri::command]
+pub fn host_open_feature(app: AppHandle, plugin: String, feature: String, input: Option<String>) {
+    crate::superpanel::hide(&app);
+    open_feature(&app, &plugin, &feature, input, false);
 }

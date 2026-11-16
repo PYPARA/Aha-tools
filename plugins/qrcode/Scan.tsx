@@ -1,6 +1,7 @@
+import { isContextMenuOpen } from "@ahatools/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CopyIcon, PageActions, QrCodeIcon, Spinner, invoke, onFileDrop, onPanelShown,
+  CopyIcon, PageActions, menuPoint, showContextMenu, saveFileDialog, withPinned, writeClipboardImage, QrCodeIcon, Spinner, invoke, onFileDrop, onPanelShown,
   openPath, readClipboardImage, writeClipboardText, type PluginViewProps, type RgbaImage,
 } from "@ahatools/sdk";
 import { hasTextSelection, imagePng, isEditingTarget, pixelsFromBlob } from "./image";
@@ -150,6 +151,7 @@ export default function Scan({ setStatus, openFeature, content, input }: PluginV
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+    if (isContextMenuOpen()) return;
       if (e.defaultPrevented || e.isComposing) return;
       if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "c" && result && !hasTextSelection()) {
         e.preventDefault(); void copy();
@@ -172,6 +174,14 @@ export default function Scan({ setStatus, openFeature, content, input }: PluginV
     void read(files[0].name, () => pixelsFromBlob(files[0]));
   };
 
+  const imageMenu = (event: React.MouseEvent) => {
+    if (!state.image) return; event.preventDefault(); const image = state.image;
+    const full = async () => pixelsFromBlob(await (await fetch(image.url)).blob());
+    void showContextMenu([
+      { id: "copy-image", text: "复制图片", action: async () => writeClipboardImage(await full()) },
+      { id: "save-image", text: "保存 PNG…", action: () => withPinned(async () => { const path = await saveFileDialog({ defaultPath: "识别图片.png" }); if (path) await invoke("qr_save_png", { path, bytes: Array.from(new Uint8Array(await (await imagePng(await full())).arrayBuffer())) }); }) },
+    ], (text) => setNotice({ text, error: true }), menuPoint(event));
+  };
   return (
     <div className={`qr-view qr-scan${dragging ? " qr-dragging" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -179,7 +189,7 @@ export default function Scan({ setStatus, openFeature, content, input }: PluginV
       <PageActions><button type="button" className="btn" onClick={() => void reread()}>重新读取剪贴板</button></PageActions>
       <div className="qr-column qr-source-column">
         <span className="qr-label">{state.source === "剪贴板" ? "剪贴板里的图片" : "拖入的图片"}</span>
-        <div className="qr-source-preview" aria-label="待识别的图片" aria-busy={state.phase === "loading"}>
+        <div data-context-menu tabIndex={0} onContextMenu={imageMenu} className="qr-source-preview" aria-label="待识别的图片" aria-busy={state.phase === "loading"}>
           {state.image ? (
             <svg viewBox={`0 0 ${state.image.width} ${state.image.height}`} role="img" aria-label="图片与二维码识别位置">
               <rect width={state.image.width} height={state.image.height} fill="#fff" />

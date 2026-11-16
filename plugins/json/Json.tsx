@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CopyIcon, PageActions, Select, Switch, hasTextSelection, writeClipboardText, type PluginViewProps } from "@ahatools/sdk";
+import { isContextMenuOpen, CopyIcon, PageActions, Select, Switch, hasTextSelection, writeClipboardText, type PluginViewProps } from "@ahatools/sdk";
 import { byteSize, transform, type JsonMode } from "./model";
 
 // Kept for this run only, so coming back to the page keeps the document.
@@ -57,6 +57,7 @@ export default function Json({ input, setStatus }: PluginViewProps) {
   }, [result.output, setStatus]);
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
+    if (isContextMenuOpen()) return;
     if (e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "c" && !hasTextSelection()) {
       e.preventDefault();
       void copy();
@@ -90,12 +91,12 @@ export default function Json({ input, setStatus }: PluginViewProps) {
     <div className="json-columns">
       <textarea ref={source} className="json-source mono" autoFocus spellCheck={false} aria-label="原始内容" value={text}
         placeholder={'粘贴 JSON，例如 {"name": "AhaTools"}'} onChange={(e) => setText(e.target.value)} />
-      <div className="json-result" aria-label="处理结果">
+      <div data-context-menu data-copy-text={result.output} tabIndex={0} className="json-result" aria-label="处理结果">
         {result.error ? <div className="json-error" role="alert">
           <p className="bad-text">第 {result.error.line} 行第 {result.error.column} 列：{result.error.message}</p>
           <button type="button" className="btn sm" onClick={jump}>定位到出错处</button>
         </div> : treeable ? <div className="json-tree mono"><Tree value={result.value} depth={0} /></div>
-          : <pre className="json-output mono">{result.output || <span className="note">结果会出现在这里</span>}</pre>}
+          : <pre data-context-menu tabIndex={0} className="json-output mono">{result.output || <span className="note">结果会出现在这里</span>}</pre>}
         {tree && result.value !== undefined && !treeable && <p className="note">内容太大，改用文本显示。</p>}
       </div>
     </div>

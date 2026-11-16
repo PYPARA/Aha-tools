@@ -1,6 +1,7 @@
+import { isContextMenuOpen } from "@ahatools/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CopyIcon, PageActions, invoke, saveFileDialog, withPinned, writeClipboardImage,
+  CopyIcon, PageActions, menuPoint, showContextMenu, invoke, saveFileDialog, withPinned, writeClipboardImage,
   type PluginViewProps,
 } from "@ahatools/sdk";
 import { hasTextSelection, imagePng } from "./image";
@@ -78,6 +79,7 @@ export default function Generate({ input, setStatus, openFeature }: PluginViewPr
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+    if (isContextMenuOpen()) return;
       if (!e.defaultPrevented && !e.isComposing && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey &&
           e.key.toLowerCase() === "c" && !hasTextSelection() && ready) {
         e.preventDefault();
@@ -117,7 +119,7 @@ export default function Generate({ input, setStatus, openFeature }: PluginViewPr
       </div>
       <div className="qr-column qr-preview-column">
         <span className="qr-label">预览</span>
-        <div className="qr-code-preview" aria-busy={Boolean(text && !ready && !error)}>
+        <div data-context-menu tabIndex={0} onContextMenu={(event) => { event.preventDefault(); void showContextMenu([{ id: "copy-image", text: "复制图片", disabled: !ready || !!busy, action: () => exportImage("copy") }, { id: "save-image", text: "保存 PNG…", disabled: !ready || !!busy, action: () => exportImage("save") }], (text) => setNotice({ text, error: true }), menuPoint(event)); }} className="qr-code-preview" aria-busy={Boolean(text && !ready && !error)}>
           {ready ? (
             <div className="qr-generated-svg" role="img" aria-label="生成的二维码" dangerouslySetInnerHTML={{ __html: preview.svg }} />
           ) : <span className="qr-preview-note">{error ? "暂时无法生成二维码" : text ? "正在生成…" : "输入内容后，二维码会出现在这里"}</span>}

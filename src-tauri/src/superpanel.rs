@@ -167,6 +167,7 @@ enum Run {
     /// The 「固定」 cell: the search panel, with a hint that results pin on right-click.
     PinHint,
 }
+#[derive(Clone)]
 struct Session {
     snapshot: Snapshot,
     runners: Vec<(String, Run)>,
@@ -198,6 +199,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 pub fn hide(app: &AppHandle) {
+    crate::hotkey::tap::local_focus(LABEL, false);
     GENERATION.fetch_add(1, Ordering::SeqCst);
     OPENING.store(false, Ordering::SeqCst);
     *SESSION.lock().unwrap() = None;
@@ -265,6 +267,7 @@ pub fn toggle(app: &AppHandle) {
 pub fn item_available(app: &AppHandle, item: &SearchItem) -> bool {
     match &item.action {
         // Answers are worked out at search time; they're never pinned.
+        ItemAction::OpenSaved { id } => crate::plugins::launcher::find_saved(app, id).is_some(),
         ItemAction::Copy { .. } => false,
         ItemAction::OpenWeb { id } => config::load(app).web_apps.iter().any(|w| &w.id == id),
         ItemAction::OpenPath { path } => {
@@ -386,6 +389,7 @@ fn build(app: &AppHandle, id: u64, ctx: Context) -> Session {
         let item = &{
             let mut item = item.clone();
             normalize_pin(&mut item);
+            crate::plugins::launcher::hydrate(app, &mut item);
             item
         };
         let key = format!("pin:{i}");
@@ -532,6 +536,7 @@ fn execute(app: &AppHandle, run: Run) -> Result<(), String> {
             match item.action {
                 ItemAction::Copy { .. } => {}
                 ItemAction::OpenPath { path } => crate::plugins::open_path(app.clone(), path)?,
+                ItemAction::OpenSaved { id } => crate::plugins::launcher::open_saved(app, &id, None)?,
                 ItemAction::OpenWeb { id } => crate::webapps::open(app, &id)?,
                 ItemAction::Feature { feature, input } => {
                     if item.plugin == "system" {
@@ -586,16 +591,17 @@ fn accept(state: &mut Option<Session>, request_id: u64, action_id: &str) -> Resu
     Ok(run)
 }
 #[tauri::command]
-pub fn superpanel_run(app: AppHandle, request_id: u64, action_id: String) -> Result<(), String> {
-    let run = accept(&mut SESSION.lock().unwrap(), request_id, &action_id)?;
-    hide(&app);
-    std::thread::spawn(move || {
-        if let Err(e) = execute(&app, run) {
-            crate::relay::notify(&e);
-        }
-    });
-    Ok(())
+pub async fn superpanel_run(app: AppHandle, request_id: u64, action_id: String) -> Result<(), String> {
+    let (run, backup) = { let mut session = SESSION.lock().unwrap(); let backup = session.clone(); let run = accept(&mut session, request_id, &action_id)?; (run, backup) };
+    let keep = matches!(&run, Run::Item(SearchItem { action: ItemAction::OpenSaved { .. }, .. }));
+    if !keep { hide(&app); }
+    let execute_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || execute(&execute_app, run)).await.map_err(|e| e.to_string())?;
+    if !keep { if let Err(error) = &result { crate::relay::notify(error); } }
+    if keep && result.is_err() && GENERATION.load(Ordering::SeqCst) == request_id { let mut session = SESSION.lock().unwrap(); if session.is_none() { *session = backup; } }
+    result
 }
+
 #[tauri::command]
 pub fn superpanel_remove_pin(app: AppHandle, index: usize) -> Result<(), String> {
     let target = SESSION.lock().unwrap().as_ref().and_then(|s| {
@@ -629,6 +635,82 @@ pub fn superpanel_resize(app: AppHandle, height: f64) {
 }
 fn same_pin(a: &SearchItem, b: &SearchItem) -> bool {
     a.plugin == b.plugin && a.action == b.action
+}
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PinEdit {
+    Add {
+        item: SearchItem,
+    },
+    Remove {
+        item: SearchItem,
+    },
+    Move {
+        item: SearchItem,
+        before: Option<SearchItem>,
+    },
+}
+/// Apply an identity-based edit to the latest list, preserving other windows' changes.
+fn edit_pins(pins: &mut Vec<SearchItem>, edit: PinEdit) -> Result<(), String> {
+    match edit {
+        PinEdit::Add { mut item } => {
+            normalize_pin(&mut item);
+            if item.plugin == "superpanel" || matches!(item.action, ItemAction::Copy { .. }) {
+                return Err("这个结果不能固定到超级面板".into());
+            }
+            if pins.iter().any(|p| same_pin(p, &item)) {
+                return Ok(());
+            }
+            if pins.len() >= 12 {
+                return Err("我的面板最多放 12 个功能，请先移除一个".into());
+            }
+            pins.push(item);
+        }
+        PinEdit::Remove { mut item } => {
+            normalize_pin(&mut item);
+            pins.retain(|p| !same_pin(p, &item));
+        }
+        PinEdit::Move {
+            mut item,
+            mut before,
+        } => {
+            normalize_pin(&mut item);
+            if let Some(target) = &mut before {
+                normalize_pin(target);
+            }
+            let from = pins
+                .iter()
+                .position(|p| same_pin(p, &item))
+                .ok_or("这个功能已被移除，请重新排序")?;
+            if let Some(target) = &before {
+                if same_pin(target, &item) {
+                    return Ok(());
+                }
+                if !pins.iter().any(|p| same_pin(p, target)) {
+                    return Err("目标位置已变化，请重新排序".into());
+                }
+            }
+            let item = pins.remove(from);
+            let to = before
+                .as_ref()
+                .and_then(|target| pins.iter().position(|p| same_pin(p, target)))
+                .unwrap_or(pins.len());
+            pins.insert(to, item);
+        }
+    }
+    Ok(())
+}
+#[tauri::command]
+pub fn superpanel_edit_pins(app: AppHandle, edit: PinEdit) -> Result<Vec<SearchItem>, String> {
+    let guard = config::WRITE_LOCK.lock().unwrap();
+    let mut cfg = config::load(&app);
+    edit_pins(&mut cfg.super_panel.pinned, edit)?;
+    validate_settings(&mut cfg.super_panel)?;
+    config::save_json(&app, "config", &cfg)?;
+    let _ = app.emit("config-changed", &cfg);
+    drop(guard);
+    refresh(&app);
+    Ok(cfg.super_panel.pinned)
 }
 /// Pins `item` to 我的面板, or removes it when already there. Returns whether it is pinned.
 fn toggle_pin(pinned: &mut Vec<SearchItem>, mut item: SearchItem) -> Result<bool, String> {
@@ -682,6 +764,120 @@ pub fn superpanel_pin_status(app: AppHandle) -> Vec<bool> {
 mod tests {
     use super::*;
     use std::fs;
+    #[test]
+    fn pin_edits_preserve_new_items_and_reject_stale_moves() {
+        let a = feature("qrcode", "generate", "生成二维码");
+        let b = feature("qrcode", "scan", "识别二维码");
+        let c = feature("system", "colorpicker", "取色");
+        let mut pins = vec![a.clone(), b.clone(), c.clone()];
+        // Another window added c after the sorting UI loaded a and b.
+        edit_pins(
+            &mut pins,
+            PinEdit::Move {
+                item: b.clone(),
+                before: Some(a.clone()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            pins.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(),
+            ["识别二维码", "生成二维码", "取色"]
+        );
+        edit_pins(
+            &mut pins,
+            PinEdit::Move {
+                item: b.clone(),
+                before: None,
+            },
+        )
+        .unwrap();
+        assert!(same_pin(pins.last().unwrap(), &b));
+        let missing = feature("system", "lock", "锁屏");
+        let saved = serde_json::to_value(&pins).unwrap();
+        assert!(edit_pins(
+            &mut pins,
+            PinEdit::Move {
+                item: missing.clone(),
+                before: None
+            }
+        )
+        .is_err());
+        assert!(edit_pins(
+            &mut pins,
+            PinEdit::Move {
+                item: a,
+                before: Some(missing)
+            }
+        )
+        .is_err());
+        assert_eq!(serde_json::to_value(&pins).unwrap(), saved);
+    }
+    #[test]
+    fn pin_add_is_idempotent_normalized_and_respects_capacity() {
+        let mut pins = vec![];
+        let mut qr = feature("qrcode", "generate", "为选中文字生成二维码");
+        qr.action = ItemAction::Feature {
+            feature: "generate".into(),
+            input: Some("private text".into()),
+        };
+        edit_pins(&mut pins, PinEdit::Add { item: qr.clone() }).unwrap();
+        edit_pins(&mut pins, PinEdit::Add { item: qr.clone() }).unwrap();
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].title, "生成二维码");
+        assert_eq!(
+            pins[0].action,
+            ItemAction::Feature {
+                feature: "generate".into(),
+                input: None
+            }
+        );
+        edit_pins(&mut pins, PinEdit::Remove { item: qr }).unwrap();
+        assert!(pins.is_empty());
+        for i in 0..12 {
+            edit_pins(
+                &mut pins,
+                PinEdit::Add {
+                    item: SearchItem {
+                        action: ItemAction::OpenPath {
+                            path: format!("/tmp/{i}"),
+                        },
+                        ..feature("launcher", "", "路径")
+                    },
+                },
+            )
+            .unwrap();
+        }
+        let first = pins[0].clone();
+        edit_pins(&mut pins, PinEdit::Add { item: first }).unwrap();
+        assert!(edit_pins(
+            &mut pins,
+            PinEdit::Add {
+                item: feature("system", "lock", "锁屏")
+            }
+        )
+        .is_err());
+        assert_eq!(pins.len(), 12);
+        let mut empty = vec![];
+        assert!(edit_pins(
+            &mut empty,
+            PinEdit::Add {
+                item: feature("superpanel", "open", "超级面板")
+            }
+        )
+        .is_err());
+        assert!(edit_pins(
+            &mut empty,
+            PinEdit::Add {
+                item: SearchItem {
+                    action: ItemAction::Copy {
+                        text: "answer".into()
+                    },
+                    ..feature("network", "", "答案")
+                }
+            }
+        )
+        .is_err());
+    }
     #[test]
     fn expired_unknown_and_duplicate_actions_cannot_run() {
         let mut session = Some(Session {

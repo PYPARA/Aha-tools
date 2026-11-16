@@ -259,7 +259,7 @@ function Picker<Value extends string>({
             {!entries.length && <div className="select-empty" role="status">{editable ? "没有匹配的模型，可继续手动填写" : "没有匹配的选项"}</div>}
           </div>
           {canSearch && <span className="sr-only" role="status">{entries.length} 个选项</span>}
-        </div>, document.body,
+        </div>, root.current?.closest("dialog") ?? document.body,
       )}
     </div>
   );

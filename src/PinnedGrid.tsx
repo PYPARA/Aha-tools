@@ -85,9 +85,9 @@ function PinnedItem({ item, index, selected, disabled, onSelect, onOpen, onConte
     data: { title: item.title }, transition, disabled, collisionDetector: gridCollision,
   });
   return (
-    <button ref={ref} type="button" data-pin-index={index} data-pin-key={pinKey(item)}
+    <button data-context-menu ref={ref} type="button" data-pin-index={index} data-pin-key={pinKey(item)}
       className={`grid-item pinned-item${selected ? " selected" : ""}`} aria-roledescription="可排序的固定项"
-      onClick={onOpen} onMouseMove={onSelect} onContextMenu={onContextMenu} title={item.subtitle}>
+      onClick={onOpen} onFocus={onSelect} onMouseMove={onSelect} onContextMenu={(event) => { onSelect(); onContextMenu(event); }} title={item.subtitle}>
       <span className="pinned-content">{renderIcon(item)}<span className="label">{item.title}</span></span>
     </button>
   );

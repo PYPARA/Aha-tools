@@ -37,11 +37,13 @@ pub fn run() {
         .plugin(hotkey::plugin())
         .manage(hotkey::Router::default())
         .manage(plugins::translate::TranslationState::default())
+        .on_window_event(|window, event| { if let tauri::WindowEvent::Focused(focused) = event { hotkey::tap::local_focus(window.label(), *focused); } })
         .setup(|app| {
             // Menu-bar only: no Dock icon, no app switcher entry.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            launcher::migrate_data(app.handle());
             let cfg = config::load(app.handle());
             plugins::configure(&cfg);
             usage::init(app.handle());
@@ -67,10 +69,12 @@ pub fn run() {
             plugins::system::init(app.handle());
             setup_tray(app, &cfg)?;
             setup_menu(app)?;
+            webapps::init(app.handle())?;
             hotkey::init(app.handle(), &cfg);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            let handler: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
             config::config_get,
             config::config_set,
             config::config_dir,
@@ -88,6 +92,7 @@ pub fn run() {
             superpanel::superpanel_resize,
             superpanel::superpanel_toggle_pin,
             superpanel::superpanel_pin_first,
+            superpanel::superpanel_edit_pins,
             plugins::system::system_run,
             plugins::system::system_ocr_get,
             plugins::processes::processes_snapshot,
@@ -101,9 +106,12 @@ pub fn run() {
             plugins::clipboard_history::clipboard_history_list,
             plugins::clipboard_history::clipboard_history_get,
             plugins::clipboard_history::clipboard_history_image,
+            plugins::clipboard_history::clipboard_history_image_action,
             plugins::clipboard_history::clipboard_history_use,
             plugins::clipboard_history::clipboard_history_pin,
             plugins::clipboard_history::clipboard_history_delete,
+            plugins::clipboard_history::clipboard_history_restore,
+            plugins::clipboard_history::clipboard_history_undo_state,
             plugins::clipboard_history::clipboard_history_clear,
             panel::set_panel_pinned,
             panel::set_panel_large,
@@ -114,8 +122,11 @@ pub fn run() {
             plugins::compress::compress_reprocess,
             plugins::compress::compress_list_batches,
             plugins::compress::compress_export,
+            plugins::compress::compress_result_action,
+            plugins::compress::compress_retry,
             plugins::open_path,
             plugins::reveal_path,
+            plugins::reveal_paths,
             clipboard_watch::clipboard_mark_own,
             plugins::qrcode::qr_read_image,
             plugins::qrcode::qr_save_png,
@@ -132,6 +143,9 @@ pub fn run() {
             plugins::translate::translate_start,
             plugins::translate::translate_stop,
             launcher::launcher_saved,
+            launcher::launcher_update,
+            launcher::launcher_open,
+            launcher::launcher_apps,
             launcher::launcher_add,
             launcher::launcher_remove,
             launcher::app_icon,
@@ -141,6 +155,8 @@ pub fn run() {
             usage::usage_forget,
             usage::usage_reorder_pinned,
             webapps::webapp_open,
+            webapps::webapp_update,
+            panel::host_open_feature,
             favicon::webapp_icon,
             hotkey::hotkey_bindings,
             hotkey::hotkey_probe,
@@ -158,12 +174,23 @@ pub fn run() {
             popover::menu_open_panel,
             popover::menu_open_feature,
             popover::quit_app,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        ];
+            move |invoke: tauri::ipc::Invoke| {
+                if !matches!(invoke.message.webview_ref().label(), "panel" | "menu" | "super") { invoke.resolver.reject("此命令仅供 AhaTools 本地面板使用"); return true; }
+                handler(invoke)
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Err(error) = webapps::reopen(app) { crate::relay::notify(&error); }
+            }
+        });
 }
 
-/// The app menu is never shown (menu-bar app), but macOS routes ⌘C / ⌘V / ⌘A / ⌘Z in
+/// The app menu appears while web windows are open. macOS routes ⌘C / ⌘V / ⌘A / ⌘Z in
 /// web views through it. Replaces Tauri's default, whose ⌘Q would quit all of AhaTools
 /// from inside a web app window.
 fn setup_menu(app: &App) -> tauri::Result<()> {
@@ -191,12 +218,16 @@ fn setup_menu(app: &App) -> tauri::Result<()> {
         .items(&[&app_menu, &edit, &window])
         .build()?;
     app.set_menu(menu)?;
+    #[cfg(target_os = "macos")]
+    window.set_as_windows_menu_for_nsapp()?;
     app.on_menu_event(|app, event| {
         if event.id() == "reload" {
             // Only web app windows; reloading the panel would lose its state for nothing.
-            for (label, w) in app.webview_windows() {
-                if webapps::id_of(&label).is_some() && w.is_focused().unwrap_or(false) {
-                    let _ = w.eval("location.reload()");
+            if let Some((label, _)) = app.webview_windows().into_iter().find(|(label, w)| {
+                webapps::id_of(label).is_some() && w.is_focused().unwrap_or(false)
+            }) {
+                if let Err(error) = webapps::reload_window(app, &label) {
+                    crate::relay::notify(&error);
                 }
             }
         }
@@ -205,11 +236,23 @@ fn setup_menu(app: &App) -> tauri::Result<()> {
 }
 
 fn setup_tray(app: &App, cfg: &config::Config) -> tauri::Result<()> {
-    // No native menu: a left click opens the popover (popover.rs) under the icon.
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    let search = MenuItem::with_id(app, "tray-search", "打开搜索面板", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "tray-settings", "设置…", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "tray-quit", "退出 AhaTools", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&search, &settings, &separator, &quit])?;
     let tray = TrayIconBuilder::with_id("main")
         .title("AhaTools")
         .tooltip("AhaTools")
+        .menu(&menu)
         .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "tray-search" => { superpanel::hide(app); popover::hide(app); panel::show(app); },
+            "tray-settings" => { popover::hide(app); panel::open_feature(app, "settings", "general", None, false); },
+            "tray-quit" => app.exit(0),
+            _ => {},
+        })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,

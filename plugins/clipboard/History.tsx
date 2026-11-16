@@ -1,36 +1,21 @@
+import { isContextMenuOpen } from "@ahatools/sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CopyIcon, FileIcon, PageActions, SearchIcon, invoke, onConfigChanged, onHostEvent, onPanelShown, pluginSettingsTarget,
+  menuPoint, revealPaths, showContextMenu,
   type Config, type PluginViewProps,
 } from "@ahatools/sdk";
-import { FILTERS, title, visibleEntries, when, type Entry, type Filter } from "./model";
+import { FILTERS, hasImage, title, visibleEntries, when, type Entry, type Filter } from "./model";
+import Preview from "./Preview";
+import { historyMenu } from "./menus";
 
 function KindTile({ entry }: { entry: Entry }) {
-  const path = entry.kind === "image"
+  const path = hasImage(entry)
     ? <><rect x="4" y="5" width="16" height="14" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="M5 17l4.5-4.5 3 3 3-3.5 4 5" /></>
     : entry.kind === "files" ? null : <path d="M6 7h12M6 12h12M6 17h8" />;
   return <span className="tile clip-tile" aria-hidden="true">
     {path ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">{path}</svg> : <FileIcon size={14} />}
   </span>;
-}
-
-function Preview({ entry }: { entry: Entry }) {
-  const [full, setFull] = useState<Entry | null>(null);
-  const [image, setImage] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    setFull(null); setImage(null);
-    if (entry.truncated) void invoke<Entry | null>("clipboard_history_get", { id: entry.id }).then((e) => { if (live) setFull(e); });
-    if (entry.kind === "image") void invoke<string | null>("clipboard_history_image", { id: entry.id }).then((src) => { if (live) setImage(src); });
-    return () => { live = false; };
-  }, [entry.id, entry.truncated, entry.kind]);
-  const shown = full ?? entry;
-  return <div className="clip-preview">
-    {entry.kind === "image" ? (image ? <img src={image} alt="复制的图片" /> : <span className="note">正在读取图片…</span>)
-      : entry.kind === "files" ? <ul className="clip-files mono">{entry.paths.map((p) => <li key={p}>{p}</li>)}</ul>
-      : <pre className="clip-text">{shown.text}</pre>}
-    <p className="note">{entry.app ? `来自 ${entry.app} · ` : ""}{when(entry.at)}{entry.kind === "text" ? ` · ${Array.from(shown.text).length} 字` : ""}{entry.pinned ? " · 已固定" : ""}</p>
-  </div>;
 }
 
 export default function History({ setStatus, openFeature }: PluginViewProps) {
@@ -40,11 +25,14 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; bad: boolean } | null>(null);
+  const [undo, setUndo] = useState<{token: string; expiresAt: number} | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const enabled = cfg?.clipboardHistory.enabled ?? false;
 
   const load = useCallback(() => {
+    void invoke<{token: string; expiresAt: number} | null>("clipboard_history_undo_state").then(setUndo).catch((e) => setNotice({ text: String(e), bad: true }));
     invoke<Entry[]>("clipboard_history_list").then(setEntries).catch((e) => setNotice({ text: String(e), bad: true }));
   }, []);
   useEffect(() => {
@@ -58,7 +46,7 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
   const index = Math.max(0, shown.findIndex((e) => e.id === selected));
   const current = shown[index] ?? null;
   useEffect(() => {
-    setStatus(enabled ? "↵ 粘贴 · ⌘C 复制 · ⌘P 固定 · ⌘⌫ 删除" : "");
+    setStatus("↵ 粘贴 · ⌘C 复制 · ⌘P 固定 · ⌘⌫ 删除");
   }, [enabled, setStatus]);
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -71,33 +59,43 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
 
   const setEnabled = async (on: boolean) => {
     if (!cfg) return;
-    await invoke("config_set", { config: { ...cfg, clipboardHistory: { ...cfg.clipboardHistory, enabled: on } } });
-    setNotice({ text: on ? "已开启，之后复制的内容会出现在这里" : "已暂停记录，已有记录保留", bad: false });
+    try { await invoke("config_set", { config: { ...cfg, clipboardHistory: { ...cfg.clipboardHistory, enabled: on } } });
+    setNotice({ text: on ? "已开启，之后复制的内容会出现在这里" : "已暂停记录，已有记录保留", bad: false }); } catch (e) { reportError(String(e)); }
   };
   const use = async (entry: Entry, paste: boolean) => {
     try { setNotice({ text: await invoke<string>("clipboard_history_use", { id: entry.id, paste }), bad: false }); load(); }
     catch (e) { setNotice({ text: String(e), bad: true }); }
   };
   const pin = async (entry: Entry) => {
-    await invoke("clipboard_history_pin", { id: entry.id, pinned: !entry.pinned });
-    load();
+    try { await invoke("clipboard_history_pin", { id: entry.id, pinned: !entry.pinned }); load(); } catch (e) { reportError(String(e)); }
   };
   const remove = async (entry: Entry) => {
-    const next = shown[index + 1] ?? shown[index - 1];
-    await invoke("clipboard_history_delete", { id: entry.id });
-    setSelected(next?.id ?? null);
-    load();
+    const at = shown.findIndex((e) => e.id === entry.id);
+    const next = shown[at + 1] ?? shown[at - 1];
+    try { setUndo(await invoke("clipboard_history_delete", { id: entry.id })); setSelected(next?.id ?? null); load(); } catch (e) { reportError(String(e)); }
+  };
+  useEffect(() => { if (!undo) return; const timer = setTimeout(() => setUndo(null), Math.max(0, undo.expiresAt - Date.now())); return () => clearTimeout(timer); }, [undo]);
+  const restore = async () => {
+    if (!undo || restoring) return; setRestoring(true);
+    try { await invoke("clipboard_history_restore", { token: undo.token }); setUndo(null); setNotice({ text: "已恢复这条历史", bad: false }); load(); }
+    catch (e) { reportError(String(e)); } finally { setRestoring(false); }
   };
   const clear = async () => {
     setConfirmClear(false);
-    await invoke("clipboard_history_clear", { pinnedToo: false });
-    setNotice({ text: "已清空，固定的记录保留", bad: false });
-    load();
+    try { await invoke("clipboard_history_clear", { pinnedToo: false }); setUndo(null); setNotice({ text: "已清空，固定的记录保留", bad: false }); load(); } catch (e) { reportError(String(e)); }
+  };
+
+  const reportError = (text: string) => setNotice({ text: text.replace(/^Error:\s*/, ""), bad: true });
+  const selectEntry = (id: string) => { setSelected(id); setNotice(null); };
+  const entryMenu = (event: React.MouseEvent, entry: Entry) => {
+    event.preventDefault();
+    selectEntry(entry.id);
+    void showContextMenu(historyMenu(entry, { use, pin, remove }), reportError, menuPoint(event));
   };
 
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
-    if (e.isComposing || !enabled) return;
+    if (e.isComposing || isContextMenuOpen()) return;
     if (confirmClear) {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setConfirmClear(false); }
       return;
@@ -105,7 +103,7 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const next = shown[Math.max(0, Math.min(shown.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)))];
-      if (next) setSelected(next.id);
+      if (next) selectEntry(next.id);
     } else if (e.key === "Enter" && current && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void use(current, true);
@@ -129,7 +127,7 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
 
   const settings = () => openFeature(pluginSettingsTarget("clipboard", { plugin: "clipboard", feature: "history" }));
 
-  if (cfg && !enabled && !entries?.length) {
+  if (cfg && !enabled && entries !== null && entries.length === 0) {
     return <div className="clip-view clip-intro">
       <div className="clip-intro-card">
         <h2>记下复制过的内容</h2>
@@ -157,14 +155,15 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
       <label className="proc-search">
         <SearchIcon size={14} />
         <input className="input" autoFocus spellCheck={false} placeholder="搜索复制过的内容" aria-label="搜索剪贴板历史" value={query}
-          onChange={(e) => { setQuery(e.target.value); setSelected(null); }} />
+          onChange={(e) => { setQuery(e.target.value); setSelected(null); setNotice(null); }} />
       </label>
       <div className="seg" role="tablist" aria-label="类型">
         {FILTERS.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={filter === value}
-          onClick={() => { setFilter(value); setSelected(null); }}>{label}</button>)}
+          onClick={() => { setFilter(value); setSelected(null); setNotice(null); }}>{label}</button>)}
       </div>
       {!enabled && <span className="note warn-text">记录已暂停</span>}
     </div>
+    {undo && <div className="undo-notice" role="status"><span>已删除这条历史 · 10 秒内可恢复</span><button type="button" className="btn ghost sm" disabled={restoring} onClick={() => void restore()}>{restoring ? "正在恢复…" : "撤销"}</button></div>}
     {notice && <p className={`note ${notice.bad ? "bad-text" : "ok-text"}`} role={notice.bad ? "alert" : "status"}>{notice.text}</p>}
     {confirmClear && <div className="proc-confirm" role="alertdialog" aria-label="确认清空">
       <span>清空全部剪贴板历史？固定的记录会保留。</span><span className="spacer" />
@@ -175,8 +174,8 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
       <div className="clip-list" role="listbox" aria-label="剪贴板历史" ref={listRef}>
         {!entries ? <p className="note">正在读取…</p> : shown.length === 0 ? <p className="note clip-empty">{query.trim() || filter !== "all" ? "没有符合条件的记录" : "还没有记录，复制点什么试试"}</p>
           : shown.map((e) => (
-            <div key={e.id} role="option" aria-selected={current?.id === e.id} className={`clip-row${current?.id === e.id ? " selected" : ""}`}
-              onClick={() => setSelected(e.id)} onDoubleClick={() => void use(e, true)}>
+            <div key={e.id} role="option" tabIndex={0} data-context-menu aria-selected={current?.id === e.id} className={`clip-row${current?.id === e.id ? " selected" : ""}`}
+              onFocus={() => selectEntry(e.id)} onClick={() => selectEntry(e.id)} onDoubleClick={() => void use(e, true)} onContextMenu={(event) => entryMenu(event, e)}>
               <KindTile entry={e} />
               <span className="clip-row-text">
                 <span className="clip-title">{title(e)}</span>
@@ -188,10 +187,11 @@ export default function History({ setStatus, openFeature }: PluginViewProps) {
       </div>
       <div className="clip-side">
         {current ? <>
-          <Preview entry={current} />
+          <Preview key={current.id} entry={current} onError={reportError} menu={(path) => historyMenu(current, { use, pin, remove }, path)} />
           <div className="row-actions">
             <button type="button" className="btn primary sm" onClick={() => void use(current, true)}>粘贴</button>
             <button type="button" className="btn sm" onClick={() => void use(current, false)}><CopyIcon />复制</button>
+            {current.kind === "files" && current.paths.length > 0 && <button type="button" className="btn sm" onClick={() => void revealPaths(current.paths).catch((e) => reportError(String(e)))}>打开文件位置</button>}
             <button type="button" className="btn ghost sm" onClick={() => void pin(current)}>{current.pinned ? "取消固定" : "固定"}</button>
             <button type="button" className="btn ghost sm danger" onClick={() => void remove(current)}>删除</button>
           </div>

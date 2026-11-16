@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CloseIcon, PathIcon, imagePng, onFileDrop, pixelsFromBlob, readClipboardFiles, readClipboardImage, readClipboardText,
+  CloseIcon, PathIcon, pathMenuEntries, textMenuEntries, openPath, showContextMenu, menuPoint, invoke, saveFileDialog, withPinned, writeClipboardImage, imagePng, onFileDrop, pixelsFromBlob, readClipboardFiles, readClipboardImage, readClipboardText,
   type ClipboardKind, type PluginContent,
 } from "./sdk";
 import { preview, textPlacement } from "./plugin-input";
@@ -25,7 +25,16 @@ export function ContentChip({ content, clear }: { content: PluginContent; clear:
   }, [content]);
   const url = preview?.content === content ? preview.url : undefined;
   return (
-    <span className="content-chip" title={content.type === "text" ? content.text.slice(0, 500) : contentLabel(content)}>
+    <span data-context-menu tabIndex={0} onContextMenu={(event) => {
+      event.preventDefault();
+      void showContextMenu(content.type === "text" ? textMenuEntries(content.text) : content.type === "files" ? [
+        ...(content.paths.length === 1 ? [{id:"open",text:"打开文件",action:()=>openPath(content.paths[0])}] : []),
+        ...pathMenuEntries(content.paths),
+      ] : [
+        { id: "copy-image", text: "复制图片", action: () => writeClipboardImage(content.image) },
+        { id: "save-image", text: "保存 PNG…", action: () => withPinned(async () => { const path = await saveFileDialog({ defaultPath: "图片.png" }); if (path) await invoke("qr_save_png", { path, bytes: Array.from(new Uint8Array(await (await imagePng(content.image)).arrayBuffer())) }); }) },
+      ], (message) => window.dispatchEvent(new CustomEvent("context-error", { detail: message })), menuPoint(event));
+    }} className="content-chip" title={content.type === "text" ? content.text.slice(0, 500) : contentLabel(content)}>
       {url ? <img src={url} alt="粘贴的图片" /> : <PathIcon kind="file" size={24} />}
       <span>{contentLabel(content)}</span>
       <button type="button" className="icon-btn" aria-label="移除输入内容" onClick={clear}><CloseIcon /></button>

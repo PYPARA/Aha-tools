@@ -78,3 +78,12 @@ describe("JSON 工具", () => {
     expect(locate("一\n二三", 3)).toEqual({ line: 2, column: 2 });
   });
 });
+
+test("端口打开地址明确协议，支持通配与 IPv6", async () => {
+  const { listenerUrl } = await import("../plugins/network/model");
+  const row = { port: 3000, address: "*", pid: 1, process: "node", user: "me" };
+  expect(listenerUrl(row, "http")).toBe("http://127.0.0.1:3000");
+  expect(listenerUrl({ ...row, address: "[::1]" }, "https")).toBe("https://[::1]:3000");
+  expect(listenerUrl({ ...row, address: "::" }, "http")).toBe("http://[::1]:3000");
+  expect(listenerUrl({ ...row, address: "192.168.1.23" }, "https")).toBe("https://192.168.1.23:3000");
+});

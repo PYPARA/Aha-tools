@@ -7,7 +7,7 @@
     {
       "code": "history",
       "explain": "剪贴板历史",
-      "cmds": ["剪贴板", "剪贴板历史", "粘贴板", "clipboard", "jtb", "history"]
+      "cmds": ["剪贴板", "剪贴板历史", "剪切板", "剪切板历史", "粘贴板", "粘贴板历史", "clipboard", "jtb", "history"]
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { withPinned } from "./window-retention";
 // Host API for plugin views. Plugins import from "@ahatools/sdk", never from "src/*" directly,
 // so this file is the contract external plugins will be written against later.
 
@@ -14,10 +15,13 @@ export * from "./ui";
 export { Select, Combobox, ActionMenu, type SelectOption } from "./Select";
 export * from "./config";
 export * from "./hosts";
+export * from "./path-actions";
+export { itemMenuEntries, type SavedEntry } from "./item-menus";
 export { imageCanvas, imagePng, pixelsFromBlob, hasTextSelection, isEditingTarget } from "./image";
 
 export type ItemAction =
   | { type: "openPath"; path: string }
+  | { type: "openSaved"; id: string }
   | { type: "openWeb"; id: string }
   | { type: "feature"; feature: string; input?: string }
   /** An answer shown in the list; ↵ copies `text`. */
@@ -150,21 +154,7 @@ export const onFileDrop = (handler: (paths: string[]) => void) =>
  * Keeps the panel open while `fn` runs. Use around anything that steals focus,
  * such as a native file dialog, otherwise the panel hides itself on blur.
  */
-let pinCount = 0;
-let pinTransition: Promise<unknown> = Promise.resolve();
-export async function withPinned<T>(fn: () => Promise<T>): Promise<T> {
-  if (pinCount++ === 0) pinTransition = pinTransition.catch(() => {}).then(() => invoke("set_panel_pinned", { pinned: true }));
-  try {
-    await pinTransition;
-    return await fn();
-  } finally {
-    if (--pinCount === 0) {
-      pinTransition = pinTransition.catch(() => {}).then(() => invoke("set_panel_pinned", { pinned: false }));
-      await pinTransition;
-      await getCurrentWindow().setFocus();
-    }
-  }
-}
+export { withPinned } from "./window-retention";
 
 export type TranslateMode = "translate" | "polish" | "explain";
 export interface TranslateDraft {

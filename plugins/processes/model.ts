@@ -54,6 +54,7 @@ export function totalCpu(snapshot: ProcessSnapshot) {
 function matches(group: AppGroup, query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
+  if (/^pid:\d+$/.test(q)) return group.processes.some((p) => p.pid === Number(q.slice(4)));
   return group.name.toLowerCase().includes(q) || group.processes.some((p) =>
     p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q) || String(p.pid) === q);
 }

@@ -25,9 +25,9 @@ function describeMatch(f: Feature) {
   return parts.join("；");
 }
 
-function Keywords({ plugin, cfg, save }: SectionProps & { plugin: Manifest }) {
+function Keywords({ plugin, cfg, save, route }: SectionProps & { plugin: Manifest; route?: string }) {
   /** Feature whose 「设为热键」 was clicked and is recording. */
-  const [recording, setRecording] = useState<string | null>(null);
+  const [recording, setRecording] = useState<string | null>(route ? decodeURIComponent(route) : null);
 
   const setKey = (f: Feature, accelerator: string) => {
     setRecording(null);
@@ -112,9 +112,9 @@ function Matches({ plugin, cfg, save }: SectionProps & { plugin: Manifest }) {
 }
 
 export default function Plugins(
-  props: SectionProps & { initialPlugin?: string; initialTab?: string; errors: string[] },
+  props: SectionProps & { initialPlugin?: string; initialTab?: string; route?: string; errors: string[] },
 ) {
-  const { manifests, cfg, save, initialPlugin, initialTab, errors } = props;
+  const { manifests, cfg, save, initialPlugin, initialTab, errors, route } = props;
   const plugins = manifests.filter((m) => m.id !== "settings");
   const [selected, setSelected] = useState(initialPlugin ?? plugins[0]?.id);
   const [tab, setTab] = useState<Tab>((initialTab as Tab) ?? "keywords");
@@ -176,7 +176,7 @@ export default function Plugins(
         </div>
         {current === "keywords" && <Keywords {...props} plugin={plugin} />}
         {current === "match" && <Matches {...props} plugin={plugin} />}
-        {current === "settings" && PluginSettings && <PluginSettings cfg={cfg} save={save} />}
+        {current === "settings" && PluginSettings && <PluginSettings cfg={cfg} save={save} route={route} />}
       </div>
     </>
   );

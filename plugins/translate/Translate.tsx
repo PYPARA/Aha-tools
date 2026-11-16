@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  CopyIcon,
+  isContextMenuOpen, CopyIcon,
   PageActions,
   Select,
   invoke,
@@ -168,6 +168,7 @@ export default function Translate({
   };
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandler.current = (e) => {
+    if (isContextMenuOpen()) return;
     if (
       e.defaultPrevented ||
       e.isComposing ||
@@ -299,7 +300,7 @@ export default function Translate({
                   : "译文"}
           </span>
           <div
-            className="translate-result"
+            data-context-menu tabIndex={0} data-copy-text={copyText} className="translate-result"
             aria-label="处理结果"
             aria-busy={busy}
           >

@@ -293,6 +293,8 @@ pub async fn network_dns(host: String, server: Option<String>) -> Result<DnsResu
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Listener {
+    #[serde(default)]
+    pub path: Option<String>,
     pub port: u16,
     /// "*", "127.0.0.1", "[::1]"…
     pub address: String,
@@ -318,7 +320,7 @@ fn parse_lsof(text: &str) -> Vec<Listener> {
             "n" => {
                 let Some((address, port)) = value.rsplit_once(':') else { continue };
                 let Ok(port) = port.parse() else { continue };
-                let entry = Listener { port, address: address.to_string(), pid, process: process.clone(), user: user.clone() };
+                let entry = Listener { path: None, port, address: address.to_string(), pid, process: process.clone(), user: user.clone() };
                 if !out.contains(&entry) {
                     out.push(entry);
                 }
@@ -341,7 +343,10 @@ pub async fn network_ports() -> Result<Vec<Listener>, String> {
             .output()
             .map_err(|e| format!("无法运行 lsof：{e}"))?;
         // Exit status 1 with no output just means nothing is listening.
-        Ok(parse_lsof(&String::from_utf8_lossy(&out.stdout)))
+        let paths = super::processes::paths();
+        let mut rows = parse_lsof(&String::from_utf8_lossy(&out.stdout));
+        for row in &mut rows { row.path = paths.get(&row.pid).cloned(); }
+        Ok(rows)
     })
     .await
     .map_err(|_| "读取端口失败".to_string())?
@@ -423,7 +428,7 @@ mod tests {
         let text = "p1056\ncrapportd\nL0x10\nf11\nn*:49152\nf12\nn*:49152\np1366\ncWeChat\nL0x10\nf256\nn127.0.0.1:14013\nf257\nn[::1]:14013\np42\ncnode\nLme\nnbad\n";
         let rows = parse_lsof(text);
         assert_eq!(rows.len(), 3);
-        assert_eq!(rows[0], Listener { port: 14013, address: "127.0.0.1".into(), pid: 1366, process: "WeChat".into(), user: "0x10".into() });
+        assert_eq!(rows[0], Listener { path: None, port: 14013, address: "127.0.0.1".into(), pid: 1366, process: "WeChat".into(), user: "0x10".into() });
         assert_eq!(rows[1].address, "[::1]");
         assert_eq!(rows[2].port, 49152);
         assert!(parse_lsof("").is_empty());

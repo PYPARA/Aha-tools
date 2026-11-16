@@ -23,6 +23,13 @@ type TapCallback = unsafe extern "C" fn(
     user: *mut c_void,
 ) -> CGEventRef;
 
+static LOCAL_FOCUS: AtomicU64 = AtomicU64::new(0);
+pub fn local_focus(label: &str, focused: bool) {
+    let bit = match label { "panel" => 1, "menu" => 2, "super" => 4, _ => return };
+    if focused { LOCAL_FOCUS.fetch_or(bit, Ordering::Relaxed); } else { LOCAL_FOCUS.fetch_and(!bit, Ordering::Relaxed); }
+}
+fn intercept_mouse(enabled: bool, recording: bool, local: bool, target: i64, own: u32) -> bool { enabled && !recording && !local && target != i64::from(own) }
+
 const HID_EVENT_TAP: u32 = 0;
 const HEAD_INSERT: u32 = 0;
 const TAP_DEFAULT: u32 = 0;
@@ -353,7 +360,8 @@ unsafe extern "C" fn callback(
         return event;
     }
     if [RIGHT_DOWN, RIGHT_UP, MOUSE_MOVED, RIGHT_DRAGGED].contains(&etype) {
-        let enabled = MOUSE_ENABLED.load(Ordering::Relaxed) && !RECORDING.load(Ordering::Relaxed);
+        let target = unsafe { CGEventGetIntegerValueField(event, 40) }; // kCGEventTargetUnixProcessID
+        let enabled = intercept_mouse(MOUSE_ENABLED.load(Ordering::Relaxed), RECORDING.load(Ordering::Relaxed), LOCAL_FOCUS.load(Ordering::Relaxed) != 0 || crate::panel::is_pinned(), target, std::process::id());
         if !enabled {
             if let Some(right) = state.right.take() {
                 if right.event != 0 {
@@ -405,6 +413,7 @@ unsafe extern "C" fn callback(
                     if right.token != token
                         || !MOUSE_ENABLED.load(Ordering::Relaxed)
                         || RECORDING.load(Ordering::Relaxed)
+                        || LOCAL_FOCUS.load(Ordering::Relaxed) != 0 || crate::panel::is_pinned()
                         || !right.gesture.fire(std::time::Instant::now())
                     {
                         return;
@@ -425,7 +434,7 @@ unsafe extern "C" fn callback(
         if etype == RIGHT_UP {
             if let Some(mut right) = state.right.take() {
                 // The timer may have been delayed; a >=400ms release is still a hold.
-                if right.gesture.fire(std::time::Instant::now()) {
+                if LOCAL_FOCUS.load(Ordering::Relaxed) == 0 && !crate::panel::is_pinned() && right.gesture.fire(std::time::Instant::now()) {
                     let app = state.app.clone();
                     let a = app.clone();
                     let _ = app.run_on_main_thread(move || crate::superpanel::toggle(&a));
@@ -660,6 +669,9 @@ mod tests {
         assert_eq!(b.keycode, 0x12);
         assert_eq!(b.flags, MOD_MASK);
     }
+
+    #[test]
+    fn local_menus_keep_their_right_mouse_events() { assert!(!intercept_mouse(true,false,true,0,123)); assert!(!intercept_mouse(true,false,false,123,123)); assert!(intercept_mouse(true,false,false,456,123)); assert!(!intercept_mouse(true,true,false,456,123)); }
 
     #[test]
     fn modifiers_press_one_by_one() {

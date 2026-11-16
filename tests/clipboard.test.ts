@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { title, visibleEntries, when, type Entry } from "../plugins/clipboard/model";
+import { isImageFile, title, visibleEntries, when, type Entry } from "../plugins/clipboard/model";
 
 const entry = (id: string, kind: Entry["kind"], at: number, extra: Partial<Entry> = {}): Entry =>
   ({ id, kind, text: "", paths: [], image: null, app: null, at, pinned: false, truncated: false, ...extra });
@@ -21,6 +21,15 @@ describe("剪贴板历史", () => {
     expect(title(entries[1])).toBe("图片 · 1280 × 720");
     expect(title(entries[2])).toBe("a.png 等 2 个文件");
     expect(title(entry("x", "text", 0, { text: "  多行\n文字 " }))).toBe("多行 文字");
+  });
+  test("图片文件同时能在图片与文件筛选中找到，复制类型保持为文件", () => {
+    const mixed = entry("mixed", "files", 400, { paths: ["/图片/PHOTO.JPG", "/文档/说明.txt"] });
+    const list = [...entries, mixed, entry("plain", "files", 500, { paths: ["/文档/nginx.conf"] })];
+    expect(visibleEntries(list, "image", "").map((e) => e.id)).toEqual(["mixed", "b", "c"]);
+    expect(visibleEntries(list, "files", "").map((e) => e.id)).toEqual(["plain", "mixed", "c"]);
+    expect(visibleEntries(list, "image", "photo")[0].kind).toBe("files");
+    expect(isImageFile("/资料/图片.PNG/说明.txt")).toBe(false);
+    expect(isImageFile("/图片/有空格 ' 图片.WebP")).toBe(true);
   });
   test("时间", () => {
     const now = new Date(2026, 10, 11, 15, 0).getTime() / 1000;

@@ -257,7 +257,11 @@ pub fn usage_forget(app: AppHandle, item: SearchItem) -> Result<(), String> {
 
 #[tauri::command]
 pub fn usage_home(app: AppHandle) -> Home {
-    home(config::load_json(&app, STORE))
+    let mut usage: Usage = config::load_json(&app, STORE);
+    let valid = |item: &SearchItem| match &item.action { ItemAction::OpenSaved { id } => crate::plugins::launcher::find_saved(&app,id).is_some(), ItemAction::OpenWeb { id } => config::load(&app).web_apps.iter().any(|w| w.id == *id), _ => true };
+    usage.recent.retain(valid); usage.pinned.retain(valid);
+    for item in usage.recent.iter_mut().chain(usage.pinned.iter_mut()) { crate::plugins::launcher::hydrate(&app,item); }
+    home(usage)
 }
 
 /// `query`: what was typed in the search box to find `item`, if anything.

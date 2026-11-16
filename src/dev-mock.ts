@@ -3,7 +3,7 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { Config, Manifest, RgbaImage, SearchItem, TranslateProfile, TranslateMode, TranslateDirection } from "./sdk";
+import type { Config, Manifest, RgbaImage, SearchItem, TranslateProfile, TranslateMode, TranslateDirection, SavedEntry } from "./sdk";
 import { EMPTY_SYSTEM, type BatteryInfo, type Reading, type SystemSnapshot } from "./sysmon";
 import { generatePixels } from "../plugins/qrcode/qr";
 import { imagePng } from "../plugins/qrcode/image";
@@ -19,6 +19,8 @@ import processes from "../plugins/processes/plugin.json";
 import network from "../plugins/network/plugin.json";
 import json from "../plugins/json/plugin.json";
 import clipboardPlugin from "../plugins/clipboard/plugin.json";
+import type { Entry as ClipboardEntry } from "../plugins/clipboard/model";
+import { menuMockInvoke, closeMockMenu } from "./menu-mock";
 
 import compress from "../plugins/compress/plugin.json";
 import type { CompressionBatch, CompressionItem, ExportAction, ExportResult } from "../plugins/compress/model";
@@ -33,6 +35,24 @@ const manifests: Manifest[] = [launcher, hotkeys, screenshot, webapps, qrcode, c
 
 type QrScenario = "url" | "text" | "empty" | "no-code" | "error";
 const params = new URLSearchParams(location.search);
+// The actual refresh control lives in AppKit. This fixture checks its visual placement
+// and current-page semantics in a browser, without opening sites or touching cookies.
+const previewWeb = {
+  name: "网页应用", url: "https://example.com/", reloads: 0,
+  offline: params.get("webappMock") === "offline", failed: false,
+};
+previewWeb.failed = previewWeb.offline;
+function webPreview(command: string, args: Record<string, unknown>) {
+  if (command === "webapp_preview_reload") {
+    previewWeb.reloads++;
+    previewWeb.failed = previewWeb.offline;
+  } else if (command === "webapp_preview_navigate") {
+    previewWeb.url = "https://example.com/articles/1";
+  } else if (command === "webapp_preview_connection") {
+    previewWeb.offline = Boolean(args.offline);
+  }
+  return { ...previewWeb };
+}
 const compressionBatches: CompressionBatch[] = [];
 const compressionCopies: string[][] = [];
 const compressionExports: { batchId: string; action: string; itemIds: string[] }[] = [];
@@ -154,11 +174,11 @@ const apps = [
   { title: "web-projects", subtitle: "~/Projects/web", kind: "saved", icon: "folder", path: "~/Projects/web" },
 ];
 
-let saved = [
-  { name: "Projects", path: "~/Projects", kind: "folder" },
-  { name: "hosts", path: "/etc/hosts", kind: "file" },
-  { name: "设计稿", path: "~/Documents/Design", kind: "folder" },
-  { name: "GitHub", path: "https://github.com", kind: "link" },
+let saved: SavedEntry[] = [
+  { id: "saved-projects", name: "Projects", path: "~/Projects", kind: "folder" },
+  { id: "saved-hosts", name: "hosts", path: "/etc/hosts", kind: "file" },
+  { id: "saved-design", name: "设计稿", path: "~/Documents/Design", kind: "folder" },
+  { id: "saved-github", name: "GitHub", path: "https://github.com", kind: "link" },
 ];
 
 let exclusive = true;
@@ -224,6 +244,7 @@ let config: Config = {
       { title: "DeepSeek", subtitle: "网页应用", score: 0, plugin: "webapps", kind: "feature", icon: "https://chat.deepseek.com", action: { type: "openWeb", id: "deepseek" } } as SearchItem,
       feature("system", "desktop", "显示桌面", "系统动作"), feature("system", "lock", "锁屏", "系统动作")],
     actions: [
+      { id: "ghostty", name: "用 Ghostty 打开", command: "/usr/bin/open -a Ghostty {dir}", when: ["file", "folder", "image"], enabled: true },
       { id: "vscode", name: "用 VS Code 打开", command: "code {path}", when: ["file", "folder", "image"], enabled: false },
       { id: "claude-code", name: "用 Claude Code 打开", command: "/usr/bin/osascript -e 'on run argv' -e 'tell application \"Terminal\" to do script (\"cd \" & quoted form of (item 1 of argv) & \" && claude\")' -e 'end run' {dir}", when: ["folder"], enabled: false },
     ],
@@ -231,12 +252,13 @@ let config: Config = {
   menubar: ["netspeed"],
   exclusiveHotkeys: true,
   pinyin: true,
-  appearance: "system",
+  appearance: params.get("theme") === "light" ? "light" : params.get("theme") === "dark" ? "dark" : "system",
   panelReopen: "resume",
   clipboardAutoPaste: 5,
   webSearch: "https://www.google.com/search?q={q}",
   publicIpUrl: "https://api.ipify.org",
-  clipboardHistory: { enabled: params.get("clipMock") !== "off", maxItems: 500, maxDays: 30, excludedApps: ["com.1password.1password", "com.apple.Passwords"] },
+  // off: first use; paused: recording is off but existing history remains searchable.
+  clipboardHistory: { enabled: !["off", "paused"].includes(params.get("clipMock") ?? ""), maxItems: 500, maxDays: 30, excludedApps: ["com.1password.1password", "com.apple.Passwords"] },
   disabledMatches: [] as string[],
   translate: {
     profiles: params.get("translateMock") && params.get("translateMock") !== "empty" ? [
@@ -268,6 +290,10 @@ if (params.get("selectMock") === "many") {
 }
 
 if (params.get("pins") === "12") config.superPanel.pinned.push(...["微信", "访达", "备忘录", "系统设置", "Ghostty"].map((name, i) => app(name, `/Applications/mock-${i}.app`)));
+const superPinsStore = `ahatools.mock.super-pins${params.get("superPinsStore") ? `.${params.get("superPinsStore")}` : ""}`;
+try { if (params.get("pins") !== "12") config.superPanel.pinned = JSON.parse(localStorage.getItem(superPinsStore) ?? "null") ?? config.superPanel.pinned; } catch { /* Invalid preview data uses defaults. */ }
+let superPinWrites = 0;
+let superPinFailed = false;
 let superScenario = params.get("superMock") ?? "home";
 let superRequest = 1;
 let superConsumed = false;
@@ -288,13 +314,30 @@ function navigateQuery(query: string) {
   void emit("panel-query", pendingRequest);
 }
 const clipNow = Math.floor(Date.now() / 1000);
-let clipEntries = [
+if (params.get("launcherMock") === "missing-app" && saved[0]) saved[0].openWithApp = "/Applications/missing.app";
+let clipUndo: {token: string; expiresAt: number; entry: ClipboardEntry} | null = null;
+let clipUndoSequence = 0;
+let clipRestoreFailed = false;
+let clipEntries: ClipboardEntry[] = [
   { id: "c1", kind: "text", text: "https://github.com/tauri-apps/tauri/releases", paths: [], image: null, app: "Safari", at: clipNow - 40, pinned: false, truncated: false },
   { id: "c2", kind: "image", text: "", paths: [], image: { file: "c2.png", width: 1280, height: 720 }, app: "截图", at: clipNow - 600, pinned: false, truncated: false },
   { id: "c3", kind: "text", text: "ssh deploy@10.0.3.21 -p 2222", paths: [], image: null, app: "终端", at: clipNow - 3600 * 5, pinned: true, truncated: false },
   { id: "c4", kind: "files", text: "", paths: ["/Users/me/Documents/设计稿/首页.png", "/Users/me/Documents/设计稿/设置.png"], image: null, app: "访达", at: clipNow - 86400, pinned: false, truncated: false },
   { id: "c5", kind: "text", text: Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 行：AhaTools 会记下复制过的长文本，列表只显示开头，右侧预览完整内容。`).join("\n"), paths: [], image: null, app: "备忘录", at: clipNow - 86400 * 3, pinned: false, truncated: false },
 ];
+if (params.get("clipMock") === "files") clipEntries.push(
+  { id: "c6", kind: "files", text: "", paths: ["/Users/me/Library/Containers/微信/图片/设计稿 中文 ' 01.png"], image: null, app: "微信", at: clipNow - 20, pinned: false, truncated: false },
+  { id: "c7", kind: "files", text: "", paths: ["/预览/第二张.jpg", "/预览/图片.webp", "/预览/说明.txt"], image: null, app: "访达", at: clipNow - 30, pinned: false, truncated: false },
+  { id: "c8", kind: "files", text: "", paths: ["/预览/missing.png"], image: null, app: "微信", at: clipNow - 50, pinned: false, truncated: false },
+);
+let clipImageError = params.get("clipImage") ?? "";
+let clipImageDelay = Number(params.get("clipDelay") ?? 0);
+Object.assign(window, { __AHATOOLS_CLIPBOARD_MOCK__: {
+  setImageError(value: string) { clipImageError = value; },
+  setImageDelay(value: number) { clipImageDelay = value; },
+  get executed() { return executed; },
+  get copiedFiles() { return [...clipboardFiles]; },
+} });
 /** A small generated picture for the clipboard image preview. */
 function qrMockImageUrl() {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#3A5A8C"/><circle cx="90" cy="90" r="46" fill="#93B1E3"/><rect x="160" y="54" width="120" height="72" rx="10" fill="#EDEAE2"/></svg>`;
@@ -354,20 +397,24 @@ function mockProcesses(scenario: string) {
   return { groups: live, count: 412 - quitPids.length, cores: 10, memory: { usedBytes: 12.4 * GB, totalBytes: 16 * GB, pressure: busy ? "warning" : "normal" } };
 }
 function superState() {
-  const paths = superScenario === "folder" ? ["/Users/me/Documents/设计稿"] : superScenario === "image" ? ["/Users/me/Documents/二维码.png"] : superScenario === "multi" ? ["/Users/me/Documents/图.png", "/Users/me/Documents/备注.txt"] : superScenario === "file" ? ["/Users/me/Documents/说明.txt"] : [];
+  const paths = superScenario === "folder" ? ["/Users/me/Documents/设计稿"] : superScenario === "image" ? ["/Users/me/Documents/二维码.png"] : superScenario === "multi" ? ["/Users/me/Documents/图.png", "/Users/me/Documents/备注.txt"] : superScenario === "mixed-dirs" ? ["/Users/me/Documents/图.png", "/Users/me/Desktop/备注.txt"] : superScenario === "file" ? ["/Users/me/Documents/说明.txt"] : [];
+  const parents = paths.map((p) => p.slice(0, p.lastIndexOf("/")));
+  const dir = superScenario === "folder" ? paths[0] : parents.length && parents.every((p) => p === parents[0]) ? parents[0] : undefined;
   const text = superScenario === "url" ? "https://example.com" : superScenario === "text" ? "Tauri lets you build smaller, faster, and more secure desktop applications with a web frontend." : undefined;
-  const context = { kind: paths.length ? "files" : text ? "text" : "none", appName: paths.length ? "访达" : "Safari", paths, text, notice: superScenario === "permission" ? "无法读取访达。请在系统设置 → 隐私与安全性 → 自动化中允许 AhaTools 控制访达" : undefined };
+  const context = { kind: paths.length ? "files" : text ? "text" : "none", appName: paths.length ? "访达" : "Safari", paths, dir, text, notice: superScenario === "permission" ? "无法读取访达。请在系统设置 → 隐私与安全性 → 自动化中允许 AhaTools 控制访达" : undefined };
   const row = (id: string, group: string, title: string, subtitle: string, plugin = "", feature = "", icon = "", item?: SearchItem) => ({ id, group, title, subtitle, plugin, feature, icon, item });
   const featureItem = (plugin: string, code: string, title: string): SearchItem => ({ title, subtitle: "", score: 0, plugin, kind: "feature", action: { type: "feature", feature: code } });
   const images = superScenario === "folder" ? 13 : paths.filter((p) => /\.(png|jpe?g|webp)$/i.test(p)).length;
   const kinds = paths.map((p) => /\.(png|jpe?g|webp)$/i.test(p) ? "image" : /\.[^/]+$/.test(p) ? "file" : "folder");
   const custom = config.superPanel.actions.filter((x) => x.enabled && (text ? x.when.includes("text") : paths.length > 0 && kinds.every((k) => x.when.includes(k) || (k === "image" && x.when.includes("file")))))
+    .filter((x) => !x.command.includes("{dir}") || Boolean(dir))
     .map((x) => row(`custom:${x.id}`, "custom", x.name, "", "", "", "command"));
   const actions = paths.length ? [
     ...(images ? [row("match:0", "match", "压缩图片", `${images} 张`, "compress", "compress", "", featureItem("compress", "compress", "压缩图片"))] : []),
     ...(superScenario === "image" ? [row("match:1", "match", "识别二维码", "", "qrcode", "scan", "", featureItem("qrcode", "scan", "识别二维码"))] : []),
     row("copy", "files", "复制路径", paths.length > 1 ? `${paths.length} 项` : "", "", "", "copy"),
-    row("copy-name", "files", "复制文件名", paths.length > 1 ? `${paths.length} 项` : "", "", "", "copy"), row("terminal", "files", "在终端中打开", "", "", "", "terminal"),
+    row("copy-name", "files", "复制文件名", paths.length > 1 ? `${paths.length} 项` : "", "", "", "copy"),
+    ...(dir ? [row("terminal", "files", "在终端中打开", "", "", "", "terminal")] : []),
     ...(superScenario === "folder" ? [row("new", "files", "新建空白文件", "未命名.txt", "", "", "newfile")] : []), row("save", "files", "收藏到快捷启动", "", "", "", "star"), ...custom,
   ] : text ? [
     ...(Array.from(text).length >= 2 ? [row("match:0", "match", "翻译", "点按后翻译", "translate", "translate", "", featureItem("translate", "translate", "翻译"))] : []),
@@ -376,12 +423,14 @@ function superState() {
     ...(superScenario === "url" ? [row("url", "match", "在浏览器中打开", "", "", "", "globe")] : []),
     row("search", "text", "在搜索面板中打开", "", "", "", "search"), row("copy", "text", "复制为纯文本", "", "", "", "copy"), ...custom,
   ] : [];
-  const pinned = config.superPanel.pinned.map((item, i) => row(`pin:${i}`, "pin", item.title, item.subtitle, item.plugin, item.action.type === "feature" ? item.action.feature : "", "", item));
+  const hydrated = config.superPanel.pinned.map((original) => { const item = structuredClone(original); if (item.action.type === "openSaved") { const entry = saved.find((e) => e.id === (item.action as {id:string}).id); if (entry) Object.assign(item,{title:entry.name,subtitle:entry.path,icon:entry.kind}); } else if (item.action.type === "openWeb") { const web = config.webApps.find((w) => w.id === (item.action as {id:string}).id); if (web) Object.assign(item,{title:web.name,subtitle:web.url,icon:web.url}); } return item; });
+  const pinned = hydrated.map((item, i) => row(`pin:${i}`, "pin", item.title, item.subtitle, item.plugin, item.action.type === "feature" ? item.action.feature : "", "", item));
   return { requestId: superRequest, context, actions, pinned };
 }
 Object.assign(window, { __AHATOOLS_SUPER_MOCK__: {
   setScenario(value: string) { superScenario = value; superConsumed = false; superRequest++; return emit("superpanel-shown", superState()); },
   get executed() { return executed; }, get pending() { return pendingRequest; }, get text() { return clipboardText; },
+  get pinWrites() { return superPinWrites; },
   openFeature(plugin: string, feature: string, input?: string, viewOnly = false) { navigate(plugin, feature, input, viewOnly); },
   openQuery(query: string) { navigateQuery(query); },
   setOcr(phase: string) { ocrJob = makeOcr(String(++ocrId), phase); navigate("system", "ocr", ocrJob.id, true); return emit("system-ocr-updated", ocrJob); },
@@ -478,6 +527,7 @@ Object.assign(window, { __AHATOOLS_TRANSLATE_MOCK__: {
 mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
   if (cmd.startsWith("hosts_")) return hostsMockInvoke(cmd, a);
+  if (cmd.startsWith("plugin:menu|")) return menuMockInvoke(cmd, a);
   switch (cmd) {
     // The installed event API unlistens with eventId; mockIPC's built-in event
     // helper still expects id. Keep listener cleanup accurate in StrictMode.
@@ -559,18 +609,48 @@ mockIPC((cmd, args) => {
     case "clipboard_history_list":
       return params.get("clipMock") === "empty" || params.get("clipMock") === "off" ? [] : clipEntries.map((e) => e.text.length > 400 ? { ...e, text: e.text.slice(0, 400), truncated: true } : e);
     case "clipboard_history_get": return clipEntries.find((e) => e.id === a.id) ?? null;
-    case "clipboard_history_image": return clipEntries.some((e) => e.id === a.id && e.kind === "image") ? qrMockImageUrl() : null;
+    case "clipboard_history_image_action": {
+      const entry=clipEntries.find((e)=>e.id===a.id); if(!entry) throw new Error("这条记录已删除");
+      if(entry.kind === "files" && a.path && !entry.paths.includes(String(a.path))) throw new Error("文件不属于这条记录");
+      if(String(a.path).includes("missing") || ["missing","denied"].includes(clipImageError ?? "") || a.action === "copy" && clipImageError) throw new Error("无法读取完整图片");
+      executed.push(`clipboard-image:${a.action}:${a.id}:${a.path ?? "cache"}`); return null;
+    }
+    case "clipboard_history_image": return (async () => {
+      const entry = clipEntries.find((e) => e.id === a.id);
+      const error = clipImageError;
+      if (clipImageDelay) await new Promise((resolve) => setTimeout(resolve, clipImageDelay));
+      if (!entry) throw new Error("这条记录已删除");
+      if (entry.kind === "files" && !entry.paths.includes(String(a.path))) throw new Error("文件不属于这条记录");
+      if (error === "missing" || String(a.path).includes("missing")) throw new Error("图片文件已移动或删除，无法预览");
+      if (error === "denied") throw new Error("没有权限读取图片，请在访达中检查文件权限");
+      if (error === "corrupt") throw new Error("图片无法解码，可能已损坏");
+      if (error === "unsupported") throw new Error("暂不支持此格式的预览，支持 PNG、JPEG 和 WebP；可打开原文件查看");
+      return error === "broken" ? "data:image/png;base64,broken" : qrMockImageUrl();
+    })();
     case "clipboard_history_use": {
       const entry = clipEntries.find((e) => e.id === a.id);
       if (!entry) throw new Error("这条记录已删除");
       clipboardText = entry.kind === "text" ? entry.text : entry.paths.join("\n");
+      clipboardFiles = entry.kind === "files" ? [...entry.paths] : [];
+      mockCopy = null;
       clipEntries = [{ ...entry, at: Math.floor(Date.now() / 1000) }, ...clipEntries.filter((e) => e !== entry)];
       executed.push(`clipboard:${a.paste ? "paste" : "copy"}:${entry.id}`);
       return a.paste ? "已粘贴" : "已复制";
     }
     case "clipboard_history_pin": clipEntries = clipEntries.map((e) => e.id === a.id ? { ...e, pinned: Boolean(a.pinned) } : e); return null;
-    case "clipboard_history_delete": clipEntries = clipEntries.filter((e) => e.id !== a.id); return null;
-    case "clipboard_history_clear": clipEntries = clipEntries.filter((e) => e.pinned && !a.pinnedToo); return null;
+    case "clipboard_history_undo_state": return clipUndo && clipUndo.expiresAt > Date.now() ? {token: clipUndo.token, expiresAt: clipUndo.expiresAt} : null;
+    case "clipboard_history_delete": {
+      const entry = clipEntries.find((e) => e.id === a.id); if (!entry) throw new Error("这条记录已删除");
+      clipUndo = {token: String(++clipUndoSequence), expiresAt: Date.now()+10_000, entry: structuredClone(entry)}; clipEntries = clipEntries.filter((e) => e.id !== a.id); return {token: clipUndo.token, expiresAt: clipUndo.expiresAt};
+    }
+    case "clipboard_history_restore": {
+      if (!clipUndo || clipUndo.token !== a.token || clipUndo.expiresAt <= Date.now()) throw new Error("撤销时间已结束");
+      if (params.get("clipUndoMock") === "retry" && !clipRestoreFailed) { clipRestoreFailed = true; throw new Error("无法保存剪贴板历史（预览错误，可重试）"); }
+      if (params.get("clipUndoMock") === "duplicate") clipEntries.push({...clipUndo.entry, at: Math.floor(Date.now()/1000), pinned: true});
+      const old = clipUndo.entry, duplicate = clipEntries.find((e) => e.id === old.id); if (duplicate) { duplicate.at = Math.max(old.at, duplicate.at); duplicate.pinned ||= old.pinned; } else clipEntries.push(old);
+      clipEntries.sort((a,b)=>b.at-a.at); clipUndo = null; return null;
+    }
+    case "clipboard_history_clear": clipUndo = null; clipEntries = clipEntries.filter((e) => e.pinned && !a.pinnedToo); return null;
     case "network_local":
       if (params.get("netMock") === "offline") return { addresses: [], gateway: null, gatewayInterface: null };
       return { addresses: mockAddresses, gateway: "192.168.1.1", gatewayInterface: "en0" };
@@ -609,11 +689,11 @@ mockIPC((cmd, args) => {
     }
     case "network_ports":
       return params.get("netMock") === "empty" ? [] : [
-        { port: 1420, address: "127.0.0.1", pid: 50123, process: "node", user: "me" },
-        { port: 3000, address: "*", pid: 50200, process: "node", user: "me" },
-        { port: 5432, address: "127.0.0.1", pid: 812, process: "postgres", user: "me" },
-        { port: 7890, address: "127.0.0.1", pid: 940, process: "verge-mihomo", user: "me" },
-        { port: 14013, address: "127.0.0.1", pid: 1366, process: "WeChat", user: "me" },
+        { port: 1420, address: "127.0.0.1", pid: 4242, path: "/opt/homebrew/bin/node", process: "node", user: "me" },
+        { port: 3000, address: "*", pid: 4242, path: "/opt/homebrew/bin/node", process: "node", user: "me" },
+        { port: 5432, address: "127.0.0.1", pid: 812, path: "/opt/homebrew/bin/postgres", process: "postgres", user: "me" },
+        { port: 7890, address: "127.0.0.1", pid: 940, path: "/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo", process: "verge-mihomo", user: "me" },
+        { port: 14013, address: "127.0.0.1", pid: 2201, path: "/Applications/WeChat.app/Contents/MacOS/WeChat", process: "WeChat", user: "me" },
       ].filter((r) => !quitPids.includes(r.pid));
     case "processes_snapshot": {
       const scenario = params.get("procMock") ?? "normal";
@@ -642,6 +722,8 @@ mockIPC((cmd, args) => {
     case "compress_list_batches":
       if ((compressionScenario === "mixed" || compressionScenario === "slow") && !compressionBatches.length) compressionStart("preview", compressionFixtures, 80, false);
       return structuredClone(compressionBatches);
+    case "compress_result_action": executed.push(`compress-${a.action}:${a.batchId}:${a.itemId}:${a.source}`); return null;
+    case "compress_retry": { const batch = compressionBatches.find((b) => b.batchId === a.batchId); const item = batch?.items.find((i) => i.itemId === a.itemId); if (!batch || !item) throw new Error("压缩记录已失效"); return compressionStart(String(a.newBatchId), [item.path], batch.quality, batch.toWebp); }
     case "compress_export": {
       const batchId = String(a.batchId), action = a.action as ExportAction, itemIds = a.itemIds as string[];
       compressionExports.push({ batchId, action, itemIds });
@@ -656,6 +738,7 @@ mockIPC((cmd, args) => {
     case "plugin:dialog|message":
       return params.get("compressConfirm") === "cancel" ? "取消" : "覆盖原图";
     case "search": {
+      if (params.get("superSearch") === "error") throw new Error("暂时无法搜索（预览错误）");
       const original = String(a.query ?? "").trim();
       const q = original.toLowerCase();
       const content = a.content as { type: "image" | "files" | "text"; paths?: string[]; text?: string } | undefined;
@@ -710,11 +793,14 @@ mockIPC((cmd, args) => {
       const hits = apps
         .filter((x) => (x.title + x.subtitle).toLowerCase().includes(q))
         .map((x) => ({ ...x, score: 50, plugin: "launcher", action: { type: "openPath", path: x.path } }));
+      const savedHits = saved.filter((x) => x.name.toLowerCase().includes(q)).map((x) => ({
+        title: x.name, subtitle: x.path, kind: "saved", icon: x.kind, score: 80, plugin: "launcher", action: { type: "openSaved", id: x.id },
+      }));
       // 网络工具 answers 「ip」 right in the list.
       const answers = ["ip", "内网ip", "本机ip", "局域网ip"].includes(q.replace(/\s/g, "")) ? mockAddresses.filter((a) => !a.v6).map((a, i) => ({
         title: a.ip, subtitle: `内网 IP · ${a.label} (${a.interface})`, score: 5_100 - i, plugin: "network", kind: "feature", action: { type: "copy", text: a.ip },
       })) : [];
-      return [...answers, ...webHits, ...features, ...hits].sort((x, y) => y.score - x.score);
+      return [...answers, ...webHits, ...features, ...savedHits, ...hits.filter((x) => !savedHits.some((saved) => saved.subtitle === x.subtitle))].sort((x, y) => y.score - x.score);
     }
     case "netspeed_snapshot": {
       const history = Array.from({ length: 60 }, (_, i) => [
@@ -749,9 +835,39 @@ mockIPC((cmd, args) => {
     case "panel_pending": return pendingRequest;
     case "panel_ack": if (pendingRequest?.id === a.id) pendingRequest = null; return null;
     case "superpanel_state": return superState();
+    case "superpanel_edit_pins": return (async () => {
+      const edit = a.edit as { type: "add" | "remove" | "move"; item: SearchItem; before?: SearchItem | null };
+      superPinWrites++;
+      const delay = Number(params.get("superPinDelay") ?? 0);
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (params.get("superPinSave") === "error" || (params.get("superPinSave") === "once" && !superPinFailed)) {
+        superPinFailed = true; throw new Error("无法写入 config.json（预览错误）");
+      }
+      const item = homeItem(edit.item);
+      const key = (p: SearchItem) => `${p.plugin}/${JSON.stringify(homeItem(p).action)}`;
+      const pins = [...config.superPanel.pinned];
+      const from = pins.findIndex((p) => key(p) === key(item));
+      if (edit.type === "add") {
+        if (item.plugin === "superpanel" || item.action.type === "copy") throw new Error("这个结果不能固定到超级面板");
+        if (from < 0) { if (pins.length >= 12) throw new Error("我的面板最多放 12 个功能，请先移除一个"); pins.push(item); }
+      } else if (edit.type === "remove") { if (from >= 0) pins.splice(from, 1); }
+      else {
+        if (from < 0) throw new Error("这个功能已被移除，请重新排序");
+        if (edit.before && !pins.some((p) => key(p) === key(edit.before!))) throw new Error("目标位置已变化，请重新排序");
+        if (!edit.before || key(edit.before) !== key(item)) {
+          const [moved] = pins.splice(from, 1);
+          const to = edit.before ? pins.findIndex((p) => key(p) === key(edit.before!)) : pins.length;
+          pins.splice(to, 0, moved);
+        }
+      }
+      config = { ...config, superPanel: { ...config.superPanel, pinned: pins } };
+      localStorage.setItem(superPinsStore, JSON.stringify(pins));
+      queueMicrotask(() => void emit("config-changed", config));
+      return pins;
+    })();
     case "superpanel_open": superConsumed = false; superRequest++; void emit("superpanel-shown", superState()); return null;
     case "superpanel_hide": superConsumed = true; return null;
-    case "superpanel_pin_status": return config.superPanel.pinned.map((i) => i.action.type === "openPath" ? !i.action.path.includes("missing") : i.action.type === "openWeb" ? config.webApps.some((w) => w.id === (i.action as {id:string}).id) : manifests.some((m) => m.id === i.plugin));
+    case "superpanel_pin_status": return config.superPanel.pinned.map((i) => i.action.type === "openSaved" ? saved.some((e) => e.id === (i.action as {id:string}).id) : i.action.type === "openPath" ? !i.action.path.includes("missing") : i.action.type === "openWeb" ? config.webApps.some((w) => w.id === (i.action as {id:string}).id) : manifests.some((m) => m.id === i.plugin));
     case "superpanel_validate_command": {
       const command = String(a.command);
       if (!command.trim()) throw new Error("请输入命令");
@@ -824,6 +940,7 @@ mockIPC((cmd, args) => {
     }
     case "plugin:resources|close":
       images.delete(Number(a.rid));
+      closeMockMenu(Number(a.rid));
       return null;
     case "plugin:clipboard-manager|write_image": {
       const image = images.get(Number(a.image));
@@ -833,7 +950,13 @@ mockIPC((cmd, args) => {
       return null;
     }
     case "clipboard_mark_own": mockCopy = null; return null;
+    case "open_path": executed.push(`open:${String(a.path)}`); return null;
     case "reveal_path": executed.push(`reveal:${String(a.path)}`); return null;
+    case "reveal_paths": {
+      const paths = a.paths as string[];
+      if (paths.some((p) => p.includes("missing"))) throw new Error("找不到文件，文件可能已移动或删除");
+      executed.push(`reveal:${JSON.stringify(paths)}`); return null;
+    }
     case "plugin:clipboard-manager|write_text":
       clipboardText = String(a.text);
       clipboardPixels = undefined;
@@ -859,6 +982,7 @@ mockIPC((cmd, args) => {
         { id: "utools", installed: true, running: true },
       ];
     case "usage_home":
+      for (const item of [...usage.recent, ...usage.pinned]) { if (item.action.type === "openSaved") { const entry = saved.find((e) => e.id === (item.action as {id:string}).id); if (entry) Object.assign(item, { title: entry.name, subtitle: entry.path, icon: entry.kind }); } else if (item.action.type === "openWeb") { const web = config.webApps.find((w) => w.id === (item.action as {id:string}).id); if (web) Object.assign(item, { title: web.name, subtitle: web.url, icon: web.url }); } }
       return structuredClone(usage);
     case "usage_reorder_pinned": return (async () => {
       pinWrites++;
@@ -887,6 +1011,7 @@ mockIPC((cmd, args) => {
       usage.recent = [item, ...usage.recent.filter((x) => !sameItem(x, item))].slice(0, 21);
       return null;
     }
+    case "usage_forget": usage.recent = usage.recent.filter((x) => !sameItem(x, a.item as SearchItem)); return null;
     case "app_icon":
       return null;
     case "webapp_icon":
@@ -899,6 +1024,11 @@ mockIPC((cmd, args) => {
       return "/Users/me/Library/Application Support/com.ahatools.app";
     case "plugin:app|version":
       return "0.1.0";
+    case "webapp_preview_snapshot":
+    case "webapp_preview_reload":
+    case "webapp_preview_navigate":
+    case "webapp_preview_connection":
+      return webPreview(cmd, a);
     case "webapp_open":
     case "hotkey_set_recording":
     case "relay_press_later":
@@ -913,16 +1043,33 @@ mockIPC((cmd, args) => {
     case "hotkey_bindings":
       return config.hotkeys;
     case "launcher_saved":
-      return saved;
-    case "launcher_add":
-      saved = [
-        ...saved.filter((e) => e.path !== a.path),
-        { name: String(a.name ?? a.path), path: String(a.path), kind: String(a.path).includes("://") ? "link" : "folder" },
-      ];
-      return saved;
-    case "launcher_remove":
-      saved = saved.filter((e) => e.path !== a.path);
-      return saved;
+      if (params.get("launcherMock") === "migration-error") throw new Error("收藏迁移未完成，原数据已保留"); return saved;
+    case "launcher_apps": return [{ id: "code", name: "Visual Studio Code", path: "/Applications/Visual Studio Code.app", kind: "file" }, { id: "text", name: "文本编辑", path: "/System/Applications/TextEdit.app", kind: "file" }];
+    case "launcher_update": {
+      if (params.get("saveMock") === "error") throw new Error("无法保存：磁盘空间不足");
+      const entry = saved.find((e) => e.id === a.id); if (!entry) throw new Error("收藏已移除");
+      if (saved.some((e) => e.id !== a.id && e.path === a.path)) throw new Error("这个路径已在收藏中");
+      Object.assign(entry, { name: String(a.name), path: String(a.path), openWithApp: a.openWithApp as string | null }); void emit("launcher-changed"); return saved;
+    }
+    case "launcher_open": {
+      const entry = saved.find((e) => e.id === a.id); if (!entry) throw new Error("收藏已移除");
+      if (params.get("launcherMock") === "missing-file") throw new Error("文件已移动或删除，请编辑收藏路径");
+      const application = (a.application === "" ? null : a.application ?? entry.openWithApp);
+      if (String(application).includes("missing")) throw new Error("指定的应用已移动或删除，请重新选择或恢复跟随系统");
+      executed.push(`open-saved:${entry.id}:${entry.path}:${application ?? "system"}`); return null;
+    }
+    case "launcher_add": {
+      const old = saved.find((e) => e.path === a.path);
+      if (old) old.name = String(a.name ?? old.name); else saved.push({ id: `saved-${Date.now()}`, name: String(a.name ?? a.path), path: String(a.path), kind: String(a.path).includes("://") ? "link" : "folder" });
+      void emit("launcher-changed"); return saved;
+    }
+    case "launcher_remove": saved = saved.filter((e) => a.id ? e.id !== a.id : e.path !== a.path); void emit("launcher-changed"); return saved;
+    case "host_open_feature": navigate(String(a.plugin), String(a.feature), a.input as string | undefined); return null;
+    case "webapp_update": {
+      if (params.get("saveMock") === "error") throw new Error("无法保存：磁盘空间不足");
+      const web = config.webApps.find((w) => w.id === a.id); if (!web) throw new Error("网页应用已移除");
+      Object.assign(web, { name: String(a.name), url: String(a.url), keywords: a.keywords as string[] }); void emit("config-changed", config); return config;
+    }
     case "hotkey_status":
       return { enabled: exclusive, exclusive, trusted: true };
     case "hotkey_set_exclusive":

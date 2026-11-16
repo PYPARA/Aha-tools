@@ -754,7 +754,27 @@ def sp2_pin_cell(name, ic, hover=False):
 pin_cells = "".join(sp2_pin_cell(n, ic, hover=(i == 2)) for i, (n, ic) in enumerate(PINS))
 pin_cells += f'<span style="height: 70px; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: var(--text-2)"><span class="tile" style="width: 34px; height: 34px; border-radius: 9px; border-style: dashed; background: transparent">{icon("plus", 16)}</span>添加</span>'
 cmd = "osascript -e 'on run argv' -e 'tell application &quot;Terminal&quot;' …"
-detail = f'''<div class="detail" style="gap: 12px; overflow: hidden">
+sp_builtin_groups = [
+    ("文件", [
+        ("复制路径", "文件或文件夹；多选时每项占一行"),
+        ("复制文件名", "文件或文件夹；保留扩展名"),
+        ("在终端中打开", "用系统终端打开文件夹或文件所在目录；多选需在同一目录"),
+        ("新建空白文件", "单个文件夹；创建未命名.txt，重名时加序号"),
+        ("收藏到快捷启动", "文件或文件夹；支持一次收藏多项"),
+    ]),
+    ("文字", [
+        ("在搜索面板中打开", "将选中文字带入搜索框"),
+        ("复制为纯文本", "复制选中文字，去除原有格式"),
+        ("在浏览器中打开", "选中完整的 HTTP 或 HTTPS 网址时出现"),
+        ("问网页应用", "每个网页应用一项；先复制文字，再打开网页"),
+    ]),
+]
+sp_builtin_cards = "".join(
+    '<section class="card" style="padding: 12px 14px; min-width: 0"><h3 class="lbl" style="margin: 0 0 4px">' + group + '</h3>'
+    + ''.join(f'<div class="srow" style="min-height: 64px; padding: 8px 0; box-sizing: border-box"><span class="st"><b>{name}</b><span>{desc}</span></span></div>' for name, desc in rows)
+    + '</section>' for group, rows in sp_builtin_groups
+)
+detail = f'''<div class="detail" style="gap: 12px; overflow-y: auto">
 <div><h1 style="margin: 0; font-family: var(--serif); font-size: 22px; font-weight: 500">超级面板</h1><p class="note" style="margin-top: 2px">在鼠标旁边处理选中的文字和文件</p></div>
 <div class="card" style="padding: 0 14px">
 <div class="srow" style="min-height: 52px"><span class="st"><b>呼出热键</b><span>面板出现在鼠标旁边</span></span><span class="btn mono" style="min-width: 100px; font-size: 12px">⌥⇧ Space</span><span class="sw on"><i></i></span></div>
@@ -763,15 +783,31 @@ detail = f'''<div class="detail" style="gap: 12px; overflow: hidden">
 </div>
 <span class="row" style="margin-top: 2px"><span class="lbl">我的面板</span><span class="sp"></span><span class="note">{len(PINS)} / 12 · 拖动排序</span></span>
 <div class="card" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 6px">{pin_cells}</div>
-<p class="note" style="margin-top: -4px">也可以在搜索结果上右键「固定到超级面板」。悬停格子出现 × 移除。</p>
+<p class="note" style="margin-top: -4px">拖动图标调整顺序；也可按空格提起、方向键移动、回车放下。</p>
+<p class="note" style="margin-top: -4px">也可以在搜索结果上右键「固定到超级面板」。</p>
+<div><h2 class="lbl" style="margin: 4px 0 4px">内置动作</h2><p class="note" style="margin: 0">根据选中的内容自动出现，不占「我的面板」名额。</p></div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">{sp_builtin_cards}</div>
 <span class="row" style="margin-top: 2px"><span class="lbl">自定义动作</span><span class="sp"></span><button type="button" class="btn sm">{icon("plus", 13)}新建动作</button></span>
 <div class="card" style="padding: 0 14px">
+<div class="srow" style="min-height: 52px; gap: 12px"><span class="st" style="min-width: 0"><b style="font-size: 13px">用 Ghostty 打开</b><span class="mono" style="font-size: 11px">/usr/bin/open -a Ghostty {{dir}}</span></span><span class="chip">文件 · 文件夹 · 图片</span><span class="sw sm on"><i></i></span><button type="button" class="ib" style="width: 24px; height: 24px" aria-label="更多">{icon("more", 15)}</button></div>
 <div class="srow" style="min-height: 52px; gap: 12px"><span class="st" style="min-width: 0"><b style="font-size: 13px">用 VS Code 打开</b><span class="mono" style="font-size: 11px">code {{path}}</span></span><span class="chip">文件 · 文件夹 · 图片</span><span class="sw sm on"><i></i></span><button type="button" class="ib" style="width: 24px; height: 24px" aria-label="更多">{icon("more", 15)}</button></div>
 <div class="srow" style="min-height: 52px; gap: 12px"><span class="st" style="min-width: 0"><b style="font-size: 13px">用 Claude Code 打开</b><span class="mono" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{cmd}</span></span><span class="chip">文件夹</span><span class="sw sm"><i></i></span><button type="button" class="ib" style="width: 24px; height: 24px" aria-label="更多">{icon("more", 15)}</button></div>
 </div>
 </div>'''
 sp_settings = settings("", detail, nav_on="超级面板").replace('<span class="i">全局热键</span>', '<span class="i">全局热键</span>\n<span class="i on">超级面板</span>', 1)
 boards.append(board("SuperPanelSettings", "设置 · 超级面板", 880, 580, sp_settings))
+
+# 固定项管理：指针拖动排序；添加使用独立选择窗口，不挤动设置页。
+sp_picker_rows = ''.join(
+    f'<div class="srow" style="min-height:52px;gap:12px">{ficon(key, 30)}<span class="st"><b>{name}</b><span>{desc}</span></span><span class="note">{state}</span></div>'
+    for key, name, desc, state in [("qrcode-scan", "识别二维码", "二维码", "添加"), ("compress", "压缩图片", "图片压缩", "添加"), ("translate", "翻译", "翻译", "添加"), ("hosts", "hosts 切换", "hosts 切换", "添加")]
+)
+sp_picker = f'''<div style="position:relative">{sp_settings}<div style="position:absolute;inset:0;background:rgba(20,18,14,.28);display:flex;align-items:center;justify-content:center;border-radius:14px">
+<section class="card" role="dialog" aria-label="添加到我的面板" style="width:520px;max-height:calc(100% - 48px);display:flex;flex-direction:column;overflow:hidden">
+<div style="padding:20px 24px 16px;border-bottom:1px solid var(--border)"><div class="row"><h2 style="font-family:var(--serif);font-size:22px;font-weight:500;margin:0">添加到我的面板</h2><span class="sp"></span><button class="ib" aria-label="关闭">{icon("x",16)}</button></div><p class="note" style="margin:4px 0 16px">选择一个功能加入面板，也可以搜索应用和收藏路径。</p><input class="inp" style="width:100%;height:36px" placeholder="搜索功能、应用或收藏路径…"></div>
+<div style="overflow:auto;padding:8px 16px">{sp_picker_rows}</div>
+<footer class="foot"><span>7 / 12 已固定</span><span>↑↓ 选择 · ↵ 添加 · esc 取消</span></footer></section></div></div>'''
+boards.append(board("SuperPanelAdd", "超级面板 · 添加固定项", 880, 580, sp_picker))
 
 # ---- 超级面板首版补充 ----
 boards.append(board("SuperPanelCommand", "超级面板 · 编辑动作", 880, 580, settings("", '''<div class="detail" style="gap:16px"><h1 style="font-family:var(--serif);font-weight:500">编辑动作</h1><label>名称<input value="用 VS Code 打开"></label><label>命令<textarea class="mono" style="height:120px">code {path}</textarea></label><p class="note">占位符单独作为参数，不要加引号。支持 {path}、{dir}、{text}、{name}。</p><div class="row">适用于：文件 · 文件夹 · 图片</div><div class="row"><button class="btn a">保存动作</button><button class="btn">取消</button></div><p class="note">命令后台执行；需要长期运行时，请让命令打开终端。</p></div>''', nav_on="超级面板")))
@@ -1002,6 +1038,43 @@ intro = '''<div class="body" style="align-items: center; justify-content: center
 <span class="row"><span class="btn p">开启剪贴板历史</span><span class="btn g">设置</span></span></div></div>'''
 actions = '<span class="btn g sm">暂停记录</span><span class="btn g sm">清空</span><span class="btn g sm">设置</span>'
 boards.append(board("ClipboardHistory", "剪贴板历史 · 列表与首次开启", 1820, 580, f'<div class="row" style="align-items: flex-start; gap: 40px">{page(880, 580, "copy", "剪贴板历史", "剪贴板历史", actions, clip_body, "esc 返回搜索", "↵ 粘贴 · ⌘C 复制 · ⌘P 固定 · ⌘⌫ 删除")}{page(880, 580, "copy", "剪贴板历史", "默认关闭，开启前说明保存方式", "", intro, "esc 返回搜索", "")}</div>'))
+
+# ---- 文件位置与剪贴板图片文件预览 ----
+file_menu = '''<div role="menu" style="position:absolute;left:160px;top:115px;width:200px;padding:4px;border:1px solid var(--border-strong);border-radius:10px;background:var(--surface);z-index:1">
+<div style="padding:8px;border-radius:6px;background:var(--selected)">打开文件位置</div><div style="padding:8px">复制路径</div><div style="height:1px;background:var(--border);margin:4px"></div><div style="padding:8px">固定到首页</div><div style="padding:8px">固定到超级面板</div></div>'''
+file_preview = f'''<div class="body" style="position:relative;flex-direction:column;gap:12px">
+<span class="row"><span class="sel" style="width:240px">搜索复制过的内容</span><span class="seg"><span class="on">全部</span><span>文字</span><span>图片</span><span>文件</span></span></span>
+<div class="row" style="flex:1;min-height:0;align-items:stretch;gap:16px"><div style="flex:5;border-top:1px solid var(--border)">{clip_row('img', '设计稿.png', '微信 · 刚刚', on=True)}{clip_row('folder', 'nginx.conf', '访达 · 3 分钟前')}</div>
+<div style="flex:6;min-width:0;display:flex;flex-direction:column;gap:12px"><div class="card" style="flex:1;padding:12px;display:flex;flex-direction:column;gap:12px">
+<svg role="img" aria-label="图片文件预览" viewBox="0 0 320 180" style="flex:1;min-height:0;width:100%;background:var(--sunken);border-radius:6px"><rect x="32" y="24" width="256" height="132" rx="10" fill="#3A5A8C"/><circle cx="104" cy="90" r="36" fill="#93B1E3"/><rect x="168" y="62" width="88" height="56" rx="8" fill="#EDEAE2"/></svg>
+<span class="note mono" style="overflow-wrap:anywhere">/Users/me/Documents/设计稿.png</span><span class="note">图片文件 · 复制和粘贴仍使用原文件</span><span class="note">来自 微信 · 刚刚</span></div>
+<span class="row"><span class="btn p sm">粘贴</span><span class="btn sm">复制</span><span class="btn sm">打开文件位置</span></span></div></div>{file_menu.replace('固定到首页', '固定').replace('固定到超级面板', '删除')}</div>'''
+file_actions_note = '<p class="note" style="margin:12px 0 0;line-height:1.7">应用、搜索结果、最近使用、已固定和收藏管理列表：右键提供「打开文件位置」「复制路径」。网址不提供文件位置。<br>剪贴板文件记录：右键可定位全部文件，右侧各路径可单独定位；图片文件可预览，复制仍保持文件类型。<br>图片载入失败显示具体原因与「重试」；保留路径和「打开原文件」，快速切换记录不串图。</p>'
+boards.append(board("FileActions", "打开文件位置 · 图片文件预览", 880, 680,
+    page(880, 580, "copy", "剪贴板历史", "剪贴板历史", actions, file_preview, "esc 返回搜索", "↵ 粘贴 · ⌘C 复制") + file_actions_note))
+
+# ---- 网页应用：原生标题栏刷新、共用 Dock ----
+web_window = '''<section class="win" style="width:880px;height:580px">
+<div style="height:40px;display:flex;align-items:center;padding:0 12px;gap:12px;background:var(--sunken);border-bottom:1px solid var(--border)">
+<span class="row" style="width:72px;gap:8px" aria-label="原生窗口按钮"><i style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840"></i></span>
+<span style="flex:1;text-align:center;font-weight:500">网页应用</span><span style="width:32px"></span>
+<button class="ib" style="width:28px;height:24px" aria-label="刷新页面" title="刷新页面 ⌘R"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg></button>
+</div>
+<div style="flex:1;min-height:0;padding:32px;background:var(--surface);display:flex;flex-direction:column;gap:16px">
+<span class="note">网页内容区域（示意）</span><h2 style="font-size:22px;font-weight:500">当前页面</h2><p class="note">刷新当前网址，继续使用原有登录状态。</p>
+<div style="margin-top:auto;padding:16px;border:1px solid var(--border);border-radius:10px;color:var(--text-2)">标题栏由 AhaTools 管理；网站原有界面保持不变。</div>
+</div></section>'''
+boards.append(board("WebAppWindow", "网页应用 · Dock 入口与刷新", 880, 656,
+    web_window + '<p class="note" style="margin:12px 0 0;line-height:1.7">打开网页应用 → 共用 AhaTools Dock 图标；最小化仍保留。<br>最后一个窗口关闭或收起 → 隐藏 Dock 图标。点击 Dock 恢复最近打开的窗口。<br>右侧按钮只刷新当前页面，无置顶功能。原生标题栏的最终尺寸及配色以 macOS 为准。</p>'))
+
+# ---- Context menu improvements ----
+context_menu = '<div class="card" style="padding:4px;width:236px">' + ''.join('<div style="padding:8px 12px' + (';background:var(--selected);border-radius:6px' if i == 0 else '') + '">' + text + '</div>' for i,text in enumerate(['打开','打开方式…','打开文件位置','复制路径','编辑收藏…','固定到首页','移除收藏'])) + '</div>'
+edit_saved = '<div class="card col" style="padding:24px;width:420px"><h2 style="margin:0;font:22px var(--serif)">编辑收藏</h2><label class="lbl">名称</label><input class="inp" value="nginx"><label class="lbl">路径或网址</label><input class="inp" value="/opt/homebrew/etc/nginx/nginx.conf"><label class="lbl">打开应用</label><span class="sel">Visual Studio Code<span>选择其他应用…</span></span><p class="note">仅用于这条收藏；可恢复跟随系统。</p><span class="row" style="justify-content:flex-end"><span class="btn g">取消</span><span class="btn p">保存</span></span></div>'
+open_with = '<div class="card col" style="padding:24px;width:420px"><h2 style="margin:0;font:22px var(--serif)">打开方式</h2><span class="sel">Visual Studio Code<span>选择其他应用…</span></span><label><input type="checkbox"> 设为此收藏的默认应用</label><p class="note">未勾选时只用于本次打开。</p><span class="row" style="justify-content:flex-end"><span class="btn g">取消</span><span class="btn p">打开</span></span></div>'
+edit_web = '<div class="card col" style="padding:24px;width:420px"><h2 style="margin:0;font:22px var(--serif)">编辑网页应用</h2><label class="lbl">名称</label><input class="inp" value="DeepSeek"><label class="lbl">网址</label><input class="inp" value="https://chat.deepseek.com"><label class="lbl">关键词</label><input class="inp" value="ds"><p class="note">修改网址后，当前窗口继续保留页面；下次重启 AhaTools 后使用新网址。</p><span class="row" style="justify-content:flex-end"><span class="btn g">取消</span><span class="btn p">保存</span></span></div>'
+boards.append(board("ContextMenus", "统一右键菜单与删除撤销", 880, 580, '<div class="body col"><h2>文件与历史操作</h2><div class="row" style="align-items:flex-start;gap:32px">'+context_menu+'<div class="col"><p>文字选区优先复制，文件保留定位与打开方式。</p><div class="strip">已删除这条历史<span class="btn a">撤销</span><span class="note">10 秒内可恢复</span></div><p class="note">上下键选择 · 回车执行 · esc 关闭</p></div></div></div>'))
+boards.append(board("SavedEditor", "编辑收藏与打开方式", 1000, 480, '<div class="body row" style="align-items:center;gap:24px">'+edit_saved+open_with+'</div>'))
+boards.append(board("WebAppEditor", "编辑网页应用", 880, 520, '<div class="body" style="align-items:center;justify-content:center">'+edit_web+'</div>'))
 
 # ---- canvas.json ----
 if STATIC:

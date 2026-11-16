@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  invoke, onPanelShown, PageActions, Spinner, Switch, withPinned,
+  invoke, menuPoint, showContextMenu, isContextMenuOpen, onPanelShown, PageActions, Spinner, Switch, withPinned,
   type HostLocation, type HostScheme, type HostsOperation, type HostsSnapshot, type HostsValidation, type PluginViewProps,
 } from "@ahatools/sdk";
 import Dialog from "./Dialogs";
@@ -147,6 +147,7 @@ export default function Hosts({ setStatus, registerBeforeLeave }: PluginViewProp
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (isContextMenuOpen()) return;
       if (!event.defaultPrevented && !event.isComposing && event.metaKey && !event.altKey && !event.ctrlKey &&
         !event.shiftKey && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -201,7 +202,15 @@ export default function Hosts({ setStatus, registerBeforeLeave }: PluginViewProp
           </button>
           {schemes.map((scheme) => {
             const invalid = validation.issues.some((issue) => [issue.location, ...issue.related].some((loc) => loc.schemeId === scheme.id));
-            return <div key={scheme.id} className={`hosts-scheme${selection === scheme.id ? " selected" : ""}`}>
+            return <div key={scheme.id} data-context-menu tabIndex={0} onContextMenu={(event) => {
+              event.preventDefault(); setSelection(scheme.id);
+              void showContextMenu([
+                { id: "rename", text: "重命名", disabled: busy, action: () => requestAnimationFrame(() => { const field = document.getElementById("hosts-name") as HTMLInputElement | null; field?.focus(); field?.select(); }) },
+                { id: "duplicate", text: "复制方案", disabled: busy, action: () => add(scheme) },
+                { id: "include", text: scheme.enabled ? "下次应用时不包含" : "下次应用时包含", disabled: busy, action: () => { setChecking(true); setSchemes((list) => list.map((s) => s.id === scheme.id ? { ...s, enabled: !scheme.enabled } : s)); } },
+                { item: "Separator" }, { id: "delete", text: "删除方案…", disabled: busy, action: () => { setSelection(scheme.id); setModal("delete"); } },
+              ], (text) => setNotice({ text, error: true }), menuPoint(event));
+            }} className={`hosts-scheme${selection === scheme.id ? " selected" : ""}`}>
               <button type="button" className="hosts-scheme-name" onClick={() => setSelection(scheme.id)} disabled={busy}>
                 <strong>{scheme.name || "未命名方案"}</strong>
                 <span className={invalid ? "hosts-bad" : ""}>{validation.counts[scheme.id] ?? 0} 条{invalid ? " · 有错误" : ""}</span>
